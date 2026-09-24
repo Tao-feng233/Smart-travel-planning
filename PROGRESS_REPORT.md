@@ -9,6 +9,27 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**B线更新**：2026-09-24 · **LLM 决策通道 + 七部分攻略组装 + Vue 前端（B1–B7）**
+
+- 新增 `backend/app/llm/`：LLM 通道（OpenAI 兼容 HTTP，复用已有 `httpx`，**未引新依赖**）、
+  护栏（事实性断言与越界实体 ID 整条丢弃）、三类解析器（`TripProfile` / 目的地推荐 / `UserAction`）。
+  未配置 Key 时自动降级到 C 的规则式 STUB，原因写入 `diagnostics`，绝不静默。
+- 新增 `backend/app/guide/`：`compose_travel_guide()` 把验证后的计划组装成七部分 `TravelGuide`，
+  并按 ADR-0006 合成 `GuideReadiness`；内部 `PlanNode/DayPlan` 与展示 `GuideNode/GuideDay` 严格分离。
+- 新增 Vue3 前端 30 个文件（Vite 6 + Element Plus + TypeScript）：对话、追问卡、可关闭的状态横幅、
+  攻略七部分面板；唯一发请求的位置是 `src/stores/session.ts`。
+- 测试：`cd backend && python -m pytest` → **211 passed**（B 线 99 + C/A 线 112）；
+  `npx vue-tsc --noEmit` → 0 错误；`npx vite build` → 通过；HTTP 端到端 → **7 / 7 PASS**。
+- 仍不闭环：B6 攻略组装与 B5 动作解析**无 HTTP 出口**——`GET /api/guides/{id}`、
+  `POST /api/guides/{id}/modify`、`POST /api/guides/{id}/incident`（`CONTRACTS.md` §13.2）尚未实现；
+  C3–C6 未完成，端到端止于「目的地确认」。详见 `docs/B_TEST_REPORT.md` 第 6 / 7 节。
+
+**是否修改其他成员接口**：**是，两处**——① `backend/app/api/deps.py`（B 线唯一允许修改的共享文件，仅换装配）；
+② `backend/app/services/request_parser.py`（**C 线文件**，修正「返回日期被当成出发日期、追问关不上」
+与中文数字预算解析两处缺陷，改动最小化，该文件原有 196 个用例全过，**请 C 复核**）。
+
+---
+
 **本次更新**：2026-09-24 · 步骤 5 —— **C 线代码整体迁到 v0.4 + C3 前置过滤接入 LangGraph**
 
 **仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
@@ -36,8 +57,9 @@
 
 **需要 B 行动**
 
-- [ ] 前端要对接新响应结构（外层信封）：`data.stage`、`data.assistant_message`、
+- [x] 前端要对接新响应结构（外层信封）：`data.stage`、`data.assistant_message`、
       `data.destination_candidates`、`data.trip_profile`、`data.degraded_items`
+      —— **已完成（2026-09-24）**：B 线前端即按该信封解包，见 `docs/B_TEST_REPORT.md`
 - [ ] 追问清单现在是**文本**（写在 `assistant_message` 里）：v0.4 没有再定义
       结构化的 `questions` / `missing_fields` 字段（见 5.3 Q6）
 - [ ] `TripProfile` 提取（B2）与目的地推荐（B4）仍是 C 的 STUB；
@@ -208,7 +230,9 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 地图/天气 Provider（A5） | A | `backend/app/providers/` | ⬜ 未开始 | — |
 | 数据源可行性表（A6） | A | `docs/DATA_SOURCE_ASSESSMENT_TEMPLATE.md` | ⬜ 未开始 | — |
 | 测试 Fixture（A7） | A | 待定 | ⬜ 未开始 | — |
-| Vue 前端（B1–B7） | B | `frontend/` | ⬜ 未开始 | — |
+| LLM 决策模块（B2/B4/B5） | B | `backend/app/llm/` | ✅ 完成（未配置 Key 时自动降级到 C 的 STUB） | 2026-09-24 |
+| 七部分攻略组装（B6） | B | `backend/app/guide/` | 🔄 代码就绪；待 C7 攻略接口 | 2026-09-24 |
+| Vue 前端（B1–B7） | B | `frontend/` | 🔄 代码就绪；端到端止于「目的地确认」 | 2026-09-24 |
 
 ---
 
@@ -778,6 +802,71 @@ python contracts/validate_fixtures.py             → 7 合法 + 7 非法 + 3 �
 
 ---
 
+### 步骤 B1–B7：LLM 决策与 Vue 前端（B 线首次交付）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | B |
+| 状态 | 🔄 代码就绪；B6/B7 端到端待 C7 接口 |
+| 目标 | 把用户输入变成契约对象，把经过验证的计划组装成七部分 `TravelGuide` |
+| 分支 | `feature/llm-vue`（**B 的首次提交**；此后"分支同步约定"第 2 条生效：C 不得再覆盖本分支） |
+
+**1）修改/新增了哪些文件**
+
+- 新增 `backend/app/llm/`：`provider.py`（OpenAI 兼容通道）、`guards.py`（护栏 + 标签归一）、
+  `prompts.py`、`contract_hint.py`、`request_parser.py`（B2）、`destination_recommender.py`（B4）、
+  `action_interpreter.py`（B5）、`__init__.py`
+- 新增 `backend/app/guide/`：`composer.py`（B6 七部分组装 + `GuideReadiness` 合成）、`__init__.py`
+- 新增前端 30 个文件（`frontend/`，Vue3 + Vite 6 + Element Plus + TypeScript）
+- 新增测试 6 个文件：`b_line_fakes.py`、`test_llm_provider.py`、`test_llm_request_parser.py`、
+  `test_llm_destination_recommender.py`、`test_action_interpreter.py`、`test_guide_composer.py`
+- 新增 `docs/B_TEST_REPORT.md`（交付证明 + 给 A/C 的对接说明）
+- 修改 `backend/app/api/deps.py`（换装配，B 线唯一允许修改的共享文件）
+- 修改 `backend/app/services/request_parser.py`（C 线文件，见下方第 6 条）
+
+**2）实现了哪个业务流程**
+
+一句话需求 → （LLM 或规则式）解析为 `TripProfile` → 目的地推荐（只取 `planning_ready=true`）
+→ 追问补齐（前端渲染追问卡）→ 多轮改需求（带版本冲突检测）→ 把验证后的计划富化为
+七部分 `TravelGuide` 并在前端分节展示。
+
+**3）使用了哪些契约对象**
+
+`TripProfile` / `TripProfileDraft`、`DestinationRecommendation`、`ChangeRequest` / `UserAction`、
+`ItineraryPlan` / `PlanNode` / `DayPlan`、`GuideNode` / `GuideDay` / `TravelGuide`、
+`Money` / `CostItem` / `BudgetSummary`、`Evidence`、`WarningItem`、统一信封 `Envelope`，
+以及由三个状态枚举合成的 `GuideReadiness`。**全程未新建临时字段。**
+
+**4）运行了哪些测试，结果如何**
+
+```text
+cd backend && python -m pytest         → 211 passed（B 线 99 + C/A 线 112）
+cd frontend && npx vue-tsc --noEmit    → 0 错误
+cd frontend && npx vite build          → 通过
+HTTP 端到端（真实 LLM Key）             → 7 / 7 PASS
+```
+
+**5）哪些数据或依赖仍是模拟实现**
+
+- 候选与证据仍来自 `V04MockMCPProvider`（A 线替换点），B 只消费、不改造；
+- 未配置 `LLM_PRIMARY_API_KEY` 时，B2/B4/B5 自动降级到 C 的规则式 STUB，
+  降级原因写入 `diagnostics`（绝不静默）；
+- **B6 组装规则由官方 fixture 反推**，尚未与 C4/C5 的真实产物对接，请 C 复核。
+
+**6）是否影响其他成员的接口**
+
+**是，两处：**
+
+- `backend/app/api/deps.py` —— B 线唯一允许修改的共享文件，仅换装配（把 C 的 STUB 换成 B 的 LLM 实现）；
+  C 的 `backend/app/services/request_parser.py` 与 `destination_recommender.py` **未删除**，保留为降级路径。
+- `backend/app/services/request_parser.py` —— **C 线文件，本次修正两处解析缺陷**：
+  ① 「返回日期：2026-10-06」被当成出发日期，导致 `end` 永远缺失、追问关不上；
+  ② 「预算一万」这类中文数字金额解析不到。
+  改动最小化（标签识别 + 中文数字分支），该文件原有 196 个用例全过，**请 C 复核**。
+
+---
+
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
@@ -889,4 +978,16 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 需要其他成员提供：
 是否修改共享接口：否 / 是（未确认不得修改）
 下一步：
+```
+
+### 2026-09-24 · 成员 B
+
+```text
+成员：B（LLM 决策与 Vue 前端）
+今天完成：B1–B7 全部代码落地——LLM 决策通道（B2/B4/B5）+ 七部分攻略组装（B6）+ Vue 前端（B1/B7）；新增 6 个测试文件；产出 docs/B_TEST_REPORT.md
+可以独立运行的结果：cd backend && python -m pytest → 211 passed；cd frontend && npx vue-tsc --noEmit → 0 错误；npx vite build → 通过；HTTP 端到端（真实 LLM Key）→ 7 / 7 PASS
+正在阻塞的问题：B6 攻略组装与 B5 动作解析无 HTTP 出口——GET /api/guides/{id}、POST /api/guides/{id}/modify、POST /api/guides/{id}/incident（CONTRACTS.md §13.2）尚未实现；C3–C6 未完成，端到端止于「目的地确认」
+需要其他成员提供：C——上述攻略接口（C7）、C3–C6 链路、复核 composer 组装规则、DestinationRecommendation 补 name 字段；A——真实 Provider 替换 V04MockMCPProvider、hotel_id / lodging_id 归一化为 resource_id
+是否修改共享接口：是（两处：backend/app/api/deps.py 为 B 线唯一允许修改的共享文件；以及 C 线文件 backend/app/services/request_parser.py，修正返回日期误判与中文数字预算解析，改动最小化、原有 196 个用例全过）
+下一步：待 C7 攻略接口就位后完成 B6/B7 端到端联调；本轮已完成 B 线首次提交
 ```

@@ -56,6 +56,10 @@ _SOFT_PREFERENCE_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 #: 预算"不能超"的表达 → `budget_flexibility = FIXED`。
 _FIXED_BUDGET_WORDS = ("预算固定", "不能超过", "不能超", "最多", "上限")
 
+#: 日期片段（"2026-10-06 / 2026年10月6日 / 10月6号 / 10/06"）。
+#: 供"出发日期：X""返回日期：X""X 回来"这类**带标签**的表达复用。
+_DATE_TOKEN = r"(?:\d{4}[-/年])?\d{1,2}[-/月]\d{1,2}[日号]?"
+
 
 class TripProfileParser(Protocol):
     """B2 的替换点：实现同一协议即可被 LangGraph 直接使用。"""
@@ -121,22 +125,50 @@ class StubTripProfileParser:
         start: date | None = profile.start_date
         end: date | None = profile.end_date
 
-        explicit = list(
-            re.finditer(
-                r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", text
-            )
+        # 先认"带标签"的日期：用户被追问"哪天回来"后，回答里往往只有一个日期，
+        # 不做标签识别会把返回日期错当成新的出发日期（把已确认的 start 覆盖掉）。
+        labeled_start = re.search(
+            rf"出发(?:日期|时间)?[是：:\s]*({_DATE_TOKEN})", text
         )
-        if explicit:
-            parsed = [
-                StubTripProfileParser._to_date(
-                    match.group(1), match.group(2), match.group(3), reference_date
+        labeled_end = re.search(
+            rf"(?:返回|回程)(?:日期|时间)?[是：:\s]*({_DATE_TOKEN})", text
+        ) or re.search(rf"({_DATE_TOKEN})\s*(?:那天)?(?:回来|返回|回程)", text)
+
+        if labeled_start:
+            start = StubTripProfileParser._parse_token(
+                labeled_start.group(1), reference_date
+            )
+        if labeled_end:
+            end = StubTripProfileParser._parse_token(labeled_end.group(1), reference_date)
+
+        if not labeled_start and not labeled_end:
+            explicit = list(
+                re.finditer(
+                    r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", text
                 )
-                for match in explicit
-            ]
-            parsed = [d for d in parsed if d is not None]
-            if parsed:
-                start = parsed[0]
-                end = parsed[-1] if len(parsed) > 1 else end
+            )
+            if explicit:
+                parsed = [
+                    StubTripProfileParser._to_date(
+                        match.group(1), match.group(2), match.group(3), reference_date
+                    )
+                    for match in explicit
+                ]
+                parsed = [d for d in parsed if d is not None]
+                if parsed:
+                    if len(parsed) > 1:
+                        start = parsed[0]
+                        end = parsed[-1]
+                    elif start is None:
+                        # 单一日期且还没有出发日期 → 就是出发日期
+                        start = parsed[0]
+                    elif parsed[0] > start and not re.search(r"出发|动身", text):
+                        # 已有出发日期，来的单一日期更晚，且没说"出发" →
+                        # 更合理的读法是"这是返回日期"，而不是把出发日期改掉
+                        end = parsed[0]
+                    elif parsed[0] != start:
+                        # 更早（或相同）的单一日期：意图不明，不猜测，忽略
+                        pass
                 # “10月2-6号”：第二段只写了日
                 compact = re.search(
                     r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text
@@ -159,6 +191,19 @@ class StubTripProfileParser:
             profile.start_date = start
         if end is not None:
             profile.end_date = end
+
+    @staticmethod
+    def _parse_token(token: str, reference_date: date) -> date | None:
+        """把 `10月6号` / `2026-10-06` 这类日期片段转成 `date`。"""
+
+        match = re.fullmatch(
+            r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", token.strip()
+        )
+        if not match:
+            return None
+        return StubTripProfileParser._to_date(
+            match.group(1), match.group(2), match.group(3), reference_date
+        )
 
     @staticmethod
     def _extract_travelers(profile: TripProfileDraft, text: str) -> None:
@@ -205,6 +250,16 @@ class StubTripProfileParser:
             elif unit in ("千", "k", "K"):
                 value *= 1_000
             amount = value
+        else:
+            # 中文数字金额："预算一万""预算五千"这类写法上面两条正则都吃不到
+            cn = re.search(
+                r"预算\s*(?:大概|大约|是|在|有|为)?\s*([一二两三四五六七八九十])\s*(万|千|百)",
+                text,
+            )
+            if cn:
+                base = _CN_NUM[cn.group(1)]
+                unit = cn.group(2)
+                amount = float(base * {"万": 10_000, "千": 1_000, "百": 100}[unit])
 
         if amount is not None:
             # v0.4：金额与"是否可协商"是两个字段（`Money` + `budget_flexibility`）
