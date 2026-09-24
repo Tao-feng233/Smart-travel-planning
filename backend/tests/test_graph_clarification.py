@@ -6,7 +6,7 @@ from datetime import date
 
 from app.graph import PlanStage, build_graph, route_after_missing_check, route_after_retrieve
 from app.graph.nodes import NodeDeps
-from app.schemas import PlanState, TripProfile
+from app.schemas import PlanState, TravelerComposition, TripProfile
 from app.services.destination_recommender import StubDestinationRecommender
 from app.services.request_parser import StubTripProfileParser
 from app.services.session_store import InMemorySessionRepository
@@ -30,8 +30,11 @@ def _run(repository: InMemorySessionRepository, session_id: str, text: str):
 
     graph = build_graph(_deps())
     state = repository.get(session_id)
-    new_state, _context = run_turn(graph, state, text)
+    draft = repository.get_draft(session_id)
+    new_state, context = run_turn(graph, state, text, draft=draft)
     repository.save(new_state)
+    # Draft 在会话中持续存在（CONTRACTS.md §2.4），必须像 SessionService 一样存回
+    repository.save_draft(session_id, context.draft)
     return new_state
 
 
@@ -47,8 +50,8 @@ def test_route_after_missing_check_retrieves_when_complete() -> None:
         start_date=date(2026, 10, 2),
         end_date=date(2026, 10, 6),
         traveler_count=2,
+        traveler_composition=TravelerComposition(adults=2),
         budget={"amount": 5000, "currency": "CNY", "flexibility": "NEGOTIABLE"},
-        missing_fields=[],
     )
     state = PlanState(
         session_id="s", stage=PlanStage.CHECKING_FIELDS.value, profile=profile
@@ -71,8 +74,15 @@ def test_first_message_triggers_clarification() -> None:
     state = _run(repository, "sess_1", "我想出去玩，不想早起")
     assert state.stage == PlanStage.ASKING_CLARIFICATION.value
     assert state.awaiting_user_input is True
-    assert state.profile is not None
-    assert state.profile.missing_fields
+    # 关键字段未补齐：不生成正式 TripProfile，缺失信息保存在会话的 Draft 里
+    assert state.profile is None
+    assert repository.get_draft("sess_1").compute_missing_fields() == [
+        "departure_city",
+        "start_date",
+        "end_date",
+        "traveler_count",
+        "budget",
+    ]
     assert state.destination_candidates == []
 
 
@@ -86,7 +96,9 @@ def test_clarification_loop_then_recommendation() -> None:
         "从上海出发，10月2号到10月6号，2个人，预算5000元，喜欢美食和人文",
     )
     assert state.stage == PlanStage.AWAITING_DESTINATION_CONFIRMATION.value
-    assert state.profile is not None and state.profile.missing_fields == []
+    assert state.profile is not None
+    assert repository.get_draft("sess_2") is not None
+    assert repository.get_draft("sess_2").compute_missing_fields() == []
     assert state.destination_candidates
     for candidate in state.destination_candidates:
         assert candidate.evidence_ids, "推荐必须带证据，不能只有结论"

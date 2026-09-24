@@ -1,14 +1,14 @@
-"""关键缺失字段判定策略测试。"""
+"""关键缺失字段判定策略测试（对象为 `TripProfileDraft`）。"""
 
 from __future__ import annotations
 
 from datetime import date
 
-from app.schemas import Budget, TripProfile
+from app.schemas import Budget, TripProfileDraft
 from app.services.missing_fields import build_questions, find_missing_fields
 
 
-def _profile(**overrides) -> TripProfile:
+def _draft(**overrides) -> TripProfileDraft:
     base = dict(
         session_id="sess_test",
         departure_city="上海",
@@ -18,44 +18,44 @@ def _profile(**overrides) -> TripProfile:
         budget=Budget(amount=5000),
     )
     base.update(overrides)
-    return TripProfile(**base)
+    return TripProfileDraft(**base)
 
 
-def test_complete_profile_has_no_missing_fields() -> None:
-    assert find_missing_fields(_profile()) == []
+def test_complete_draft_has_no_missing_fields() -> None:
+    assert find_missing_fields(_draft()) == []
 
 
-def test_empty_profile_lists_all_critical_fields() -> None:
-    missing = find_missing_fields(TripProfile(session_id="sess_test"))
+def test_empty_draft_lists_all_critical_fields() -> None:
+    missing = find_missing_fields(TripProfileDraft(session_id="sess_test"))
     assert missing == [
         "departure_city",
         "start_date",
         "end_date",
         "traveler_count",
-        "budget.amount",
+        "budget",
     ]
 
 
-def test_none_profile_treated_as_all_missing() -> None:
+def test_none_draft_treated_as_all_missing() -> None:
     assert find_missing_fields(None) == find_missing_fields(
-        TripProfile(session_id="sess_test")
+        TripProfileDraft(session_id="sess_test")
     )
 
 
-def test_partial_profile_only_reports_missing_parts() -> None:
-    profile = _profile(departure_city=None, budget=None)
-    assert find_missing_fields(profile) == ["departure_city", "budget.amount"]
+def test_partial_draft_only_reports_missing_parts() -> None:
+    draft = _draft(departure_city=None, budget=None)
+    assert find_missing_fields(draft) == ["departure_city", "budget"]
 
 
 def test_soft_preferences_are_not_asked() -> None:
     """兴趣偏好属于软偏好，不阻塞推荐，不应进入追问列表。"""
 
-    profile = _profile(interests=[], soft_preferences=[], pace=None)
-    assert find_missing_fields(profile) == []
+    draft = _draft(interests=[], soft_preferences=[], pace=None)
+    assert find_missing_fields(draft) == []
 
 
 def test_questions_are_human_readable_and_ordered() -> None:
-    questions = build_questions(["departure_city", "budget.amount"])
+    questions = build_questions(["departure_city", "budget"])
     assert len(questions) == 2
     assert all("？" in question for question in questions)
     assert "出发" in questions[0]
@@ -64,3 +64,12 @@ def test_questions_are_human_readable_and_ordered() -> None:
 
 def test_unknown_missing_field_name_is_ignored() -> None:
     assert build_questions(["not_a_field"]) == []
+
+
+def test_draft_missing_fields_are_computed_not_declared() -> None:
+    """Draft 的 missing_fields 由系统计算，忽略外部随意填写的内容。"""
+
+    draft = TripProfileDraft(session_id="s", missing_fields=["随便写的"])
+    assert draft.compute_missing_fields() == list(
+        ("departure_city", "start_date", "end_date", "traveler_count", "budget")
+    )

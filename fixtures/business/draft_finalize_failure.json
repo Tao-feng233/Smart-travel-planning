@@ -1,0 +1,12 @@
+{
+  "case": "draft_finalize_failure",
+  "draft": {
+    "session_id": "sess_draft_003",
+    "departure_city": "上海",
+    "traveler_count": 2,
+    "interests": ["FOOD"],
+    "missing_fields": ["start_date", "end_date", "budget"]
+  },
+  "expect_error": true,
+  "expect_missing_fields": ["start_date", "end_date", "budget"]
+}

@@ -114,7 +114,6 @@ class TripProfile(BaseModel):
     destination_mode: Literal["UNKNOWN", "SINGLE", "MULTIPLE"]
     destination_requests: list[DestinationRequest] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
-    missing_fields: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_dates_and_travelers(self) -> "TripProfile":
@@ -129,6 +128,128 @@ class TripProfile(BaseModel):
         if total != self.traveler_count:
             raise ValueError("traveler composition must equal traveler_count")
         return self
+
+
+#: `finalize_trip_profile` 必须由用户提供、且系统不得替用户假设的字段。
+#: 其余字段按 CONTRACTS.md §2.5 的补全规则从已有信息推导。
+FINALIZE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "departure_city",
+    "start_date",
+    "end_date",
+    "traveler_count",
+    "budget",
+)
+
+
+class IncompleteProfileError(ValueError):
+    """Draft 信息不全时强行转换为正式 TripProfile。"""
+
+    def __init__(self, missing_fields: list[str]) -> None:
+        self.missing_fields = missing_fields
+        super().__init__(
+            "TripProfileDraft 尚未补全，缺少字段：" + ", ".join(missing_fields)
+        )
+
+
+class TripProfileDraft(BaseModel):
+    """对话过程中的不完整旅行画像。
+
+    除 `session_id` 外所有字段允许为空；`missing_fields` 只属于 Draft，
+    补齐后由 `finalize_trip_profile` 转换为字段必填的正式 `TripProfile`。
+    """
+
+    session_id: str
+    profile_version: int = 0
+    departure_city: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    duration_days: int | None = None
+    timezone: str = "Asia/Shanghai"
+    traveler_count: int | None = None
+    traveler_composition: TravelerComposition | None = None
+    budget: Money | None = None
+    budget_flexibility: Literal["FIXED", "NEGOTIABLE"] | None = None
+    pace: Literal["RELAXED", "BALANCED", "INTENSE"] | None = None
+    interests: list[str] = Field(default_factory=list)
+    must_visit_resource_ids: list[str] = Field(default_factory=list)
+    avoidances: list[str] = Field(default_factory=list)
+    mobility_constraints: list[str] = Field(default_factory=list)
+    dietary_constraints: list[str] = Field(default_factory=list)
+    lodging_preferences: list[str] = Field(default_factory=list)
+    transport_preferences: list[str] = Field(default_factory=list)
+    earliest_day_start: str | None = None
+    latest_day_end: str | None = None
+    destination_mode: Literal["UNKNOWN", "SINGLE", "MULTIPLE"] = "UNKNOWN"
+    destination_requests: list[DestinationRequest] = Field(default_factory=list)
+    constraints: list[Constraint] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_partial_dates(self) -> "TripProfileDraft":
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must not be earlier than start_date")
+        return self
+
+    def compute_missing_fields(self) -> list[str]:
+        """返回仍需用户补充的关键字段（按固定顺序）。"""
+
+        missing: list[str] = []
+        for name in FINALIZE_REQUIRED_FIELDS:
+            if getattr(self, name) is None:
+                missing.append(name)
+        return missing
+
+
+def finalize_trip_profile(draft: TripProfileDraft) -> TripProfile:
+    """把 Draft 补全为正式 `TripProfile`；信息不全时抛 `IncompleteProfileError`。
+
+    补全规则（CONTRACTS.md §2.5）：
+
+    * `duration_days` 由 `start_date`/`end_date` 推导（含首尾两天）；
+    * `traveler_count` 与 `traveler_composition` 互相推导（未说明构成时按成人计）；
+    * `budget_flexibility` 未说明时取 `NEGOTIABLE`；
+    * `pace` 未说明时取 `BALANCED`；
+    * `destination_mode` 未说明时取 `UNKNOWN`。
+    """
+
+    missing = draft.compute_missing_fields()
+    if missing:
+        raise IncompleteProfileError(missing)
+
+    assert draft.start_date and draft.end_date and draft.traveler_count and draft.budget
+    duration_days = (draft.end_date - draft.start_date).days + 1
+    composition = draft.traveler_composition or TravelerComposition(
+        adults=draft.traveler_count
+    )
+    if composition.adults + composition.children + composition.seniors != draft.traveler_count:
+        raise IncompleteProfileError(["traveler_composition"])
+
+    return TripProfile(
+        session_id=draft.session_id,
+        profile_version=max(draft.profile_version, 1),
+        departure_city=draft.departure_city,
+        start_date=draft.start_date,
+        end_date=draft.end_date,
+        duration_days=duration_days,
+        timezone=draft.timezone,
+        traveler_count=draft.traveler_count,
+        traveler_composition=composition,
+        budget=draft.budget,
+        budget_flexibility=draft.budget_flexibility or "NEGOTIABLE",
+        pace=draft.pace or "BALANCED",
+        interests=draft.interests,
+        must_visit_resource_ids=draft.must_visit_resource_ids,
+        avoidances=draft.avoidances,
+        mobility_constraints=draft.mobility_constraints,
+        dietary_constraints=draft.dietary_constraints,
+        lodging_preferences=draft.lodging_preferences,
+        transport_preferences=draft.transport_preferences,
+        earliest_day_start=draft.earliest_day_start,
+        latest_day_end=draft.latest_day_end,
+        destination_mode=draft.destination_mode,
+        destination_requests=draft.destination_requests,
+        constraints=draft.constraints,
+    )
 
 
 class DestinationCoverageSnapshot(BaseModel):
@@ -706,6 +827,7 @@ class TravelGuide(BaseModel):
 
 MODEL_REGISTRY = {
     "TripProfile": TripProfile,
+    "TripProfileDraft": TripProfileDraft,
     "ItineraryPlan": ItineraryPlan,
     "TravelGuide": TravelGuide,
     "Money": Money,

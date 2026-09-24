@@ -73,7 +73,10 @@ def test_get_session_returns_current_state(client: TestClient) -> None:
     client.post(f"/api/sessions/{session_id}/messages", json={"text": "我想出去玩"})
     response = client.get(f"/api/sessions/{session_id}")
     assert response.status_code == 200
-    assert response.json()["state"]["profile"]["missing_fields"]
+    body = response.json()
+    # 关键字段未补齐时不会生成正式 TripProfile，缺失信息挂在追问回复上
+    assert body["state"]["profile"] is None
+    assert body["reply"]["missing_fields"]
 
 
 def test_unknown_session_returns_404(client: TestClient) -> None:

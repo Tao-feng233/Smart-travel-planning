@@ -34,6 +34,7 @@ from app.schemas import (
     PlanState,
     SearchPlanningReadyDestinationsInput,
     TripProfile,
+    finalize_trip_profile,
 )
 from app.services.destination_recommender import DestinationRecommender
 from app.services.missing_fields import find_missing_fields
@@ -73,36 +74,41 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
     """构造全部节点函数（闭包持有依赖）。"""
 
     def parse_request(state: PlanState, runtime: Runtime[TurnContext]) -> NodeReturn:
-        """把本轮用户输入并入 `TripProfile`。
+        """把本轮用户输入并入 `TripProfileDraft`，补齐后转换为正式 `TripProfile`。
 
-        只使用用户已经说过的信息，不推测、不补全；缺失情况由下一个节点判定。
+        只使用用户已经说过的信息，不推测、不补全；
+        关键字段仍缺失时 `profile` 保持 `None`，由下一个节点决定是否追问。
         """
 
         text = (runtime.context.user_message or "").strip()
-        profile = deps.parser.parse(
+        draft = deps.parser.parse(
             session_id=state.session_id,
             text=text,
-            previous=state.profile,
+            previous=runtime.context.draft,
             reference_date=deps.today(),
             known_destinations=deps.known_destinations,
         )
-        profile.missing_fields = find_missing_fields(profile)
-        return {
-            "profile": profile,
+        draft.missing_fields = draft.compute_missing_fields()
+        runtime.context.draft = draft
+
+        update: NodeReturn = {
             "stage": PlanStage.PARSING_REQUEST.value,
             "awaiting_user_input": False,
         }
+        if not draft.missing_fields:
+            update["profile"] = finalize_trip_profile(draft)
+        return update
 
     def check_missing_fields(
         state: PlanState, runtime: Runtime[TurnContext]
     ) -> NodeReturn:
-        """检查影响规划的关键字段是否齐全，并记录到 `missing_fields`。"""
+        """刷新 Draft 的 `missing_fields`，供追问文案与路由使用。"""
 
-        missing = find_missing_fields(state.profile)
+        draft = runtime.context.draft
+        if draft is not None:
+            draft.missing_fields = find_missing_fields(draft)
+            runtime.context.draft = draft
         update: dict = {"stage": PlanStage.CHECKING_FIELDS.value}
-        if state.profile is not None:
-            profile = state.profile.model_copy(update={"missing_fields": missing})
-            update["profile"] = profile
         return update
 
     def ask_clarification(
@@ -199,7 +205,9 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
 def route_after_missing_check(state: PlanState) -> str:
     """信息不全就追问；齐全则去检索候选。"""
 
-    if state.profile is None or state.profile.missing_fields:
+    # `parse_request` 只有在 Draft 补齐后才会生成正式 TripProfile，
+    # 因此 `profile is None` 等价于“还有关键字段没问到”。
+    if state.profile is None:
         return ASK_CLARIFICATION
     return RETRIEVE_DESTINATIONS
 

@@ -60,13 +60,20 @@ def build_graph(deps: NodeDeps):
     return graph.compile()
 
 
-def run_turn(graph, state: PlanState, user_message: str | None) -> tuple[PlanState, TurnContext]:
+def run_turn(
+    graph,
+    state: PlanState,
+    user_message: str | None,
+    draft=None,
+) -> tuple[PlanState, TurnContext]:
     """推进一轮对话，返回新的 `PlanState` 与本轮上下文。
 
     图内部使用普通 dict 传状态，这里统一转回契约对象，
     保证任何时刻对外暴露的都是经过校验的 `PlanState`。
+    `draft` 是会话持有的不完整画像（`CONTRACTS.md` §2.4），
+    本轮结束后由调用方从返回的上下文里取回并保存。
     """
 
-    context = TurnContext(user_message=user_message)
+    context = TurnContext(user_message=user_message, draft=draft)
     raw = graph.invoke(state.model_copy(deep=True), context=context)
     return PlanState.model_validate(raw), context

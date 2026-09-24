@@ -3,7 +3,12 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from contract_models import MODEL_REGISTRY
+from contract_models import (
+    MODEL_REGISTRY,
+    IncompleteProfileError,
+    TripProfileDraft,
+    finalize_trip_profile,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +59,46 @@ def validate_business_cases() -> int:
             print(f"PASS business: {path.name}")
             count += 1
             continue
+        if payload["case"] == "draft_finalize_success":
+            draft = TripProfileDraft.model_validate(payload["draft"])
+            actual_missing = draft.compute_missing_fields()
+            if actual_missing != payload["expect_missing_before"]:
+                raise AssertionError(
+                    f"Unexpected missing fields before finalize: {path.name} "
+                    f"-> {actual_missing}"
+                )
+            profile = finalize_trip_profile(draft)
+            for field, expected in payload["expect"].items():
+                actual = getattr(profile, field)
+                if hasattr(actual, "model_dump"):
+                    actual = actual.model_dump()
+                if actual != expected:
+                    raise AssertionError(
+                        f"Finalized {field} mismatch in {path.name}: {actual} != {expected}"
+                    )
+            print(f"PASS business: {path.name}")
+            count += 1
+            continue
+        if payload["case"] == "draft_finalize_failure":
+            draft = TripProfileDraft.model_validate(payload["draft"])
+            actual_missing = draft.compute_missing_fields()
+            if actual_missing != payload["expect_missing_fields"]:
+                raise AssertionError(
+                    f"Unexpected missing fields in {path.name}: {actual_missing}"
+                )
+            try:
+                finalize_trip_profile(draft)
+            except IncompleteProfileError as error:
+                if error.missing_fields != payload["expect_missing_fields"]:
+                    raise AssertionError(
+                        f"IncompleteProfileError fields mismatch: {path.name}"
+                    ) from error
+                print(f"PASS business: {path.name}")
+                count += 1
+                continue
+            raise AssertionError(
+                f"Incomplete draft unexpectedly finalized: {path.name}"
+            )
         raise AssertionError(f"Unknown business fixture case: {path.name}")
     return count
 

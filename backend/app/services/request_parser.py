@@ -22,7 +22,7 @@ from app.schemas import (
     BudgetFlexibility,
     DestinationMode,
     DestinationRequest,
-    TripProfile,
+    TripProfileDraft,
 )
 
 #: 中文数字，用于“三个人”“两天”这类表达。
@@ -54,10 +54,10 @@ class TripProfileParser(Protocol):
         *,
         session_id: str,
         text: str,
-        previous: TripProfile | None,
+        previous: TripProfileDraft | None,
         reference_date: date,
         known_destinations: Mapping[str, str] | None = None,
-    ) -> TripProfile: ...
+    ) -> TripProfileDraft: ...
 
 
 class StubTripProfileParser:
@@ -68,11 +68,15 @@ class StubTripProfileParser:
         *,
         session_id: str,
         text: str,
-        previous: TripProfile | None,
+        previous: TripProfileDraft | None,
         reference_date: date,
         known_destinations: Mapping[str, str] | None = None,
-    ) -> TripProfile:
-        base = previous.model_copy(deep=True) if previous else TripProfile(session_id=session_id)
+    ) -> TripProfileDraft:
+        base = (
+            previous.model_copy(deep=True)
+            if previous
+            else TripProfileDraft(session_id=session_id)
+        )
         base.session_id = session_id
 
         self._extract_departure_city(base, text)
@@ -86,7 +90,7 @@ class StubTripProfileParser:
     # --- 各字段的提取规则 ---------------------------------------------------
 
     @staticmethod
-    def _extract_departure_city(profile: TripProfile, text: str) -> None:
+    def _extract_departure_city(profile: TripProfileDraft, text: str) -> None:
         patterns = (
             r"从([\u4e00-\u9fa5]{2,6}?)(?:出发|过去|出发去)",
             r"出发地[是：:]?\s*([\u4e00-\u9fa5]{2,6})",
@@ -101,7 +105,7 @@ class StubTripProfileParser:
 
     @staticmethod
     def _extract_duration_or_dates(
-        profile: TripProfile, text: str, reference_date: date
+        profile: TripProfileDraft, text: str, reference_date: date
     ) -> None:
         start: date | None = profile.start_date
         end: date | None = profile.end_date
@@ -144,7 +148,7 @@ class StubTripProfileParser:
             profile.end_date = end
 
     @staticmethod
-    def _extract_travelers(profile: TripProfile, text: str) -> None:
+    def _extract_travelers(profile: TripProfileDraft, text: str) -> None:
         count: int | None = profile.traveler_count
         match = re.search(r"(\d+|[一二两三四五六七八九十])\s*(?:个)?(?:人|大人)", text)
         if match:
@@ -171,7 +175,7 @@ class StubTripProfileParser:
             )
 
     @staticmethod
-    def _extract_budget(profile: TripProfile, text: str) -> None:
+    def _extract_budget(profile: TripProfileDraft, text: str) -> None:
         amount: float | None = None
         match = re.search(
             r"预算\s*(?:大概|大约|是|在|有|为)?\s*(\d+(?:\.\d+)?)\s*(万|千|k|K)?", text
@@ -194,7 +198,7 @@ class StubTripProfileParser:
             profile.budget = Budget(amount=amount, currency="CNY", flexibility=flexibility)
 
     @staticmethod
-    def _extract_preferences(profile: TripProfile, text: str) -> None:
+    def _extract_preferences(profile: TripProfileDraft, text: str) -> None:
         for tag, words in _INTEREST_KEYWORDS.items():
             if any(word in text for word in words):
                 profile.interests = _merge_list(profile.interests, [tag])
@@ -212,7 +216,7 @@ class StubTripProfileParser:
 
     @staticmethod
     def _extract_destination(
-        profile: TripProfile, text: str, known_destinations: Mapping[str, str]
+        profile: TripProfileDraft, text: str, known_destinations: Mapping[str, str]
     ) -> None:
         for name, destination_id in known_destinations.items():
             if name not in text:

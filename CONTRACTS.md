@@ -119,12 +119,86 @@ ConflictSeverity        WARNING | ERROR
   "latest_day_end": "21:00",
   "destination_mode": "UNKNOWN",
   "destination_requests": [],
-  "constraints": [],
-  "missing_fields": []
+  "constraints": []
 }
 ```
 
 `duration_days`必须与日期区间一致。`fixed_facts/hard_constraints/soft_preferences`不再使用无结构数组，统一转换为`Constraint[]`和明确字段。
+
+`TripProfile`是**信息完整**的画像：`departure_city`、`start_date`、`end_date`、
+`duration_days`、`traveler_count`、`traveler_composition`、`budget`、
+`budget_flexibility`、`pace`、`destination_mode`均为必填。
+对话过程中尚未补齐的画像使用下面的`TripProfileDraft`表示。
+
+### 2.4 TripProfileDraft
+
+用于“缺日期/预算就追问”这条 P0 流程：除`session_id`外所有字段允许为空，
+`missing_fields`只属于 Draft。
+
+```json
+{
+  "session_id": "sess_001",
+  "profile_version": 0,
+  "departure_city": "上海",
+  "start_date": null,
+  "end_date": null,
+  "duration_days": null,
+  "timezone": "Asia/Shanghai",
+  "traveler_count": 2,
+  "traveler_composition": null,
+  "budget": null,
+  "budget_flexibility": null,
+  "pace": null,
+  "interests": ["FOOD"],
+  "must_visit_resource_ids": [],
+  "avoidances": [],
+  "mobility_constraints": [],
+  "dietary_constraints": [],
+  "lodging_preferences": [],
+  "transport_preferences": [],
+  "earliest_day_start": null,
+  "latest_day_end": null,
+  "destination_mode": "UNKNOWN",
+  "destination_requests": [],
+  "constraints": [],
+  "missing_fields": ["start_date", "end_date", "budget"]
+}
+```
+
+规则：
+
+- 字段集合与`TripProfile`一致，但除`session_id`外均可为空。
+- 已填字段仍必须自洽：例如同时给出`start_date`和`end_date`时，结束日期不得早于开始日期。
+- `missing_fields`记录**仍需用户补充的关键字段**，由系统计算，不由 LLM 随意填写。
+
+### 2.5 finalize_trip_profile
+
+Draft 补齐后转换为正式`TripProfile`：
+
+```text
+finalize_trip_profile(draft: TripProfileDraft) -> TripProfile
+```
+
+**必须由用户提供、不得由系统替他假设的字段**：
+
+```text
+departure_city, start_date, end_date, traveler_count, budget
+```
+
+缺任一字段时抛出`IncompleteProfileError(missing_fields)`，**不得**生成正式`TripProfile`。
+
+**可以推导或取默认值的字段**：
+
+```text
+duration_days          由 start_date/end_date 推导（含首尾两天）
+traveler_composition   未说明构成时按成人计（adults = traveler_count）
+budget_flexibility     未说明时取 NEGOTIABLE
+pace                   未说明时取 BALANCED
+destination_mode       未说明时取 UNKNOWN
+```
+
+转换结果必须通过`TripProfile`的全部校验：`duration_days`与日期区间一致、
+`traveler_composition`合计等于`traveler_count`。
 
 ## 3. 数据覆盖与本次规划就绪
 

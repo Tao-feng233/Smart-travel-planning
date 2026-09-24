@@ -103,6 +103,12 @@ from .api import (
     SendMessageResponse,
     SessionStateResponse,
 )
+from .draft import (
+    FINALIZE_REQUIRED_FIELDS,
+    IncompleteProfileError,
+    TripProfileDraft,
+    finalize_trip_profile,
+)
 
 __all__ = [
     # enums
@@ -199,4 +205,9 @@ __all__ = [
     "SendMessageRequest",
     "SendMessageResponse",
     "SessionStateResponse",
+    # draft（CONTRACTS.md §2.4 / §2.5）
+    "FINALIZE_REQUIRED_FIELDS",
+    "IncompleteProfileError",
+    "TripProfileDraft",
+    "finalize_trip_profile",
 ]

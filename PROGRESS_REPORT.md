@@ -9,7 +9,7 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**本次更新**：2026-09-24 · 步骤 3 进行中 —— 项目整体迁移到**启动包 v0.4**，契约重写
+**本次更新**：2026-09-24 · 步骤 3 进行中 —— v0.4 落地 + **TripProfileDraft 契约补全**
 
 **仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
 
@@ -18,6 +18,11 @@
 - 项目仓库整体搬到 `travel-planner-starter-pack-v0.4` 目录（v0.3 目录可删除）。
 - 契约升级到 **v0.4**：`CONTRACTS.md` 重写，新增 `contracts/` 基线与 `fixtures/` 契约测试。
 - 新增 5 份文档与 2 条 ADR，根目录只保留 4 份高频文件，其余进 `docs/`。
+- **补齐了 v0.4 的一处硬伤**（原 Q1）：正式 `TripProfile` 保持关键字段必填，
+  新增 `TripProfileDraft` 承载"还没问全"的画像，再用 `finalize_trip_profile` 转换。
+  这样"缺日期/预算就追问"这条 P0 要求终于有了合法表达方式。
+- 新增 4 个 fixture：不完整 Draft 合法、Draft 转 Profile 成功、强行转换失败、
+  正式画像缺字段仍然非法。
 
 **⚠️ A、B 请注意：现在开始必须遵守暂停规则**
 
@@ -498,6 +503,27 @@ Validated 6 valid, 6 invalid, and 1 business fixtures   ← v0.4 基线自检通
 - `contracts/` 目录在 C1 完成后不再保留独立副本（模型并入 `backend/app/schemas/`）。
 - v0.3 目录（`travel-planner-starter-pack-v0.3`）已不再使用，可由你删除。
 
+**7）同日补充：TripProfileDraft 落地（原 Q1）**
+
+```text
+契约      CONTRACTS.md §2.3 收紧为“关键字段必填”、§2.4 TripProfileDraft、§2.5 finalize 规则
+基线      contracts/contract_models.py 新增 TripProfileDraft / finalize_trip_profile /
+        IncompleteProfileError，TripProfile 去掉 missing_fields
+后端      backend/app/schemas/draft.py 同款实现，并从 schemas 统一导出
+        backend/app/services/missing_fields.py 改为按 Draft 判定
+        追问回路改走 Draft：补齐后才 finalize 出正式 TripProfile
+        会话存储新增 draft 存取（快照一并持久化，兼容旧快照格式）
+契约数据  fixtures/valid/trip_profile_draft_incomplete.json
+        fixtures/invalid/trip_profile_missing_required_fields.json
+        fixtures/business/draft_finalize_success.json
+        fixtures/business/draft_finalize_failure.json
+测试      contracts: 7 valid / 7 invalid / 3 business 全过
+        backend:   96 passed（原 80 + 新增 Draft 契约测试 16）
+```
+
+影响：`TripProfile` 不再有 `missing_fields`；A、B 若之前引用过该字段需要改读 Draft。
+`fixtures/valid/trip_profile.json` 已同步删掉该字段。
+
 ---
 
 ## 4. 契约冻结状态
@@ -575,6 +601,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 1 | 骨架 + 共享 Schema v0.3 | 契约示例 JSON 全部校验通过 | ✅ |
 | 2 | FastAPI + `PlanState` + LangGraph 追问回路 | 能推进到追问/推荐节点 | ✅ |
 | 3 | **迁移 v0.4：文档同步 + 仓库迁移** | 以 v0.4 为准，文档与 fixtures 就位 | ✅ |
+| 3.5 | **TripProfileDraft 契约补全（原 Q1）** | Draft/正式画像/finalize 与 4 个 fixture 全过 | ✅ |
 | 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | 🔄 下一步（阻塞 A/B） |
 | 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ⬜ |
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ⬜ |

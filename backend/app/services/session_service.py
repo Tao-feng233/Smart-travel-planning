@@ -38,17 +38,20 @@ class SessionService:
 
     def send_message(self, session_id: str, text: str) -> tuple[PlanState, AssistantReply]:
         state = self._repository.get(session_id)
-        new_state, _context = run_turn(self._graph, state, text)
+        draft = self._repository.get_draft(session_id)
+        new_state, context = run_turn(self._graph, state, text, draft=draft)
         self._repository.save(new_state)
-        return new_state, self._reply(new_state)
+        self._repository.save_draft(session_id, context.draft)
+        return new_state, self._reply(new_state, context.draft)
 
     def get_state(self, session_id: str) -> tuple[PlanState, AssistantReply]:
         state = self._repository.get(session_id)
-        return state, self._reply(state)
+        return state, self._reply(state, self._repository.get_draft(session_id))
 
-    def _reply(self, state: PlanState) -> AssistantReply:
+    def _reply(self, state: PlanState, draft=None) -> AssistantReply:
         return build_reply(
             state,
+            draft=draft,
             name_lookup=self._name_lookup,
             data_is_mock=self._data_is_mock,
         )

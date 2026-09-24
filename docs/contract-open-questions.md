@@ -139,17 +139,42 @@ C 线在 `backend/app/schemas/api.py` 定义了 `AssistantReply`（含
 
 ### 5.2 仍然存在的问题（需要三人拍板）
 
-**Q1（阻塞 C1）：`TripProfile` 在 v0.4 里仍是全字段必填，无法表示"还没问全"的画像。**
+**Q1（已解决 2026-09-24）：`TripProfile` 全字段必填，无法表示"还没问全"的画像。**
 
-`CONTRACTS.md` §2.3 的 `TripProfile` 带 `missing_fields` 字段，说明设计上本来就预期
-画像可以处于"部分已知"状态；但 §2.3 的示例与 `contracts/contract_models.py` 的
-基线实现都是全字段必填（`departure_city`、`start_date`、`budget`、`pace` 等都没有默认值）。
+**三人确认的处理方式**：
 
-后果：**"缺日期/预算就追问"这条 P0 要求无法用一个合法的 `TripProfile` 对象表达**——
-在补齐所有字段之前，根本构造不出这个对象。
+1. **正式 `TripProfile` 保持关键字段必填**，不做成"全字段可空"；
+2. 新增 **`TripProfileDraft`**：除 `session_id` 外所有字段允许为空，
+   `missing_fields` **只属于 Draft**（正式 `TripProfile` 不再有该字段）；
+3. Draft 补齐后由 **`finalize_trip_profile(draft) -> TripProfile`** 转换；
+   缺关键字段时抛 `IncompleteProfileError(missing_fields)`，不得生成正式对象。
 
-C1 会先按"可缺失字段允许为 `None` + 用 `missing_fields` 记录"实现，
-但必须三人确认后写回 `CONTRACTS.md`。
+已写回文档：`CONTRACTS.md` §2.3（更新示例）、§2.4（Draft）、§2.5（转换规则）。
+
+必须由用户提供、不得由系统替他假设的字段：
+
+```text
+departure_city, start_date, end_date, traveler_count, budget
+```
+
+可推导或取默认值的字段：
+
+```text
+duration_days          由 start_date/end_date 推导
+traveler_composition   未说明构成时按成人计（adults = traveler_count）
+budget_flexibility     未说明时取 NEGOTIABLE
+pace                   未说明时取 BALANCED
+destination_mode       未说明时取 UNKNOWN
+```
+
+对应 fixture（已补齐并通过校验）：
+
+```text
+fixtures/valid/trip_profile_draft_incomplete.json     不完整 Draft 合法
+fixtures/business/draft_finalize_success.json         Draft 转 Profile 成功
+fixtures/business/draft_finalize_failure.json         强行转换失败
+fixtures/invalid/trip_profile_missing_required_fields.json  正式画像仍必填
+```
 
 **Q2：统一 Error / Warning 对象的结构未定义。**
 

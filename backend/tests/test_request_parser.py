@@ -35,7 +35,7 @@ def test_extracts_full_request() -> None:
     assert profile.budget is not None and profile.budget.amount == 5000
     assert set(profile.interests) == {"FOOD", "CULTURE"}
     assert profile.pace == "RELAXED"
-    assert profile.duration_days == 5
+    assert (profile.end_date - profile.start_date).days + 1 == 5
 
 
 def test_extracts_dates_from_range_pattern() -> None:

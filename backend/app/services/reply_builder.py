@@ -9,7 +9,13 @@ from __future__ import annotations
 from typing import Callable, Mapping
 
 from app.graph.stages import PlanStage
-from app.schemas import AssistantReply, DestinationSuggestion, PlanState, ReplyKind
+from app.schemas import (
+    AssistantReply,
+    DestinationSuggestion,
+    PlanState,
+    ReplyKind,
+    TripProfileDraft,
+)
 
 from .missing_fields import build_questions
 
@@ -22,6 +28,7 @@ _INSUFFICIENT_DATA_TEXT = (
 def build_reply(
     state: PlanState,
     *,
+    draft: TripProfileDraft | None = None,
     name_lookup: Callable[[str], str | None] | None = None,
     data_is_mock: bool = False,
 ) -> AssistantReply:
@@ -34,7 +41,7 @@ def build_reply(
     stage = state.stage
 
     if stage == PlanStage.ASKING_CLARIFICATION.value:
-        missing = state.profile.missing_fields if state.profile else []
+        missing = draft.compute_missing_fields() if draft is not None else []
         questions = build_questions(missing)
         return AssistantReply(
             kind=ReplyKind.QUESTION,
@@ -70,7 +77,7 @@ def build_reply(
         return AssistantReply(
             kind=ReplyKind.INSUFFICIENT_DATA,
             text=_INSUFFICIENT_DATA_TEXT,
-            missing_fields=state.profile.missing_fields if state.profile else [],
+            missing_fields=draft.compute_missing_fields() if draft is not None else [],
             notes=notes,
         )
 
@@ -84,7 +91,7 @@ def build_reply(
     return AssistantReply(
         kind=ReplyKind.INFO,
         text="已更新你的旅行需求。",
-        missing_fields=state.profile.missing_fields if state.profile else [],
+        missing_fields=draft.compute_missing_fields() if draft is not None else [],
         notes=notes,
     )
 

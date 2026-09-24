@@ -22,6 +22,5 @@
   "hard_constraints": ["总预算上限 5000 元"],
   "soft_preferences": ["少走路", "不想早起"],
   "destination_mode": "UNKNOWN",
-  "destination_requests": [],
-  "missing_fields": []
+  "destination_requests": []
 }

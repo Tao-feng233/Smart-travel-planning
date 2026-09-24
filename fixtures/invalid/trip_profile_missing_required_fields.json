@@ -1,0 +1,20 @@
+{
+  "model": "TripProfile",
+  "data": {
+    "session_id": "sess_002",
+    "profile_version": 1,
+    "departure_city": "上海",
+    "start_date": "2026-10-02",
+    "end_date": "2026-10-05",
+    "duration_days": 4,
+    "timezone": "Asia/Shanghai",
+    "traveler_count": 2,
+    "traveler_composition": {"adults": 2, "children": 0, "seniors": 0},
+    "budget": {"amount": 5000, "min_amount": null, "max_amount": null, "currency": "CNY"},
+    "budget_flexibility": "NEGOTIABLE",
+    "interests": ["FOOD"],
+    "destination_mode": "SINGLE",
+    "destination_requests": [],
+    "constraints": []
+  }
+}

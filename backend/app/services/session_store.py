@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.graph.stages import PlanStage
-from app.schemas import PlanState
+from app.schemas import PlanState, TripProfileDraft
 
 
 class SessionNotFoundError(KeyError):
@@ -28,12 +28,19 @@ class SessionRepository(Protocol):
 
     def exists(self, session_id: str) -> bool: ...
 
+    def get_draft(self, session_id: str) -> TripProfileDraft | None: ...
+
+    def save_draft(self, session_id: str, draft: TripProfileDraft | None) -> None: ...
+
 
 class InMemorySessionRepository:
     """内存实现，可选把每次变更写成 JSON 快照，便于复查与断点续跑。"""
 
     def __init__(self, snapshot_dir: Path | None = None) -> None:
         self._states: dict[str, PlanState] = {}
+        #: 不完整画像（CONTRACTS.md §2.4）。按 v0.4 设计，它不属于 PlanState，
+        #: 由会话存储持有，随快照一起持久化。
+        self._drafts: dict[str, TripProfileDraft] = {}
         self._lock = threading.Lock()
         self._snapshot_dir = snapshot_dir
         if self._snapshot_dir is not None:
@@ -61,6 +68,23 @@ class InMemorySessionRepository:
         with self._lock:
             return session_id in self._states
 
+    def get_draft(self, session_id: str) -> TripProfileDraft | None:
+        with self._lock:
+            draft = self._drafts.get(session_id)
+        return draft.model_copy(deep=True) if draft is not None else None
+
+    def save_draft(
+        self, session_id: str, draft: TripProfileDraft | None
+    ) -> None:
+        with self._lock:
+            if draft is None:
+                self._drafts.pop(session_id, None)
+            else:
+                self._drafts[session_id] = draft.model_copy(deep=True)
+            state = self._states.get(session_id)
+        if state is not None:
+            self._write_snapshot(state, draft)
+
     # --- 快照 ---------------------------------------------------------------
 
     def _load_snapshots(self) -> None:
@@ -68,18 +92,40 @@ class InMemorySessionRepository:
         for path in sorted(self._snapshot_dir.glob("*.json")):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-                state = PlanState.model_validate(payload)
+                if "state" in payload:
+                    state = PlanState.model_validate(payload["state"])
+                    raw_draft = payload.get("draft")
+                    draft = (
+                        TripProfileDraft.model_validate(raw_draft)
+                        if raw_draft
+                        else None
+                    )
+                else:
+                    # 兼容旧格式：整个文件就是一个 PlanState，没有 draft
+                    state = PlanState.model_validate(payload)
+                    draft = None
             except Exception:
                 # 快照损坏不应阻断服务启动，跳过并保留文件供人工检查
                 continue
             self._states[state.session_id] = state
+            if draft is not None:
+                self._drafts[state.session_id] = draft
 
-    def _write_snapshot(self, state: PlanState) -> None:
+    def _write_snapshot(
+        self, state: PlanState, draft: TripProfileDraft | None = None
+    ) -> None:
         if self._snapshot_dir is None:
             return
         path = self._snapshot_dir / f"{state.session_id}.json"
+        if draft is None:
+            draft = self._drafts.get(state.session_id)
         payload = json.dumps(
-            state.model_dump(mode="json"), ensure_ascii=False, indent=2
+            {
+                "state": state.model_dump(mode="json"),
+                "draft": draft.model_dump(mode="json") if draft is not None else None,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(payload, encoding="utf-8")

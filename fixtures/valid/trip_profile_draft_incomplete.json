@@ -1,0 +1,30 @@
+{
+  "model": "TripProfileDraft",
+  "data": {
+    "session_id": "sess_draft_001",
+    "profile_version": 0,
+    "departure_city": "上海",
+    "start_date": "2026-10-02",
+    "end_date": null,
+    "duration_days": null,
+    "timezone": "Asia/Shanghai",
+    "traveler_count": 2,
+    "traveler_composition": null,
+    "budget": null,
+    "budget_flexibility": null,
+    "pace": null,
+    "interests": ["FOOD"],
+    "must_visit_resource_ids": [],
+    "avoidances": [],
+    "mobility_constraints": [],
+    "dietary_constraints": [],
+    "lodging_preferences": [],
+    "transport_preferences": [],
+    "earliest_day_start": null,
+    "latest_day_end": null,
+    "destination_mode": "UNKNOWN",
+    "destination_requests": [],
+    "constraints": [],
+    "missing_fields": ["end_date", "budget"]
+  }
+}
