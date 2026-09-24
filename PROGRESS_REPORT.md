@@ -48,6 +48,8 @@ python -m pytest                            # 80 个测试
 **已完成，不需要行动**
 
 - 仓库与分支已建好（地址与分支见上方表格）
+- 仓库已整理：根目录 `README.md` 改为项目入口（含仓库结构图与文档索引）；
+  你们的原始需求文档已归到 `docs/requirements/`，并附"需求 → 设计"对应表
 
 ---
 
@@ -93,6 +95,7 @@ python -m pytest                            # 80 个测试
 |---|---|---|---|---|
 | 共享 Schema（C1） | C | `backend/app/schemas/` | ✅ 完成 | 2026-09-24 |
 | 契约示例 Fixture（C/A 共用） | C | `backend/tests/fixtures/` | ✅ 完成 | 2026-09-24 |
+| 原始需求文档归档 | C | `docs/requirements/` | ✅ 完成 | 2026-09-24 |
 | 项目骨架与密钥配置 | C | `.gitignore`、`.env.example`、`backend/` | ✅ 完成 | 2026-09-24 |
 | FastAPI + LangGraph（C2） | C | `backend/app/api/`、`backend/app/graph/` | ✅ 完成 | 2026-09-24 |
 | 会话存储（内存 + JSON 快照） | C | `backend/app/services/session_store.py` | ✅ 完成 | 2026-09-24 |
@@ -158,8 +161,10 @@ python -m pytest                            # 80 个测试
 **2）历史处理**
 
 远程原有 3 个提交（早期需求文档）已通过 `git merge -s ours --allow-unrelated-histories`
-并入历史，但**项目内容以启动包为基准**，旧的需求文档不再出现在工作区。
-如需取回原文，可用 `git show 4f20e15` 或 `git show ca70d49` 查看。
+并入历史，**项目内容以启动包为基准**。
+
+> 2026-09-24 补充：原始需求文档已按最新要求**恢复**到 `docs/requirements/`
+> （并附上"需求 → 设计"对应表），便于三人回溯某个功能当初为什么提出来。
 
 **3）是否影响其他成员接口**
 

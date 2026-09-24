@@ -1,75 +1,110 @@
-# AI旅行决策与动态行程助手：项目启动包 v0.3
+# AI旅行决策与动态行程助手
 
-这套文件是项目的统一事实来源，供三位成员及各自的AI助手共同使用。目标不是一次写完所有产品文档，而是先固定范围、术语、接口和分工，使三条开发线能够并行并最终集成。
+仓库：`Smart-travel-planning`　三人团队项目（A 数据/RAG/MCP　B LLM/前端　C LangGraph/规划/后端）
 
-## 当前项目定义
+## 项目是什么
 
-系统通过自然语言收集用户需求，只从当前知识库和事实库中数据覆盖达到规划门槛的目的地中进行推荐；P0完整支持一个旅行目的地内的多个游玩地点，并预留多目的地扩展结构，完成候选筛选、联合规划、攻略组装、约束验证、修改和局部重规划。
-
-第一版强调“覆盖范围有限、业务闭环完整”。它不是全国旅游平台，不负责真实支付、出票或酒店预订。
-
-## 使用前先填写
-
-正式编码前，由三人共同确认：
+系统通过自然语言收集用户需求，**只从知识库数据覆盖达到规划门槛的目的地中**推荐，
+把模糊的旅行想法变成一份带约束验证、可修改、可局部重规划的七部分定制攻略。
 
 ```text
-知识库数据范围与版本：待填写
-规划就绪目的地生成方式：由KnowledgeCoverage自动判断
-主LLM Provider及模型：待验证
-备用LLM Provider及模型：P1待验证
-地图数据方式：真实API / 模拟Provider
-天气数据方式：真实API / 模拟Provider
-代码仓库地址：待定
+自然语言需求 → 主动追问 → RAG检索 → LLM目的地推荐 → MCP获取事实与路线
+→ LangGraph编排 → 行程生成 → 约束验证与修复 → 用户修改或突发重规划 → 七部分TravelGuide
 ```
 
-## 文件阅读顺序
+第一版强调**“覆盖范围有限、业务闭环完整”**。它不是全国旅游平台，
+不负责真实支付、出票或酒店预订。
 
-### 三位项目成员
+## 现在做到哪了
 
-1. `PROJECT_OVERVIEW.md`：从业务到技术的项目全局说明，第一次了解项目先读这一份。
-2. `TRAVEL_GUIDE_SPEC.md`：最终攻略七部分的内容、字段、数据收集要求和P0/P1范围。
-3. `DATA_REQUIREMENTS_CATALOG.md`：所有需要收集的数据类别和具体字段。
-4. `DATA_SOURCE_ASSESSMENT_TEMPLATE.md`：数据尚未确定时用于逐项验证和记录降级方案。
-5. `DATA_RESEARCH_TASK_BRIEF.md`：可直接交给独立数据调研任务的说明。
-6. `MODEL_PROVIDER_AND_SECRETS.md`：模型抽象、主备Provider和API Key配置。
-7. `TEAM_PROJECT_PLAN.md`：三人实际执行的任务、依赖、联调和演示计划。
-8. `CONTRACTS.md`：需要开发或联调时查看具体数据和接口格式。
+完整进度台账见 **[PROGRESS_REPORT.md](PROGRESS_REPORT.md)**（每完成一步追加一条记录）。
 
-### AI助手
+```text
+步骤 0  ✅ Git 仓库与三条分支
+步骤 1  ✅ 共享 Schema（81 个契约对象）+ 契约示例 fixture
+步骤 2  ✅ FastAPI + LangGraph 追问/推荐回路（80 个测试）
+步骤 3  ⬜ 前置过滤（C3）
+```
 
-1. `AGENTS.md`：所有AI助手必须遵守的协作和编码规则。
-2. `CONTEXT.md`：项目统一术语，避免三个人使用不同概念。
-3. `PROJECT_OVERVIEW.md`：项目全局背景和设计。
-4. `TRAVEL_GUIDE_SPEC.md`：最终产物的内容和数据要求。
-5. `DATA_REQUIREMENTS_CATALOG.md`：数据字段全集。
-6. `MODEL_PROVIDER_AND_SECRETS.md`：模型调用与密钥规则。
-7. `PROJECT_DESIGN.md`：产品范围、业务流程、技术架构和三人分工。
-8. `CONTRACTS.md`：模块之间唯一允许使用的数据和接口格式。
-9. `AI_TASK_PROMPTS.md`：三位成员分别交给AI助手的启动提示词。
-10. `docs/adr/`：关键架构决定及其理由。
+目前可以真实运行的部分：
 
-## 三人使用AI的统一方法
+```powershell
+cd backend
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload   # 接口文档 http://127.0.0.1:8000/docs
+python -m pytest                          # 80 passed
+```
 
-每位成员开启新的AI对话时：
+```text
+第 1 轮「我想出去玩，不想早起」
+  → 系统追问：出发地 / 出发日期 / 返回日期 / 人数 / 预算
+第 2 轮「从上海出发，10月2号到10月6号，2个人，预算5000元，喜欢美食和人文」
+  → 系统从覆盖达标的目的地中推荐候选，并附上证据 ID
+```
 
-1. 把本目录放入代码仓库根目录。
-2. 要求AI依次阅读上述文件。
-3. 使用 `AI_TASK_PROMPTS.md` 中对应角色的提示词。
-4. 要求AI先复述自己的边界、输入、输出和依赖，再开始写代码。
-5. AI不得自行修改 `CONTRACTS.md`；确需修改时，必须由三人确认后先更新文档，再改代码。
+> ⚠️ 当前所有旅游数据都是**模拟数据**（标记为 `MOCK_ONLY`），仅用于跑通流程。
+> A 线接入 MySQL / Chroma / 真实 MCP Server 后替换。
 
-## 开始编码的最低条件
+## 仓库结构
 
-- 已导入至少一组能通过KnowledgeCoverage检查的试点数据。
-- 三人认可 `CONTEXT.md` 中的术语。
-- `TripProfile`、`ResourceCandidate`、`ItineraryPlan`、`Conflict` 和 `PlanState` 的JSON格式不再随意变化。
-- 每条开发线都能使用模拟数据独立运行。
-- 已建立覆盖主要业务分支的回归测试场景，不要求提前固定最终演示文案。
+```text
+Smart-travel-planning/
+├── README.md                  本文件：项目入口
+├── PROGRESS_REPORT.md         ⭐ 三人共享的进度台账（看"最新变更"一节即可）
+├── CONTRACTS.md               ⭐ 模块之间唯一允许使用的数据和接口格式
+├── AGENTS.md                  AI 助手必须遵守的协作与编码规则
+├── CONTEXT.md                 统一术语
+├── PROJECT_OVERVIEW.md        项目全局说明
+├── PROJECT_DESIGN.md          产品范围、业务流程、技术架构、三人分工
+├── TRAVEL_GUIDE_SPEC.md       七部分攻略的内容与字段要求
+├── TEAM_PROJECT_PLAN.md       三人任务、依赖、联调与演示计划
+├── DATA_REQUIREMENTS_CATALOG.md      需要收集的全部数据字段
+├── DATA_SOURCE_ASSESSMENT_TEMPLATE.md 数据源可行性验证表（A 线填写）
+├── DATA_RESEARCH_TASK_BRIEF.md       数据调研任务说明
+├── MODEL_PROVIDER_AND_SECRETS.md     模型抽象与密钥规则
+├── AI_TASK_PROMPTS.md         三条开发线的 AI 启动提示词
+├── docs/
+│   ├── adr/                   关键架构决定（4 条）
+│   ├── contract-open-questions.md    ⚠️ 契约待确认项（改动前必看）
+│   └── requirements/          原始需求文档 + 需求→设计对应表
+├── handoff/                   给 A / B 的交接说明（含可直接复制的提示词）
+├── backend/                   C 线后端（当前唯一有代码的目录）
+│   ├── app/{api,core,graph,schemas,services}/
+│   └── tests/                 80 个测试 + 契约示例 fixture
+├── frontend/                  B 线 Vue（尚未创建）
+└── data/                      A 线数据与导入脚本（尚未创建）
+```
 
-## 推荐的三条演示场景
+## 三个人各自怎么开始
 
-1. 用户不知道去哪：系统追问、RAG检索、LLM比较目的地并生成完整攻略。
-2. 用户已确定一个目的地：系统生成包含抵达、准备、住宿、多个游玩地点、餐饮和交通的完整攻略。
-3. 用户起晚或遇到下雨：系统锁定已完成/已预约节点，只重规划剩余部分。
+```bash
+git clone https://github.com/Tao-feng233/Smart-travel-planning
+cd Smart-travel-planning
+git checkout feature/<你的分支>
+```
 
-双目的地真实规划为P1演示，有余力时再加入。
+| 成员 | 分支 | 交接说明 |
+|---|---|---|
+| A 数据、RAG 与 MCP | `feature/data-rag-mcp` | [handoff/A_交接说明.md](handoff/A_交接说明.md) |
+| B LLM 决策与 Vue 前端 | `feature/llm-vue` | [handoff/B_交接说明.md](handoff/B_交接说明.md) |
+| C LangGraph、规划与验证 | `feature/graph-planner` | — |
+
+开工前先看两处：
+
+1. `PROGRESS_REPORT.md` 的「⚡ 最新变更」——里面写着**需要你做什么**；
+2. [docs/contract-open-questions.md](docs/contract-open-questions.md)——契约里**还没定死**的地方。
+
+> 如果 clone 时连不上 github.com（国内网络常见），加代理参数：
+> `git -c http.proxy=http://127.0.0.1:7897 clone https://github.com/Tao-feng233/Smart-travel-planning`
+
+## 文档索引
+
+| 我想… | 看哪份 |
+|---|---|
+| 知道现在做到哪、下一步谁做什么 | `PROGRESS_REPORT.md` |
+| 知道某个字段/接口长什么样 | `CONTRACTS.md`（+ `backend/app/schemas/`） |
+| 知道为什么这么设计 | `PROJECT_DESIGN.md`、`docs/adr/` |
+| 知道最终产物要包含什么 | `TRAVEL_GUIDE_SPEC.md` |
+| 知道要收集哪些数据、从哪来 | `DATA_REQUIREMENTS_CATALOG.md`、`DATA_SOURCE_ASSESSMENT_TEMPLATE.md` |
+| 看用户最初提了什么需求 | `docs/requirements/` |
+| 让 AI 助手开工 | `handoff/*_交接说明.md` 里的提示词 |
