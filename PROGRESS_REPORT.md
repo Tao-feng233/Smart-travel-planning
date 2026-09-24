@@ -594,6 +594,38 @@ Git 标签                  schema-v0.4
   后续步骤会把这部分也迁到 v0.4，然后删除 `legacy/`。
 - 119 个测试全程保持通过。
 
+### 步骤 4：C3 前置过滤（服务层）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C |
+| 状态 | ✅ 服务层完成（接入 LangGraph 待做） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/availability_filter.py    纯函数式前置过滤（基于 v0.4 对象）
+backend/tests/test_availability_filter.py      9 个用例
+```
+
+**2）实现的业务规则**
+
+```text
+AVAILABLE     → 进入规划
+CONDITIONAL   → 进入规划，但必须带条件（不得充当无条件主方案）
+UNAVAILABLE   → 排除并记录原因（CONTRACTS.md §14 不变量 2）
+UNKNOWN       → DEMO 下不进主方案；VERIFIED 下直接排除（不变量 3）
+当日可用性    → 传入 travel_date + availability_lookup 时以当日状态为准，
+                可过滤“整体可用但当天临时闭馆”
+```
+
+**3）运行的测试**：`python -m pytest` → 128 passed（含 9 个过滤用例）
+
+**4）仍是模拟实现**：过滤逻辑真实，输入的可用性数据仍来自模拟 Provider。
+
+**5）是否影响其他成员接口**：否，新增的是 C 线内部服务。
+
 ### 步骤 3.7：Q4 拍板落地（资源候选判别联合类型）
 
 拍板内容（已写回 `CONTRACTS.md` §5.2）：
@@ -704,7 +736,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 3 | **迁移 v0.4：文档同步 + 仓库迁移** | 以 v0.4 为准，文档与 fixtures 就位 | ✅ |
 | 3.5 | **TripProfileDraft 契约补全（原 Q1）** | Draft/正式画像/finalize 与 4 个 fixture 全过 | ✅ |
 | 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | 🔄 下一步（阻塞 A/B） |
-| 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ⬜ |
+| 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层完成，待接入图 |
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ⬜ |
 | 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ⬜ |
 | 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |

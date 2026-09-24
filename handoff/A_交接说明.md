@@ -54,20 +54,35 @@ git checkout feature/data-rag-mcp
 - 数据层要按 `docs/DATA_PROVIDER_ARCHITECTURE.md` 分成
   **Mock / Snapshot / Live / Hybrid** 四种可替换 Provider，业务代码不得直接依赖第三方 SDK。
 
-**⛔ 你现在必须先遵守的暂停规则**（`docs/SHARED_SCHEMA_HANDOFF.md`）
+**✅ 共享 Schema 已冻结，你现在可以直接开工**（标签 `schema-v0.4`）
 
-C 正在把 v0.4 契约实现成 `backend/app/schemas/`，**在此之前**：
+```python
+from app.schemas import (          # 这就是契约 v0.4
+    TripProfile, TripProfileDraft, DestinationCoverageSnapshot,
+    PlanningReadinessEvaluation, ResourceCandidateUnion, ResourceCandidateBase,
+    VisitPlaceCandidate, LodgingCandidate, RestaurantCandidate, LodgingAreaCandidate,
+    FactRecord, Evidence, PlanningFact, DataSnapshot,
+    MCP_TOOL_MODELS,               # 9 个工具的 Request/Response
+)
+```
 
-- 不要自己定义共享对象，不要用 `dict` 临时顶替，不要复制 `TripProfile` / `ResourceCandidate` 等模型；
-- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 消息（模板见该文档第 5 节）并暂停该部分；
-- **可以继续做**：Provider 内部实现、数据库连接、Chroma 索引、数据调研（A6）、
-  纯内部私有类型、不依赖缺失 Schema 的单元测试。
+规则仍然有效（`docs/SHARED_SCHEMA_HANDOFF.md` 第 4 节）：**需要但还没有的对象，
+发 `SCHEMA_BLOCKER` 并暂停该部分，不要自己定义或用 `dict` 顶替。**
+
+两条与你直接相关的口径：
+
+- 资源候选以 `resource_type` 判别；四类成员统一用 `resource_id` / `destination_id`。
+  **外部数据的 `hotel_id` / `lodging_id` 由你在 Provider 层归一化成 `resource_id`。**
+- 数据层按 `docs/DATA_PROVIDER_ARCHITECTURE.md` 分 Mock / Snapshot / Live / Hybrid，
+  业务代码不得直接依赖第三方 SDK。
 
 **已经做完的**
 
 - 仓库骨架已建立：`backend/app/{api,graph,schemas,services}`。
-- **共享 Schema 已有 v0.3 版本**（`backend/app/schemas/`，81 个导出对象），正在按 v0.4 整体重写。
-- **契约测试数据已备好**：`fixtures/valid`（6）、`fixtures/invalid`（6）、`fixtures/business`（1）。
+- **共享 Schema v0.4 已冻结**：`backend/app/schemas/`，50 个模型 + 9 个 MCP 工具 + REST 全套。
+- **契约测试数据已备好**：`fixtures/valid`（7）、`fixtures/invalid`（7）、`fixtures/business`（3），
+  已接进 pytest，你自己也可以照着加。
+- C 线后端已有可运行的会话/追问回路（`backend/`，119 个测试通过），可作为接口参考。
 - 密钥模板在根目录 `.env.example`，`.env` 已被 `.gitignore` 忽略。
 
 **还没做的（也就是你要做的）**

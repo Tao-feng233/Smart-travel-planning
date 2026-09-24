@@ -55,23 +55,37 @@ git checkout feature/llm-vue
 - 修改意图的载体从 `ChangeRequest` 改为 **`UserAction`**。
 - 前端拿到的 JSON 结构以 `fixtures/valid/travel_guide.json` 为准。
 
-**⛔ 你现在必须先遵守的暂停规则**（`docs/SHARED_SCHEMA_HANDOFF.md`）
+**✅ 共享 Schema 已冻结，你现在可以直接开工**（标签 `schema-v0.4`）
 
-C 正在把 v0.4 契约实现成 `backend/app/schemas/`，**在此之前**：
+```python
+from app.schemas import (          # 这就是契约 v0.4
+    TripProfile, TripProfileDraft, finalize_trip_profile,
+    DestinationRecommendation, PlanningReadinessEvaluation,
+    TravelGuide, GuideNode, GuideDay, PlanState,
+    UserAction, VersionLineage, Conflict,
+)
+```
 
-- 不要自己定义共享对象，不要用 `dict` 临时顶替，不要在前端复制一份 `TripProfile` 结构；
-- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 消息（模板见该文档第 5 节）并暂停该部分；
-- **可以继续做**：Vue 项目骨架、页面布局与样式、路由、组件拆分、
-  不依赖共享 Schema 的前端内部类型与单元测试。
+规则仍然有效（`docs/SHARED_SCHEMA_HANDOFF.md` 第 4 节）：**需要但还没有的对象，
+发 `SCHEMA_BLOCKER` 并暂停该部分，不要自己定义或用 `dict` 顶替。**
+
+三个与你直接相关的口径：
+
+- **追问流程**：先产出 `TripProfileDraft`（可缺字段），补齐后调用
+  `finalize_trip_profile(draft)` 得到正式 `TripProfile`；正式画像关键字段必填。
+- **两类节点对象禁止混用**：`PlanNode`/`DayPlan` 是内部对象，
+  `GuideNode`/`GuideDay` 才是给用户看的展示对象，B6 就是做这个富化。
+- 前端拿到的 JSON 结构以 `fixtures/valid/travel_guide.json` 为准。
 
 **已经做完的**
 
 - 仓库骨架已建立：`backend/app/{api,graph,schemas,services}`。
-- **共享 Schema 已有 v0.3 版本**（`backend/app/schemas/`，81 个导出对象），
-  正在按 v0.4 整体重写；重写前不要依赖它的字段名。
+- **共享 Schema v0.4 已冻结**：`backend/app/schemas/`，字段名与契约一致，可以放心依赖。
 - **契约示例数据已备好**：`fixtures/valid/travel_guide.json` 是一份完整的
   七部分攻略样例，`fixtures/valid/itinerary_plan.json` 是一份完整行程样例，
   可以直接拿来渲染页面。
+- C 线后端已有可运行的会话/追问/推荐接口（`backend/`，119 个测试通过），
+  B7 联调时直接用，不必等。
 - 根目录有 `.gitignore` 和 `.env.example`（前端不得持有任何服务端 API Key）。
 
 **还没做的**
