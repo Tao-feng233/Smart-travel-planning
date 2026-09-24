@@ -87,6 +87,24 @@ python -m pytest                            # 80 个测试
 本目录（含 `AGENTS.md`、`CONTRACTS.md`）即为**代码仓库根目录**。
 三条线各自的代码目录见下方“当前总览”。
 
+### 分支同步约定（各自一台电脑，务必遵守）
+
+```text
+C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步到 main
+```
+
+- **在 A、B 尚未有自己的提交时**，C 可以直接把 `feature/*` 快进到 `main`（当前即如此）。
+- **一旦 A、B 在自己的分支上提交过**，C 就**不得**再覆盖他们的分支；
+  改为由各人自己合入主线：
+
+  ```bash
+  git checkout feature/你的分支
+  git merge origin/main      # 把 C 的进度合进来
+  ```
+
+- 冲突时以 `CONTRACTS.md` 与 `backend/app/schemas/` 为准，改不动就找对方确认，
+  不要各自新增临时字段。
+
 ---
 
 ## 1. 当前总览
