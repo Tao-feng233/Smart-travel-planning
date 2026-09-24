@@ -89,16 +89,18 @@ def test_named_destination_is_prefiltered_before_planning(client: TestClient) ->
     assert "已排除 poi_1002" in body["data"]["assistant_message"]
 
 
-def test_mock_data_is_announced_to_the_frontend(client: TestClient) -> None:
-    """模拟数据必须显式告知，不得静默当成真实数据。"""
+def test_mock_data_is_announced_exactly_once(client: TestClient) -> None:
+    """模拟数据必须显式告知，且不能同一条重复两三遍。"""
 
     session_id = _create(client)
     body = client.post(
         f"/api/sessions/{session_id}/messages", json={"text": "随便看看"}
     ).json()
-    codes = [item["code"] for item in body["warnings"]]
-    assert "MOCK_DATA_IN_DEMO" in codes
-    assert any("模拟数据" in item for item in body["data"]["degraded_items"])
+    mock_warnings = [item for item in body["warnings"] if item["code"] == "MOCK_DATA_IN_DEMO"]
+    assert len(mock_warnings) == 1
+    assert "模拟数据" in mock_warnings[0]["message"]
+    # degraded_items 不再重复同一条，只放本轮额外的降级项
+    assert not [item for item in body["data"]["degraded_items"] if "模拟数据" in item]
 
 
 def test_get_session_returns_state_and_missing_field_warning(

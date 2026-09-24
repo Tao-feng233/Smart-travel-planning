@@ -133,53 +133,77 @@ class StubTripProfileParser:
         labeled_end = re.search(
             rf"(?:返回|回程)(?:日期|时间)?[是：:\s]*({_DATE_TOKEN})", text
         ) or re.search(rf"({_DATE_TOKEN})\s*(?:那天)?(?:回来|返回|回程)", text)
+        labeled_start_date = (
+            StubTripProfileParser._parse_token(labeled_start.group(1), reference_date)
+            if labeled_start
+            else None
+        )
+        labeled_end_date = (
+            StubTripProfileParser._parse_token(labeled_end.group(1), reference_date)
+            if labeled_end
+            else None
+        )
+        if labeled_start_date is not None:
+            start = labeled_start_date
+        if labeled_end_date is not None:
+            end = labeled_end_date
 
-        if labeled_start:
-            start = StubTripProfileParser._parse_token(
-                labeled_start.group(1), reference_date
+        explicit = list(
+            re.finditer(
+                r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", text
             )
-        if labeled_end:
-            end = StubTripProfileParser._parse_token(labeled_end.group(1), reference_date)
+        )
+        parsed = [
+            StubTripProfileParser._to_date(
+                match.group(1), match.group(2), match.group(3), reference_date
+            )
+            for match in explicit
+        ]
+        parsed = [item for item in parsed if item is not None]
 
-        if not labeled_start and not labeled_end:
-            explicit = list(
-                re.finditer(
-                    r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", text
+        if labeled_start_date is None and labeled_end_date is None:
+            if len(parsed) > 1:
+                start = parsed[0]
+                end = parsed[-1]
+            elif parsed:
+                start, end = StubTripProfileParser._assign_single_date(
+                    parsed[0], start, end, text
                 )
+            # “10月2-6号”：第二段只写了日
+            compact = re.search(
+                r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text
             )
-            if explicit:
-                parsed = [
-                    StubTripProfileParser._to_date(
-                        match.group(1), match.group(2), match.group(3), reference_date
-                    )
-                    for match in explicit
-                ]
-                parsed = [d for d in parsed if d is not None]
-                if parsed:
-                    if len(parsed) > 1:
-                        start = parsed[0]
-                        end = parsed[-1]
-                    elif start is None:
-                        # 单一日期且还没有出发日期 → 就是出发日期
-                        start = parsed[0]
-                    elif parsed[0] > start and not re.search(r"出发|动身", text):
-                        # 已有出发日期，来的单一日期更晚，且没说"出发" →
-                        # 更合理的读法是"这是返回日期"，而不是把出发日期改掉
-                        end = parsed[0]
-                    elif parsed[0] != start:
-                        # 更早（或相同）的单一日期：意图不明，不猜测，忽略
-                        pass
-                # “10月2-6号”：第二段只写了日
-                compact = re.search(
-                    r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text
+            if compact:
+                start = StubTripProfileParser._to_date(
+                    None, compact.group(1), compact.group(2), reference_date
                 )
-                if compact:
-                    start = StubTripProfileParser._to_date(
-                        None, compact.group(1), compact.group(2), reference_date
-                    )
-                    end = StubTripProfileParser._to_date(
-                        None, compact.group(1), compact.group(3), reference_date
-                    )
+                end = StubTripProfileParser._to_date(
+                    None, compact.group(1), compact.group(3), reference_date
+                )
+        else:
+            # 有标签时**不能整段跳过无标签日期**：同一句话里可以既有
+            # 「10月2号出发」（无标签）又有「返回日期：10月6号」（有标签）。
+            # 只补标签没覆盖的那一侧，而且只在恰好剩一个日期时才敢认定，
+            # 多出来的日期一律不猜（猜错比多问一轮更贵）。
+            remaining = [
+                item
+                for item in parsed
+                if item != labeled_start_date and item != labeled_end_date
+            ]
+            if len(remaining) == 1:
+                if labeled_start_date is None:
+                    start = remaining[0]
+                elif labeled_end_date is None:
+                    end = remaining[0]
+
+        # 新的出发日把已有的返回日甩到了前面：清掉返回日让追问去补，
+        # 否则 TripProfileDraft 会因为 end < start 直接校验失败。
+        # `cleared_end` 是必要的：`end is None` 平时表示"这次没提到返回日"
+        # （保持会话里已有的值），只有这里表示"主动清空"。
+        cleared_end = False
+        if start is not None and end is not None and end < start:
+            end = None
+            cleared_end = True
 
         days = re.search(r"(\d+|[一二两三四五六七八九十])\s*天", text)
         if days:
@@ -191,6 +215,34 @@ class StubTripProfileParser:
             profile.start_date = start
         if end is not None:
             profile.end_date = end
+        elif cleared_end:
+            profile.end_date = None
+
+    @staticmethod
+    def _assign_single_date(
+        candidate: date, start: date | None, end: date | None, text: str
+    ) -> tuple[date | None, date | None]:
+        """只有一个日期、且没有任何标签时，判断它是出发日还是返回日。
+
+        规则（顺序敏感，按用户真实说话方式设计）：
+
+        1. 还没有出发日 → 就是出发日；
+        2. 比已有出发日更晚：
+
+           * 带「出发 / 动身」字样 → 用户是在**改出发日**（返回日由调用方
+             按 `end < start` 清空，等追问补充）；
+           * 没有 → 读作返回日（用户被追问"哪天回来"后直接报个日期）；
+
+        3. 早于或等于已有出发日 → 意图不明，不猜，原样返回。
+        """
+
+        if start is None:
+            return candidate, end
+        if candidate > start:
+            if re.search(r"出发|动身", text):
+                return candidate, end
+            return start, candidate
+        return start, end
 
     @staticmethod
     def _parse_token(token: str, reference_date: date) -> date | None:

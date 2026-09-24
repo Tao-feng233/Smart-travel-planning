@@ -56,8 +56,10 @@ def build_reply(
 
     stage = state.stage
     degraded: list[str] = []
-    if data_is_mock:
-        degraded.append(_MOCK_NOTICE)
+    # 模拟数据这件事只讲一次：放在统一信封的 `warnings`
+    # （`MOCK_DATA_IN_DEMO`，带 code 可判定，见 `build_warnings`）。
+    # `degraded_items` 只放"本轮额外降级项"（例如关键事实未知的资源），
+    # 两边重复同一句话会让前端把同一个问题显示两三遍。
     if filter_result is not None:
         degraded.extend(_unknown_notes(filter_result, name_lookup))
 
