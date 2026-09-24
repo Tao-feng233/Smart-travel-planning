@@ -6,7 +6,7 @@ from datetime import date
 
 from app.graph import PlanStage, build_graph, route_after_missing_check, route_after_retrieve
 from app.graph.nodes import NodeDeps
-from app.schemas import PlanState, TravelerComposition, TripProfile
+from app.schemas.legacy import PlanState, TravelerComposition, TripProfile
 from app.services.destination_recommender import StubDestinationRecommender
 from app.services.request_parser import StubTripProfileParser
 from app.services.session_store import InMemorySessionRepository

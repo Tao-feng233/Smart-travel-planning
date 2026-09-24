@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.schemas import (
+from app.schemas.legacy import (
     AvailabilityStatus,
     EntityType,
     Evidence,

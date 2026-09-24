@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.schemas import Budget, TripProfileDraft
+from app.schemas.legacy import Budget, TripProfileDraft
 from app.services.missing_fields import build_questions, find_missing_fields
 
 

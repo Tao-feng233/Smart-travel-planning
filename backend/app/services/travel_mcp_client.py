@@ -15,7 +15,7 @@ import math
 from datetime import date
 from typing import Protocol
 
-from app.schemas import (
+from app.schemas.legacy import (
     AcquisitionStatus,
     AvailabilityStatus,
     GetPlaceAvailabilityInput,

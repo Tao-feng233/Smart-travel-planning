@@ -29,7 +29,7 @@ from langgraph.runtime import Runtime
 
 from app.graph.context import TurnContext
 from app.graph.stages import PlanStage
-from app.schemas import (
+from app.schemas.legacy import (
     DateRange,
     PlanState,
     SearchPlanningReadyDestinationsInput,

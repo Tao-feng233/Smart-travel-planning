@@ -9,7 +9,7 @@ import uuid
 from typing import Callable, Mapping
 
 from app.graph.workflow import run_turn
-from app.schemas import AssistantReply, PlanState
+from app.schemas.legacy import AssistantReply, PlanState
 
 from .reply_builder import build_name_lookup, build_reply
 from .session_store import SessionRepository

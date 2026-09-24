@@ -24,16 +24,21 @@
 - 新增 4 个 fixture：不完整 Draft 合法、Draft 转 Profile 成功、强行转换失败、
   正式画像缺字段仍然非法。
 
-**⚠️ A、B 请注意：现在开始必须遵守暂停规则**
+**✅ A、B 可以开工了：共享 Schema v0.4 已交付并打标签**
 
-`docs/SHARED_SCHEMA_HANDOFF.md` 规定：在 C 提交 `schema-v0.4` 之前，
+```python
+from app.schemas import TripProfile, TripProfileDraft, ResourceCandidateUnion, PlanState
+```
 
-- **不要**自己定义共享对象，**不要**用 `dict` 临时顶替，**不要**复制 `TripProfile` 等模型；
-- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 并暂停该部分；
-- **可以继续做**：Vue 页面布局、Provider 内部实现、数据库连接、纯内部私有类型、不依赖缺失 Schema 的单元测试。
+- `app.schemas` 现在就是 **v0.4**：50 个模型 + 9 个 MCP 工具 + REST 全套，全部可导入。
+- 契约测试：`fixtures/valid` 7 个全过、`fixtures/invalid` 7 个全按预期失败、
+  业务用例 3 个通过（`python -m pytest`，共 119 passed）。
+- 冻结版本：**Git 标签 `schema-v0.4`**。
 
-**本次结论**：v0.4 文档已就位；**C1 共享 Schema 重建是当前唯一阻塞项**，
-完成后 A、B 才能全速推进。
+暂停规则解除。`docs/SHARED_SCHEMA_HANDOFF.md` 第 4 节仍然有效：
+**需要但还没有的对象，请发 `SCHEMA_BLOCKER`，不要自己定义或用 `dict` 顶替。**
+
+**本次结论**：契约与共享 Schema 都已冻结，三条线可以并行推进。
 
 **需要 A 行动**
 
@@ -563,6 +568,31 @@ SHARED_SCHEMA_HANDOFF 要求的对象   全部已实现并可导入（有专门�
 **3）发现的问题（已登记，见 contract-open-questions 第 5.2 节）**
 
 Q4：§5.1 的公共字段与基线模型不一致 → **已拍板并落地**（见下）。
+
+### 步骤 3.8：C1b —— 命名空间切换，schema-v0.4 冻结
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C |
+| 状态 | ✅ 完成 |
+
+**做了什么**
+
+```text
+app/schemas/__init__.py   改为导出 v0.4（A、B 导入到的就是契约 v0.4）
+app/schemas/legacy/       原 v0.3 模块整体搬入（相对导入保持可用）
+app/{graph,services,api}、main.py、tests  共 18 个文件的导入改为 app.schemas.legacy
+Git 标签                  schema-v0.4
+```
+
+**含义**
+
+- `schema-v0.4` 一旦打上，`docs/SHARED_SCHEMA_HANDOFF.md` 第 3 节的交付标准即达成，
+  A、B 的暂停规则解除。
+- C 线内部代码仍跑在 v0.3 对象上（`app.schemas.legacy`），**不影响 A、B**；
+  后续步骤会把这部分也迁到 v0.4，然后删除 `legacy/`。
+- 119 个测试全程保持通过。
 
 ### 步骤 3.7：Q4 拍板落地（资源候选判别联合类型）
 

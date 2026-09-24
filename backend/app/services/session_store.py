@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.graph.stages import PlanStage
-from app.schemas import PlanState, TripProfileDraft
+from app.schemas.legacy import PlanState, TripProfileDraft
 
 
 class SessionNotFoundError(KeyError):

@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from langgraph.graph import END, START, StateGraph
 
-from app.schemas import PlanState
+from app.schemas.legacy import PlanState
 
 from .context import TurnContext
 from .nodes import (

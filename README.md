@@ -22,10 +22,10 @@
 步骤 3  🔄 迁移到 v0.4：契约重写 + 共享 Schema 重建（进行中）
 ```
 
-> ⚠️ **v0.4 契约正在重建中。** 在 C 提交 `schema-v0.4` 之前，
-> A、B 请遵守 [docs/SHARED_SCHEMA_HANDOFF.md](docs/SHARED_SCHEMA_HANDOFF.md) 的暂停规则：
-> 不要自己定义共享对象、不要用 `dict` 顶替，遇到缺失发 `SCHEMA_BLOCKER`。
-> 可以继续做：页面布局、Provider 内部实现、数据库连接、纯内部私有类型。
+> ✅ **共享 Schema v0.4 已交付并冻结**（标签 `schema-v0.4`）。
+> A、B 现在可以全速开工：`from app.schemas import ...` 拿到的就是 v0.4 对象。
+> 缺对象时仍按 [docs/SHARED_SCHEMA_HANDOFF.md](docs/SHARED_SCHEMA_HANDOFF.md)
+> 第 4 节发 `SCHEMA_BLOCKER`，不要自己定义或用 `dict` 顶替。
 
 后端当前可运行（基于 v0.3 对象，正在按 v0.4 重写）：
 

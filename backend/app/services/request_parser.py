@@ -17,7 +17,7 @@ import re
 from datetime import date, timedelta
 from typing import Mapping, Protocol
 
-from app.schemas import (
+from app.schemas.legacy import (
     Budget,
     BudgetFlexibility,
     DestinationMode,

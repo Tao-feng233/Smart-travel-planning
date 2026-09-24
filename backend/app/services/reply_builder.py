@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, Mapping
 
 from app.graph.stages import PlanStage
-from app.schemas import (
+from app.schemas.legacy import (
     AssistantReply,
     DestinationSuggestion,
     PlanState,

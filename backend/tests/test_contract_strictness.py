@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import (
+from app.schemas.legacy import (
     Evidence,
     ItineraryPlan,
     ResourceCandidate,

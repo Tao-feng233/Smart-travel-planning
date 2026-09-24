@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.schemas import DestinationRecommendation, PlanningReadyDestination, TripProfile
+from app.schemas.legacy import DestinationRecommendation, PlanningReadyDestination, TripProfile
 
 from . import fake_data
 from .travel_mcp_client import TravelMCPClient
@@ -137,7 +137,7 @@ class StubDestinationRecommender:
 
 
 def _knowledge_request(destination_id: str):
-    from app.schemas import SearchTravelKnowledgeInput
+    from app.schemas.legacy import SearchTravelKnowledgeInput
 
     return SearchTravelKnowledgeInput(
         query="目的地认知与体验特点",

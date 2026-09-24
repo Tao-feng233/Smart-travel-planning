@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.schemas import TripProfileDraft
-from app.schemas.draft import FINALIZE_REQUIRED_FIELDS
+from app.schemas.legacy import TripProfileDraft
+from app.schemas.legacy.draft import FINALIZE_REQUIRED_FIELDS
 
 
 @dataclass(frozen=True)

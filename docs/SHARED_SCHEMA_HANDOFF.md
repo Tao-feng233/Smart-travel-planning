@@ -2,6 +2,21 @@
 
 ## 1. 目的
 
+> **状态（2026-09-24）**：本文件要求的共享 Schema 已交付并冻结。
+>
+> ```text
+> 位置      backend/app/schemas/（v0.4 实现在 backend/app/schemas/v04/）
+> 内容      50 个模型 + 9 个 MCP 工具 Request/Response + REST 全套
+> 验证      fixtures/valid 7 全过、fixtures/invalid 7 全失败、business 3 通过
+> 冻结标签  schema-v0.4
+> 用法      from app.schemas import TripProfile, ResourceCandidateUnion, ...
+> ```
+>
+> `backend/app/schemas/legacy/` 是 C 线内部迁移用的 v0.3 旧对象，**A、B 不要引用**，
+> 它会在后续步骤中删除。
+>
+> 第 4 节的暂停规则依然有效：缺对象请发 `SCHEMA_BLOCKER`，不要自己造。
+
 `CONTRACTS.md`是纸面契约，`backend/app/schemas/`中的Pydantic模型是运行时契约。成员C负责将全部共享对象实现并导出；A、B只能引用，不能各自复制或自行补字段。
 
 启动包中的`contracts/contract_models.py`是基线和契约测试，不代表所有生产Schema已经实现完毕。
@@ -155,4 +170,3 @@ CONTRACTS.md对应章节：
 → 测试通过
 → A/B更新调用
 ```
-

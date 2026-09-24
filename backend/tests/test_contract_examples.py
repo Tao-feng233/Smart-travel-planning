@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from app.schemas import (
+from app.schemas.legacy import (
     Conflict,
     DestinationRecommendation,
     Evidence,

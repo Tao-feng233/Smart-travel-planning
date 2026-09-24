@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.schemas import (
+from app.schemas.legacy import (
     DateRange,
     GetPlaceAvailabilityInput,
     GetRouteInput,

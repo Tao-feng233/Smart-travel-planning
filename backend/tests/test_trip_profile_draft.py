@@ -14,7 +14,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import (
+from app.schemas.legacy import (
     Budget,
     IncompleteProfileError,
     TravelerComposition,
