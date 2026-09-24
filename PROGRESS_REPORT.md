@@ -48,8 +48,8 @@ python -m pytest                            # 80 个测试
 **已完成，不需要行动**
 
 - 仓库与分支已建好（地址与分支见上方表格）
-- 仓库已整理：根目录 `README.md` 改为项目入口（含仓库结构图与文档索引）；
-  你们的原始需求文档已归到 `docs/requirements/`，并附"需求 → 设计"对应表
+- 仓库已整理：根目录只保留 4 份高频文件，其余设计文档移入 `docs/`（导览见 `docs/README.md`）；
+  原始需求文档归到 `docs/requirements/`，并附"需求 → 设计"对应表
 
 ---
 
@@ -84,8 +84,17 @@ python -m pytest                            # 80 个测试
 
 ### 仓库根目录约定
 
-本目录（含 `AGENTS.md`、`CONTRACTS.md`）即为**代码仓库根目录**。
-三条线各自的代码目录见下方“当前总览”。
+本目录即为**代码仓库根目录**，只保留四份每天都要动的文件：
+
+```text
+README.md            项目入口
+AGENTS.md            AI 协作规则（每次开会话必读）
+CONTRACTS.md         接口契约（改动需三人确认）
+PROGRESS_REPORT.md   本文件
+```
+
+其余文档在 `docs/`（设计、规格、数据、计划、决策、原始需求），
+交接材料在 `handoff/`，代码在 `backend/`、`frontend/`、`data/`。
 
 ### 分支同步约定（各自一台电脑，务必遵守）
 
@@ -131,7 +140,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | RAG 检索（A3） | A | `backend/app/services/`（A 区） | ⬜ 未开始 | — |
 | MCP Server（A4） | A | `backend/app/mcp_server/` | ⬜ 未开始 | — |
 | 地图/天气 Provider（A5） | A | `backend/app/providers/` | ⬜ 未开始 | — |
-| 数据源可行性表（A6） | A | `DATA_SOURCE_ASSESSMENT_TEMPLATE.md` | ⬜ 未开始 | — |
+| 数据源可行性表（A6） | A | `docs/DATA_SOURCE_ASSESSMENT_TEMPLATE.md` | ⬜ 未开始 | — |
 | 测试 Fixture（A7） | A | 待定 | ⬜ 未开始 | — |
 | Vue 前端（B1–B7） | B | `frontend/` | ⬜ 未开始 | — |
 

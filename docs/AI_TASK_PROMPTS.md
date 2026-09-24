@@ -6,6 +6,11 @@
 
 ```text
 你正在参与“AI旅行决策与动态行程助手”项目。请先完整阅读仓库根目录下的AGENTS.md、CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、DATA_REQUIREMENTS_CATALOG.md、MODEL_PROVIDER_AND_SECRETS.md、PROJECT_DESIGN.md、CONTRACTS.md以及docs/adr中的文件。
+你正在参与“AI旅行决策与动态行程助手”项目。请先完整阅读：
+仓库根目录的 AGENTS.md、CONTRACTS.md、PROGRESS_REPORT.md；
+docs/ 下的 CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、
+DATA_REQUIREMENTS_CATALOG.md、MODEL_PROVIDER_AND_SECRETS.md、
+PROJECT_DESIGN.md、contract-open-questions.md 以及 docs/adr/ 中的文件。
 
 当前知识库数据目录/版本为：[待填写]
 当前planning_ready目的地由KnowledgeCoverage检查结果决定，不人工写死

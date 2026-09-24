@@ -28,8 +28,20 @@ cd Smart-travel-planning
 | B | `feature/llm-vue` | `git checkout feature/llm-vue` |
 | C | `feature/graph-planner` | `git checkout feature/graph-planner` |
 
-**仓库根目录就是 `Smart-travel-planning` 这一层**，
-`AGENTS.md`、`CONTRACTS.md` 都在根目录，不要进到子目录里去找。
+**目录结构要记住**：
+
+```text
+Smart-travel-planning/          ← 仓库根目录
+├── README.md                  项目入口
+├── AGENTS.md                  AI 协作规则（每次开会话都要读）
+├── CONTRACTS.md               接口契约（改动需三人确认）
+├── PROGRESS_REPORT.md         进度台账（看"最新变更"一节）
+├── docs/                      设计、规格、数据、计划、决策、原始需求
+├── handoff/                   本目录：交接说明与 AI 提示词
+└── backend/  frontend/  data/  三条开发线的代码
+```
+
+设计类文档都在 `docs/` 里，不要在根目录找 `PROJECT_DESIGN.md` 这类文件。
 
 **如果 clone 时报连不上 github.com**：说明需要代理（国内网络常见）。
 临时用法：

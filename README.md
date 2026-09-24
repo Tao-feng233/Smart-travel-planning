@@ -49,24 +49,27 @@ python -m pytest                          # 80 passed
 
 ```text
 Smart-travel-planning/
-├── README.md                  本文件：项目入口
-├── PROGRESS_REPORT.md         ⭐ 三人共享的进度台账（看"最新变更"一节即可）
+├── README.md                  ← 本文件
+├── AGENTS.md                  AI 助手必须遵守的协作与编码规则（每次开会话必读）
 ├── CONTRACTS.md               ⭐ 模块之间唯一允许使用的数据和接口格式
-├── AGENTS.md                  AI 助手必须遵守的协作与编码规则
-├── CONTEXT.md                 统一术语
-├── PROJECT_OVERVIEW.md        项目全局说明
-├── PROJECT_DESIGN.md          产品范围、业务流程、技术架构、三人分工
-├── TRAVEL_GUIDE_SPEC.md       七部分攻略的内容与字段要求
-├── TEAM_PROJECT_PLAN.md       三人任务、依赖、联调与演示计划
-├── DATA_REQUIREMENTS_CATALOG.md      需要收集的全部数据字段
-├── DATA_SOURCE_ASSESSMENT_TEMPLATE.md 数据源可行性验证表（A 线填写）
-├── DATA_RESEARCH_TASK_BRIEF.md       数据调研任务说明
-├── MODEL_PROVIDER_AND_SECRETS.md     模型抽象与密钥规则
-├── AI_TASK_PROMPTS.md         三条开发线的 AI 启动提示词
-├── docs/
-│   ├── adr/                   关键架构决定（4 条）
-│   ├── contract-open-questions.md    ⚠️ 契约待确认项（改动前必看）
-│   └── requirements/          原始需求文档 + 需求→设计对应表
+├── PROGRESS_REPORT.md         ⭐ 共享进度台账（看「⚡ 最新变更」一节即可）
+│
+├── docs/                      查阅型资料，见 docs/README.md
+│   ├── README.md                    本目录导览：什么阶段读哪份
+│   ├── PROJECT_OVERVIEW.md          项目全局说明
+│   ├── CONTEXT.md                   统一术语
+│   ├── PROJECT_DESIGN.md            范围、架构、三人分工
+│   ├── TRAVEL_GUIDE_SPEC.md         七部分攻略的内容与字段要求
+│   ├── TEAM_PROJECT_PLAN.md         三人任务、依赖、联调与演示计划
+│   ├── DATA_REQUIREMENTS_CATALOG.md 数据字段全集
+│   ├── DATA_SOURCE_ASSESSMENT_TEMPLATE.md  数据源可行性表（A 线填写）
+│   ├── DATA_RESEARCH_TASK_BRIEF.md  数据调研任务说明
+│   ├── MODEL_PROVIDER_AND_SECRETS.md 模型抽象与密钥规则
+│   ├── AI_TASK_PROMPTS.md           三条开发线的 AI 启动提示词
+│   ├── contract-open-questions.md   ⚠️ 契约待确认项（改动前必看）
+│   ├── adr/                         关键架构决定（4 条）
+│   └── requirements/                原始需求文档 + 需求→设计对应表
+│
 ├── handoff/                   给 A / B 的交接说明（含可直接复制的提示词）
 ├── backend/                   C 线后端（当前唯一有代码的目录）
 │   ├── app/{api,core,graph,schemas,services}/
@@ -74,6 +77,8 @@ Smart-travel-planning/
 ├── frontend/                  B 线 Vue（尚未创建）
 └── data/                      A 线数据与导入脚本（尚未创建）
 ```
+
+根目录刻意只保留**每天都要动**的四份文件，其余文档全部收在 `docs/`。
 
 ## 三个人各自怎么开始
 
@@ -103,8 +108,10 @@ git checkout feature/<你的分支>
 |---|---|
 | 知道现在做到哪、下一步谁做什么 | `PROGRESS_REPORT.md` |
 | 知道某个字段/接口长什么样 | `CONTRACTS.md`（+ `backend/app/schemas/`） |
-| 知道为什么这么设计 | `PROJECT_DESIGN.md`、`docs/adr/` |
-| 知道最终产物要包含什么 | `TRAVEL_GUIDE_SPEC.md` |
-| 知道要收集哪些数据、从哪来 | `DATA_REQUIREMENTS_CATALOG.md`、`DATA_SOURCE_ASSESSMENT_TEMPLATE.md` |
+| 第一次了解项目全貌 | `docs/PROJECT_OVERVIEW.md` → `docs/README.md` |
+| 知道为什么这么设计 | `docs/PROJECT_DESIGN.md`、`docs/adr/` |
+| 知道最终产物要包含什么 | `docs/TRAVEL_GUIDE_SPEC.md` |
+| 知道要收集哪些数据、从哪来 | `docs/DATA_REQUIREMENTS_CATALOG.md`、`docs/DATA_SOURCE_ASSESSMENT_TEMPLATE.md` |
 | 看用户最初提了什么需求 | `docs/requirements/` |
+| 契约里还有哪些没定死 | `docs/contract-open-questions.md` |
 | 让 AI 助手开工 | `handoff/*_交接说明.md` 里的提示词 |

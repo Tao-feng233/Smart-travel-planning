@@ -100,11 +100,12 @@ mobility_constraints[]、hard_constraints[]、soft_preferences[]
 
 ```text
 你正在参与“AI旅行决策与动态行程助手”项目，我在团队中担任成员 B：LLM 决策与 Vue 前端。
-项目目录已经同步到本机，请先完整阅读仓库根目录下的
-AGENTS.md、CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、
+项目目录已经同步到本机，请先完整阅读：
+仓库根目录的 AGENTS.md、CONTRACTS.md、PROGRESS_REPORT.md；
+docs/ 下的 CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、
 DATA_REQUIREMENTS_CATALOG.md、MODEL_PROVIDER_AND_SECRETS.md、
-PROJECT_DESIGN.md、CONTRACTS.md、AI_TASK_PROMPTS.md、PROGRESS_REPORT.md，
-以及 docs/adr/ 和 docs/contract-open-questions.md。
+PROJECT_DESIGN.md、AI_TASK_PROMPTS.md、contract-open-questions.md、
+requirements/README.md（原始需求与设计的对应关系），以及 docs/adr/。
 
 当前项目进度：C 线已完成共享 Schema，位于 backend/app/schemas/，已冻结；
 契约示例数据位于 backend/tests/fixtures/，其中 travel_guide.json 是

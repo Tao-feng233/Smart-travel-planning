@@ -4,14 +4,27 @@
 
 所有AI助手在分析或修改代码前必须依次阅读：
 
-1. `CONTEXT.md`
-2. `PROJECT_OVERVIEW.md`
-3. `TRAVEL_GUIDE_SPEC.md`
-4. `DATA_REQUIREMENTS_CATALOG.md`
-5. `MODEL_PROVIDER_AND_SECRETS.md`
-6. `PROJECT_DESIGN.md`
+1. `docs/CONTEXT.md`
+2. `docs/PROJECT_OVERVIEW.md`
+3. `docs/TRAVEL_GUIDE_SPEC.md`
+4. `docs/DATA_REQUIREMENTS_CATALOG.md`
+5. `docs/MODEL_PROVIDER_AND_SECRETS.md`
+6. `docs/PROJECT_DESIGN.md`
 7. `CONTRACTS.md`
 8. 与当前任务相关的 `docs/adr/`
+9. `PROGRESS_REPORT.md` 的「最新变更」一节（当前进度与需要你做什么）
+
+## 仓库文件位置约定
+
+```text
+根目录（每天都要动）      README.md / AGENTS.md / CONTRACTS.md / PROGRESS_REPORT.md
+docs/                    查阅型资料：设计、规格、数据、计划、决策记录、原始需求
+handoff/                 给 A / B 的交接说明与 AI 启动提示词
+backend/  frontend/  data/   三条开发线的代码目录
+```
+
+文档里出现的文件名（如 `PROJECT_DESIGN.md`）一律指仓库内的同名文件，
+大部分位于 `docs/`；`CONTRACTS.md`、`AGENTS.md`、`README.md`、`PROGRESS_REPORT.md` 在根目录。
 
 阅读后先说明：当前负责模块、输入契约、输出契约、依赖模块和不在本次范围内的内容。
 
