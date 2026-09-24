@@ -34,9 +34,11 @@ cd Smart-travel-planning
 Smart-travel-planning/          ← 仓库根目录
 ├── README.md                  项目入口
 ├── AGENTS.md                  AI 协作规则（每次开会话都要读）
-├── CONTRACTS.md               接口契约（改动需三人确认）
+├── CONTRACTS.md               契约 v0.4（改动需三人确认）
 ├── PROGRESS_REPORT.md         进度台账（看"最新变更"一节）
-├── docs/                      设计、规格、数据、计划、决策、原始需求
+├── docs/                      范围、契约交接、设计、规格、数据、计划、决策、原始需求
+├── contracts/                 v0.4 基线模型与自检脚本
+├── fixtures/                  v0.4 契约测试数据（valid / invalid / business）
 ├── handoff/                   本目录：交接说明与 AI 提示词
 └── backend/  frontend/  data/  三条开发线的代码
 ```
@@ -66,11 +68,13 @@ git -c http.proxy=http://127.0.0.1:7897 clone https://github.com/Tao-feng233/Sma
 3. 对方把文档里的「提示词」整段复制给自己电脑上的 AI 助手。
 4. 对方的 AI 应先复述边界、输入、输出、依赖，再开始写代码。
 
-## 开工前建议先看的四份
+## 开工前建议先看的五份
 
 | 文件 | 作用 |
 |---|---|
 | `README.md`（仓库根目录） | 项目入口、仓库结构、文档索引 |
 | `PROGRESS_REPORT.md` 的「⚡ 最新变更」 | 当前进度，以及**需要你做什么** |
+| `docs/SHARED_SCHEMA_HANDOFF.md` | ⛔ 共享模型门禁：哪些对象已就绪、缺了要发 `SCHEMA_BLOCKER` 并暂停 |
+| `docs/SCOPE_MATRIX.md` | P0/P1 唯一裁决源 |
 | `docs/contract-open-questions.md` | 契约里还没定死的地方，改动前必看 |
 | `docs/requirements/` | 用户最初提的需求，以及它们对应到项目里的哪些部分 |

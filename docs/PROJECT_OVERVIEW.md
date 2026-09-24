@@ -308,13 +308,17 @@ MCP是LangGraph访问旅游数据和外部工具的统一入口。第一版计�
 
 | MCP工具 | 作用 |
 |---|---|
+| `search_planning_ready_destinations` | 针对当前TripProfile返回可规划目的地 |
 | `search_travel_knowledge` | 检索目的地和景点RAG资料 |
-| `get_place_facts` | 获取开放时间、价格、预约等结构化事实 |
-| `get_place_availability` | 判断指定日期和时间窗是否可用 |
+| `search_resources` | 检索景点、住宿、餐厅等候选 |
+| `get_resource_facts` | 获取开放时间、价格、预约等结构化事实 |
+| `get_resource_availability` | 判断指定日期和时间窗是否可用 |
+| `get_intercity_options` | 获取抵达和离开方式 |
 | `get_route` | 获取两个地点之间的交通距离、时间和费用 |
 | `get_weather` | 获取指定日期天气或模拟数据 |
+| `get_preparation_rules` | 获取与天气、活动和人群相关的准备规则 |
 
-至少前三个工具需要实际跑通；地图和天气暂时拿不到接口时，可以使用同样返回格式的模拟Provider。
+P0中9个工具均需提供符合契约的可调用实现，允许由Mock、Snapshot、Live或Hybrid Provider提供；端到端流程必须留下目的地搜索、资源搜索、事实查询和路线查询四类调用日志。
 
 ## 12. LangGraph工作流
 
@@ -417,10 +421,16 @@ LangGraph重点体现三个状态回路：
 | `TripProfile` | 保存当前用户需求 |
 | `DestinationRequest` | 保存用户对每个目的地的天数和优先级 |
 | `DestinationRecommendation` | 保存LLM推荐理由、取舍和证据 |
+| `DestinationCoverageSnapshot` | 保存目的地长期数据覆盖状态 |
+| `PlanningReadinessEvaluation` | 判断目的地对当前TripProfile是否可规划 |
+| `FactRecord / PlanningFact` | 保存原始结构化事实和进入本次计算的归一化事实 |
+| `Evidence` | 保存RAG认知证据 |
 | `ResourceCandidate` | 保存进入规划的景点、餐饮等候选 |
 | `TripSegment` | 保存某个目的地分配到的旅行日期 |
-| `PlanNode` | 保存时间轴中的活动、用餐、休息或移动 |
-| `ItineraryPlan` | 保存完整行程和预算 |
+| `PlanNode / TravelLeg` | 分别保存活动节点和节点间移动 |
+| `CostItem / BudgetSummary` | 保存可复算费用明细与汇总 |
+| `ItineraryPlan` | 保存内部行程核心 |
+| `GuideNode / GuideDay / TravelGuide` | 保存用户侧富化攻略 |
 | `Conflict` | 保存验证问题和修复选项 |
 | `PlanState` | 保存计划版本、锁定节点和当前流程状态 |
 | `DataSnapshot` | 保存本次计划使用的数据版本 |
@@ -435,6 +445,10 @@ places
 place_opening_rules
 place_prices
 place_sources
+fact_records
+planning_facts
+coverage_snapshots
+readiness_evaluations
 lodgings
 restaurants
 travel_time_matrix
@@ -445,8 +459,10 @@ plan_versions
 plan_nodes
 stay_segments
 travel_legs
+cost_items
 travel_guides
 guide_versions
+version_lineages
 conflicts
 data_snapshots
 ```
@@ -539,6 +555,7 @@ verification_status
 - Chroma知识库和检索。
 - 资料来源、更新时间和有效期。
 - MCP Server。
+- Mock/Snapshot/Live/Hybrid Provider。
 - 地图、天气和模拟Provider。
 
 交付结果：根据目的地、日期和偏好返回结构化候选和证据。
@@ -576,35 +593,7 @@ B理解用户
 
 ## 20. 三四天内的实现策略
 
-### 必须真实跑通
-
-- LLM结构化提取。
-- 一次主动追问。
-- 一次RAG检索并返回证据。
-- 一个MCP工具被LangGraph真实调用。
-- 一个单目的地内包含多个游玩地点的行程。
-- 一次开放时间前置过滤。
-- 一次验证失败和自动修复。
-- 一次用户修改或突发重规划。
-- 七部分TravelGuide的组装和Vue展示。
-- Vue到FastAPI的端到端流程。
-
-### 可以使用小规模或模拟数据
-
-- 只准备3个目的地。
-- 每个目的地8～15个景点。
-- 只准备少量餐饮和住宿区域。
-- 使用预设路线矩阵。
-- 使用模拟天气接口。
-- P1如有余力，只演示一个固定双目的地组合。
-
-### 只需保留可解释设计
-
-- 酒店和门票真实库存。
-- 全国数据扩展。
-- 任意多地点优化。
-- 长期数据维护平台。
-- 商业支付和预订。
+功能范围和验收口径只以 `SCOPE_MATRIX.md` 为准。执行上先用Mock Provider和合法fixtures跑通完整P0，再逐步替换Snapshot或Live Provider；三个人不得为了时间自行删减契约字段或改写P0/P1。
 
 ## 21. 最终演示
 

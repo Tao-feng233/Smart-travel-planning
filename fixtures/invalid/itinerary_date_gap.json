@@ -1,0 +1,26 @@
+{
+  "model": "ItineraryPlan",
+  "data": {
+    "plan_id": "plan_bad",
+    "plan_version": 1,
+    "session_id": "sess_001",
+    "timezone": "Asia/Shanghai",
+    "start_date": "2026-10-02",
+    "end_date": "2026-10-05",
+    "trip_segments": [{"segment_id": "seg_001", "destination_id": "dest_001", "start_date": "2026-10-02", "end_date": "2026-10-05", "allocated_days": 4}],
+    "stay_segments": [{"stay_segment_id": "stay_001", "check_in_date": "2026-10-02", "check_out_date": "2026-10-06", "lodging_id": "hotel_001", "lodging_area": "示例区域"}],
+    "days": [
+      {"date": "2026-10-02", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": [], "travel_leg_ids": []},
+      {"date": "2026-10-03", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": [], "travel_leg_ids": []},
+      {"date": "2026-10-05", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": [], "travel_leg_ids": []}
+    ],
+    "nodes": [],
+    "travel_legs": [],
+    "cost_items": [],
+    "budget_summary": {"currency": "CNY", "total_limit": 5000, "known_total": 0, "estimated_min_total": 0, "estimated_max_total": 0, "remaining_min": 5000, "remaining_max": 5000, "by_category": {}, "unknown_cost_item_ids": []},
+    "plan_validation_status": "PENDING",
+    "conflict_ids": [],
+    "data_snapshot_id": "snap_001"
+  }
+}
+

@@ -8,7 +8,11 @@
 
 ## 2. 第一版范围
 
+功能优先级以 `SCOPE_MATRIX.md` 为唯一裁决源，本节只说明整体方向。
+
 ### 必须实现
+
+以下条目仅说明模块组成，P0/P1裁决以 `SCOPE_MATRIX.md` 为准。
 
 - Vue对话和七部分攻略展示页面。
 - 自然语言提取 `TripProfile`。
@@ -26,6 +30,8 @@
 - 将验证后的行程与抵达方式、准备清单、住宿、预算、备选和来源组装为七部分TravelGuide。
 
 ### 可以简化
+
+具体允许的降级方式以 `SCOPE_MATRIX.md` 和 `DATA_PROVIDER_ARCHITECTURE.md` 为准。
 
 - 每个目的地只准备8～15个核心景点和少量餐饮候选。
 - 住宿提供区域和人工整理的具体住宿候选，不声称实时可订。
@@ -154,6 +160,8 @@ LLM只能返回检索候选中存在的实体ID；找不到可靠资料时必须
 
 每条关键事实保存来源、采集时间、有效期和状态。规划时形成 `DataSnapshot`。
 
+数据读取使用 `DATA_PROVIDER_ARCHITECTURE.md` 定义的Mock、Snapshot、Live和Hybrid Provider；业务逻辑不得根据具体Provider写分支。
+
 - 静态认知：区域特点、适合人群、典型体验。
 - 半动态事实：开放时间、票价、预约规则。
 - 动态数据：天气、路线、临时关闭。
@@ -207,7 +215,7 @@ replan_affected_scope
 
 负责TripProfile提取、主动追问、目的地比较、多地点天数建议、修改意图、推荐解释、攻略组装器，以及Vue对话、候选和完整攻略页面。
 
-交付边界：把用户输入变成符合契约的TripProfile或ChangeRequest，并将经过验证的ItineraryPlan组装、展示为TravelGuide。
+交付边界：把用户输入变成符合契约的TripProfile或UserAction，并将经过验证的ItineraryPlan组装、展示为TravelGuide。
 
 ### C：LangGraph、规划与验证
 

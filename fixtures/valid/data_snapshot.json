@@ -1,0 +1,19 @@
+{
+  "model": "DataSnapshot",
+  "data": {
+    "data_snapshot_id": "snap_001",
+    "created_at": "2026-09-24T10:10:00+08:00",
+    "run_mode": "DEMO",
+    "trip_profile_version": 1,
+    "readiness_evaluation_ids": ["ready_001"],
+    "planning_fact_ids": ["pf_001"],
+    "evidence_ids": ["ev_001"],
+    "provider_versions": ["mock-provider-1.0"],
+    "ruleset_versions": ["readiness-1.0", "validation-1.0"],
+    "expired_items": [],
+    "degraded_items": [],
+    "mock_items": ["weather:dest_001", "route:leg_001"],
+    "unknown_items": []
+  }
+}
+

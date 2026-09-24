@@ -9,41 +9,45 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**本次更新**：2026-09-24 · 步骤 2 完成 —— FastAPI + LangGraph 追问回路可运行
+**本次更新**：2026-09-24 · 步骤 3 进行中 —— 项目整体迁移到**启动包 v0.4**，契约重写
 
 **仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
 
-**当前能跑起来的东西**
+**这次发生了什么**
 
-```powershell
-cd backend
-python -m uvicorn app.main:app --reload     # API 文档：http://127.0.0.1:8000/docs
-python -m pytest                            # 80 个测试
-```
+- 项目仓库整体搬到 `travel-planner-starter-pack-v0.4` 目录（v0.3 目录可删除）。
+- 契约升级到 **v0.4**：`CONTRACTS.md` 重写，新增 `contracts/` 基线与 `fixtures/` 契约测试。
+- 新增 5 份文档与 2 条 ADR，根目录只保留 4 份高频文件，其余进 `docs/`。
 
-第一轮消息 → 缺信息就追问；补充信息 → 推进到目的地推荐（当前用模拟数据）。
+**⚠️ A、B 请注意：现在开始必须遵守暂停规则**
 
-**本次结论**：C2 完成。追问回路 + 目的地推荐回路可端到端运行，缺口是 LLM 与真实数据。
+`docs/SHARED_SCHEMA_HANDOFF.md` 规定：在 C 提交 `schema-v0.4` 之前，
+
+- **不要**自己定义共享对象，**不要**用 `dict` 临时顶替，**不要**复制 `TripProfile` 等模型；
+- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 并暂停该部分；
+- **可以继续做**：Vue 页面布局、Provider 内部实现、数据库连接、纯内部私有类型、不依赖缺失 Schema 的单元测试。
+
+**本次结论**：v0.4 文档已就位；**C1 共享 Schema 重建是当前唯一阻塞项**，
+完成后 A、B 才能全速推进。
 
 **需要 A 行动**
 
-- [ ] 确认 MCP 工具口径：`CONTRACTS.md` 列 6 个，`AI_TASK_PROMPTS.md` 只写 3 个，需要定一个
-- [ ] 确认 `ResourceCandidate` / `availability` 的字段是否够 A 线交付（尤其 `CONDITIONAL` 的判定依据）
-- [ ] 真实 MCP Server 请实现 `backend/app/services/travel_mcp_client.py` 里的 `TravelMCPClient` 六个方法签名，C 线按此对接
+- [ ] 读 `docs/SHARED_SCHEMA_HANDOFF.md`（暂停规则）与 `docs/DATA_PROVIDER_ARCHITECTURE.md`（Mock/快照/实时/混合四层）
+- [ ] MCP 工具口径已由 v0.4 定死为 **9 个**（见 `CONTRACTS.md` §12），不需要再讨论
+- [ ] 在 C 交出 `schema-v0.4` 前，只做 Provider 内部实现、数据库连接、Chroma 索引等不依赖共享 Schema 的部分
 
 **需要 B 行动**
 
-- [ ] 确认 `pace`、`interests[]`、`avoidances[]` 等字段的取值集合；确认前暂时按字符串处理
-- [ ] 把 `backend/app/schemas/` 作为唯一 Schema 来源，不要在自己的目录复制一份
-- [ ] 你的 TripProfile 提取（B2）请替换 `backend/app/services/request_parser.py`，
-      行为基准见 `backend/tests/test_request_parser.py`（14 个用例）
-- [ ] 你的目的地推荐（B4）请替换 `backend/app/services/destination_recommender.py`
+- [ ] 读 `docs/SHARED_SCHEMA_HANDOFF.md`，用暂停规则约束自己的 AI 助手
+- [ ] 在 C 交出 `schema-v0.4` 前，只做 Vue 骨架、页面布局、不依赖共享对象的内部逻辑
+- [ ] 任务口径有变：B5 从 `ChangeRequest` 改为 `UserAction`；
+      B6 从"组装 TravelGuide"改为"把内部 `PlanNode/DayPlan` 富化为 `GuideNode/GuideDay` 与七部分攻略"
 
 **需要三人共同确认**
 
-- [ ] `docs/contract-open-questions.md` 第 1 节列出的 9 个字段取值集合（`pace`、`physical_intensity`、`Conflict.type`、`RepairOption.action`、`PlanState.stage` 等）
-- [ ] **`TripProfile` 允许部分字段为空**（C 线已按此实现，否则"追问"无法进行，详见待确认清单第 4 节）
-- [ ] `PlanState.stage` 的取值集合采用 C 线在 `backend/app/graph/stages.py` 定义的 11 个阶段名
+- [ ] `docs/SCOPE_MATRIX.md` 作为 P0/P1 的唯一裁决源，其他文档不再各自定义优先级
+- [ ] v0.4 §1.3 的枚举取值集合（C 按此实现，不再自行推断）
+- [ ] 之前登记的契约待确认项中，有 4 条已被 v0.4 解决，见 `docs/contract-open-questions.md` 第 5 节
 
 **已完成，不需要行动**
 
@@ -120,7 +124,10 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 
 | 模块 | 负责 | 目录 | 状态 | 最后更新 |
 |---|---|---|---|---|
-| 共享 Schema（C1） | C | `backend/app/schemas/` | ✅ 完成 | 2026-09-24 |
+| 共享 Schema v0.3（旧版） | C | `backend/app/schemas/` | ⚠️ 将被 v0.4 替换 | 2026-09-24 |
+| v0.4 契约基线模型（718 行） | 启动包 | `contracts/contract_models.py` | ✅ 已就位 | 2026-09-24 |
+| v0.4 契约测试数据（13 个） | 启动包 | `fixtures/` | ✅ 已就位 | 2026-09-24 |
+| **共享 Schema v0.4（C1）** | C | `backend/app/schemas/` | 🔄 **下一步，当前阻塞项** | — |
 | 契约示例 Fixture（C/A 共用） | C | `backend/tests/fixtures/` | ✅ 完成 | 2026-09-24 |
 | 原始需求文档归档 | C | `docs/requirements/` | ✅ 完成 | 2026-09-24 |
 | 项目骨架与密钥配置 | C | `.gitignore`、`.env.example`、`backend/` | ✅ 完成 | 2026-09-24 |
@@ -406,19 +413,108 @@ cd backend && python -m pytest
 | 14 | REST 响应体（`AssistantReply` 等）在 `CONTRACTS.md` §14 未定义 | B 线只能照现有实现对接 | 确认后把响应体写进契约 |
 | 15 | 用户点名一个数据不覆盖的目的地（例如都江堰）时，系统会改为推荐其他目的地 | 与用户预期不符 | C3/C4 阶段补"点名目的地不可用"的明确分支 |
 
+### 步骤 3：迁移到启动包 v0.4 + 契约重写
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C（受全体委托） |
+| 状态 | 🔄 进行中（文档已就位，共享 Schema 待重建） |
+| 目标 | 以 v0.4 为准，把仓库与契约整体升级 |
+
+**1）修改/新增的文件**
+
+```text
+仓库整体迁移     travel-planner-starter-pack-v0.3/travel-planner-starter-pack
+              → travel-planner-starter-pack-v0.4          （含 .git，历史与远程保留）
+
+新增文档         docs/SCOPE_MATRIX.md                    P0/P1 唯一裁决源
+                docs/SHARED_SCHEMA_HANDOFF.md            共享模型门禁与暂停规则
+                docs/DATA_PROVIDER_ARCHITECTURE.md       Mock/快照/实时/混合 Provider
+                docs/PROVIDER_ASSESSMENT_TEMPLATE.md     单个 API 评估模板
+                docs/CHANGELOG.md                        v0.4 修正记录
+                docs/adr/0005、0006                       新增两条架构决策
+
+新增契约材料     contracts/contract_models.py             718 行基线模型
+                contracts/validate_fixtures.py            自检脚本
+                fixtures/valid（6）invalid（6）business（1）
+
+更新文档         AGENTS.md、CONTRACTS.md、README.md 在根目录；
+                docs/ 下 10 份设计文档全部换成 v0.4 版
+                docs/README.md 重写为 v0.4 导览
+
+未变             docs/DATA_SOURCE_ASSESSMENT_TEMPLATE.md、MODEL_PROVIDER_AND_SECRETS.md
+                docs/adr/0001–0004（与 v0.3 完全相同）
+```
+
+**2）契约层面的实质变化**
+
+v0.4 不是小修，是重写。对代码影响最大的 13 条：
+
+```text
+1  KnowledgeCoverage → DestinationCoverageSnapshot + PlanningReadinessEvaluation
+2  单一 status → PlanValidationStatus / DataAssuranceStatus / GuideLifecycleStatus / GuideReadiness
+3  裸金额 → Money（amount/min/max/currency），预算必须可复算
+4  字符串数组约束 → Constraint（kind/field/operator/value/source_text）
+5  ResourceCandidate → 判别联合类型（VisitPlace/Lodging/Restaurant/IntercityOption/PreparationRule）
+6  PlanNode/DayPlan 与 GuideNode/GuideDay 分离，禁止混用
+7  Evidence → FactRecord / Evidence / PlanningFact / DataSnapshot 四层
+8  新增 VersionLineage（preserved/changed/removed 节点可追踪）
+9  MCP 6 个工具 → 9 个，且改名（search_resources、get_resource_facts、…）
+10 REST 正式化：统一 {ok,data,warnings,error,trace_id} 信封 + 8 个错误码
+11 PlanState 不再内嵌对象，只存 ID + version
+12 NodeType 删除 TRANSFER；TravelMode 增加 RAIL/FLIGHT/INTERCITY_BUS
+13 TripProfile 增加 timezone、duration_days、dietary/lodging/transport 偏好、作息边界
+```
+
+**3）运行的验证**
+
+```text
+cd contracts && python validate_fixtures.py
+Validated 6 valid, 6 invalid, and 1 business fixtures   ← v0.4 基线自检通过
+```
+
+环境：pydantic 2.13.5 满足 v0.4 的 `pydantic>=2.12` 要求。
+
+注意：`MODEL_REGISTRY` 只登记 10 个模型，而 `SHARED_SCHEMA_HANDOFF.md` 要求 C 交付
+40+ 个对象——基线不是成品，剩余部分由 C1 补齐。
+
+**4）仍是模拟实现的数据或依赖**
+
+与步骤 2 相同：旅游数据全部 MOCK_ONLY；TripProfile 提取与目的地推荐仍是规则式 STUB；
+会话存储仍是内存 + JSON 快照。
+
+**5）是否影响其他成员接口**
+
+**是（破坏性变更，已公告）**：
+
+- `backend/app/schemas/` 将按 v0.4 重写，v0.3 对象（`KnowledgeCoverage`、
+  `ResourceCandidate`、`ChangeRequest` 等）会被替换。
+- A、B 在 `schema-v0.4` 冻结前必须遵守 `docs/SHARED_SCHEMA_HANDOFF.md` 的暂停规则。
+
+**6）遗留**
+
+- C1 共享 Schema 重建（下一步，当前唯一阻塞项）。
+- `contracts/` 目录在 C1 完成后不再保留独立副本（模型并入 `backend/app/schemas/`）。
+- v0.3 目录（`travel-planner-starter-pack-v0.3`）已不再使用，可由你删除。
+
 ---
 
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
 |---|---|---|
-| `TripProfile` | ⚠️ 已实现待确认 | 除 `session_id` 外允许为空，以支持"追问"（见遗留问题 11）；`pace` 等枚举待补 |
-| `ResourceCandidate` | 🔒 已冻结 | 可用性四态已实现 |
-| `Evidence` | 🔒 已冻结 | `REJECTED` 被强制拦截 |
-| `ItineraryPlan` | 🔒 已冻结 | P0 单分段 |
-| `TravelGuide` | 🔒 已冻结 | 七部分完整 |
-| `PlanState` | 🔒 已冻结 | `{}` 语义用 `null` 表达 |
-| MCP 工具 I/O | ⚠️ 待确认 | 部分嵌套结构为推断值 |
+| 全部契约对象 | ⚠️ **v0.4 重建中** | 旧 v0.3 实现保留在 `backend/app/schemas/` 运行，待 C1 整体替换 |
+| `CONTRACTS.md` | 🔒 v0.4 为准 | 唯一字段、枚举、状态和接口标准 |
+| `contracts/contract_models.py` | 📦 基线 | 718 行，仅覆盖 10 个模型，由 C1 消化进 `backend/app/schemas/` |
+| `fixtures/` | ✅ 可用 | 6 合法 + 6 非法 + 1 业务用例，C1 完成后并入 `backend/tests/` |
+
+**v0.4 冻结流程**（`SHARED_SCHEMA_HANDOFF.md`）：
+
+```text
+C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
+→ 打 schema-v0.4 标签 → 视为冻结 → A/B 恢复全速开发
+```
 
 冻结后的变更规则（`CONTRACTS.md` §15）：新增可选字段可向后兼容；
 删除字段、重命名字段、改变枚举必须三人确认，且先改文档再改代码。
@@ -476,14 +572,16 @@ cd backend && python -m pytest
 
 | 步骤 | 内容 | 结束标志 | 状态 |
 |---|---|---|---|
-| 1 | 骨架 + 共享 Schema（C1） | 契约示例 JSON 全部校验通过 | ✅ |
-| 2 | FastAPI 空壳 + `PlanState` + LangGraph 状态图（C2） | 能推进到追问/推荐/规划节点 | ✅ |
-| 3 | 前置过滤（C3） | 不可用地点不会进入规划 | ⬜ |
-| 4 | 行程生成（C4） | 输出时间、交通、预算和节点 | ⬜ |
-| 5 | 验证器（C5） | 能发现时间窗或预算冲突 | ⬜ |
-| 6 | 修复与局部重规划（C6） | 修复后重新验证，锁定节点不变 | ⬜ |
-| 7 | REST 接口集成（C7） | Vue 可端到端调用 | ⬜ |
-| 8 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |
+| 1 | 骨架 + 共享 Schema v0.3 | 契约示例 JSON 全部校验通过 | ✅ |
+| 2 | FastAPI + `PlanState` + LangGraph 追问回路 | 能推进到追问/推荐节点 | ✅ |
+| 3 | **迁移 v0.4：文档同步 + 仓库迁移** | 以 v0.4 为准，文档与 fixtures 就位 | ✅ |
+| 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | 🔄 下一步（阻塞 A/B） |
+| 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ⬜ |
+| 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ⬜ |
+| 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ⬜ |
+| 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |
+| 9 | REST 接口集成（C7） | Vue 可端到端调用 | ⬜ |
+| 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |
 
 ---
 

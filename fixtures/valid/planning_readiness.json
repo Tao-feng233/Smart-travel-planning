@@ -1,0 +1,21 @@
+{
+  "model": "PlanningReadinessEvaluation",
+  "data": {
+    "readiness_id": "ready_001",
+    "destination_id": "dest_001",
+    "trip_profile_version": 1,
+    "evaluated_for": {
+      "start_date": "2026-10-02",
+      "end_date": "2026-10-05",
+      "duration_days": 4,
+      "traveler_count": 2
+    },
+    "required_capabilities": ["VISIT_PLACES", "OPENING_RULES", "ROUTES", "LODGING"],
+    "failed_requirements": [],
+    "coverage_snapshot_id": "cov_001",
+    "ruleset_version": "readiness-1.0",
+    "planning_ready": true,
+    "evaluated_at": "2026-09-24T10:05:00+08:00"
+  }
+}
+

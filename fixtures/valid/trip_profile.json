@@ -1,0 +1,42 @@
+{
+  "model": "TripProfile",
+  "data": {
+    "session_id": "sess_001",
+    "profile_version": 1,
+    "departure_city": "上海",
+    "start_date": "2026-10-02",
+    "end_date": "2026-10-05",
+    "duration_days": 4,
+    "timezone": "Asia/Shanghai",
+    "traveler_count": 2,
+    "traveler_composition": {"adults": 2, "children": 0, "seniors": 0},
+    "budget": {"amount": 5000, "min_amount": null, "max_amount": null, "currency": "CNY"},
+    "budget_flexibility": "NEGOTIABLE",
+    "pace": "RELAXED",
+    "interests": ["FOOD", "CULTURE"],
+    "must_visit_resource_ids": [],
+    "avoidances": ["HIGH_INTENSITY_HIKING"],
+    "mobility_constraints": [],
+    "dietary_constraints": [],
+    "lodging_preferences": ["QUIET", "NEAR_TRANSIT"],
+    "transport_preferences": ["METRO", "TAXI"],
+    "earliest_day_start": "08:30",
+    "latest_day_end": "21:00",
+    "destination_mode": "SINGLE",
+    "destination_requests": [
+      {
+        "destination_id": "dest_001",
+        "name": "示例目的地",
+        "desired_days": 4,
+        "min_days": 3,
+        "max_days": 5,
+        "priority": "HIGH",
+        "fixed": true,
+        "user_reason": "已经确定目的地"
+      }
+    ],
+    "constraints": [],
+    "missing_fields": []
+  }
+}
+

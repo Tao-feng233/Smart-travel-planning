@@ -1,0 +1,285 @@
+{
+  "model": "TravelGuide",
+  "data": {
+    "guide_id": "guide_001",
+    "guide_version": 1,
+    "parent_guide_version": null,
+    "session_id": "sess_001",
+    "run_mode": "DEMO",
+    "lifecycle_status": "DRAFT",
+    "plan_validation_status": "VALID",
+    "data_assurance_status": "MOCK",
+    "guide_readiness": "READY_WITH_WARNINGS",
+    "timezone": "Asia/Shanghai",
+    "trip_summary": {
+      "destination_names": ["示例目的地"],
+      "start_date": "2026-10-02",
+      "end_date": "2026-10-05",
+      "duration_days": 4,
+      "traveler_count": 2,
+      "overall_theme": "轻松的人文与美食之旅",
+      "overall_reason": "减少跨区通勤并保留休息",
+      "major_tradeoffs": ["暂未接入实时酒店库存"]
+    },
+    "arrival_and_departure": {
+      "recommended_option": {
+        "option_id": "intercity_001",
+        "mode": "HIGH_SPEED_RAIL",
+        "origin_station": "出发站",
+        "destination_station": "到达站",
+        "departure_window": {"start_at": "2026-10-02T08:00:00+08:00", "end_at": "2026-10-02T08:30:00+08:00"},
+        "arrival_window": {"start_at": "2026-10-02T11:00:00+08:00", "end_at": "2026-10-02T11:30:00+08:00"},
+        "door_to_door_minutes": 240,
+        "price_range": {"amount": null, "min_amount": 200, "max_amount": 300, "currency": "CNY"},
+        "transfer_count": 0,
+        "baggage_note": null,
+        "booking_required": true,
+        "booking_advice": "建议提前购票",
+        "risk_flags": [],
+        "evidence_ids": []
+      },
+      "alternative_options": [],
+      "arrival_plan": {
+        "station": "到达站",
+        "first_destination_type": "LODGING",
+        "first_destination_id": "hotel_001",
+        "local_transport_mode": "METRO",
+        "duration_minutes": 35,
+        "estimated_cost": {"amount": 6, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "reason": "抵达后先放置行李"
+      },
+      "return_plan": {
+        "origin_id": "hotel_001",
+        "departure_station": "返程站",
+        "local_transport_mode": "METRO",
+        "recommended_leave_at": "2026-10-05T12:30:00+08:00",
+        "duration_minutes": 40,
+        "estimated_cost": {"amount": 6, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "reason": "预留进站和候车缓冲"
+      }
+    },
+    "preparation": {
+      "items": [
+        {
+          "item_id": "prep_001",
+          "category": "DOCUMENT",
+          "title": "携带身份证件",
+          "description": "用于乘车和可能的景点核验",
+          "trigger_type": "GENERAL",
+          "trigger_ref": null,
+          "priority": "REQUIRED",
+          "due_at": "2026-10-02T07:00:00+08:00",
+          "reason": "交通和预约可能要求实名证件",
+          "completed": false,
+          "evidence_ids": []
+        }
+      ],
+      "refresh_before_departure": []
+    },
+    "lodging": {
+      "stay_segments": [
+        {
+          "stay_segment_id": "stay_001",
+          "check_in_date": "2026-10-02",
+          "check_out_date": "2026-10-06",
+          "lodging_id": "hotel_001",
+          "lodging_area": "示例区域",
+          "is_user_booked": false,
+          "locked": false,
+          "switch_reason": null
+        }
+      ],
+      "primary_candidates": [
+        {
+          "lodging_id": "hotel_001",
+          "name": "示例连锁酒店",
+          "lodging_type": "CHAIN",
+          "address": "示例地址",
+          "lodging_area": "示例区域",
+          "price_range": {"amount": null, "min_amount": 300, "max_amount": 450, "currency": "CNY"},
+          "rating": 4.5,
+          "review_count": 500,
+          "quality_flags": ["NEAR_TRANSIT", "CLEAN"],
+          "facilities": ["ELEVATOR", "LAUNDRY"],
+          "commute_summary": "到主要活动区域约30分钟",
+          "suitable_for": ["COUPLE", "FRIENDS"],
+          "unsuitable_for": [],
+          "booking_url": null,
+          "availability_is_realtime": false,
+          "evidence_ids": []
+        }
+      ],
+      "alternative_candidates": []
+    },
+    "daily_itinerary": [
+      {
+        "date": "2026-10-02",
+        "day_theme": "抵达与适应",
+        "activity_areas": ["住宿周边"],
+        "start_location": "到达站",
+        "end_location": "hotel_001",
+        "nodes": [
+          {
+            "node_id": "node_arrive",
+            "node_type": "ARRIVAL",
+            "resource_id": null,
+            "name": "抵达并入住",
+            "address": null,
+            "start_at": "2026-10-02T12:00:00+08:00",
+            "end_at": "2026-10-02T13:00:00+08:00",
+            "opening_window": null,
+            "last_entry_at": null,
+            "reservation_required": false,
+            "estimated_cost": {"amount": 6, "min_amount": null, "max_amount": null, "currency": "CNY"},
+            "reason": "先放置行李",
+            "tips": [],
+            "locked": false,
+            "evidence_ids": []
+          }
+        ],
+        "travel_legs": [],
+        "total_activity_minutes": 60,
+        "total_travel_minutes": 35,
+        "intensity_level": "LOW",
+        "estimated_cost": {"amount": 6, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "warnings": [],
+        "alternative_plan_ids": []
+      },
+      {
+        "date": "2026-10-03",
+        "day_theme": "城市文化",
+        "activity_areas": ["示例文化片区"],
+        "start_location": "hotel_001",
+        "end_location": "hotel_001",
+        "nodes": [
+          {
+            "node_id": "node_001",
+            "node_type": "ATTRACTION",
+            "resource_id": "poi_001",
+            "name": "示例博物馆",
+            "address": "示例地址",
+            "start_at": "2026-10-03T09:00:00+08:00",
+            "end_at": "2026-10-03T11:00:00+08:00",
+            "opening_window": {"start_at": "2026-10-03T09:00:00+08:00", "end_at": "2026-10-03T17:00:00+08:00"},
+            "last_entry_at": "2026-10-03T16:30:00+08:00",
+            "reservation_required": false,
+            "estimated_cost": {"amount": 50, "min_amount": null, "max_amount": null, "currency": "CNY"},
+            "reason": "符合文化偏好",
+            "tips": ["建议预留安检时间"],
+            "locked": false,
+            "evidence_ids": ["ev_001"]
+          },
+          {
+            "node_id": "node_002",
+            "node_type": "MEAL",
+            "resource_id": "restaurant_001",
+            "name": "示例餐厅",
+            "address": "示例地址二",
+            "start_at": "2026-10-03T11:25:00+08:00",
+            "end_at": "2026-10-03T12:25:00+08:00",
+            "opening_window": null,
+            "last_entry_at": null,
+            "reservation_required": false,
+            "estimated_cost": {"amount": null, "min_amount": 60, "max_amount": 100, "currency": "CNY"},
+            "reason": "路线附近用餐",
+            "tips": [],
+            "locked": false,
+            "evidence_ids": []
+          }
+        ],
+        "travel_legs": [
+          {
+            "leg_id": "leg_001",
+            "from_node_id": "node_001",
+            "to_node_id": "node_002",
+            "recommended_mode": "METRO",
+            "alternative_modes": ["TAXI"],
+            "depart_at": "2026-10-03T11:00:00+08:00",
+            "arrive_at": "2026-10-03T11:25:00+08:00",
+            "duration_minutes": 25,
+            "distance_km": 6.4,
+            "cost_item_ids": ["cost_002"],
+            "congestion_note": "高峰时段打车可能拥堵",
+            "walking_burden": "LOW",
+            "transfer_count": 1,
+            "reason": "地铁时间更稳定",
+            "source": "FAKE",
+            "is_estimated": true
+          }
+        ],
+        "total_activity_minutes": 180,
+        "total_travel_minutes": 25,
+        "intensity_level": "LOW",
+        "estimated_cost": {"amount": null, "min_amount": 114, "max_amount": 154, "currency": "CNY"},
+        "warnings": ["路线数据为模拟数据"],
+        "alternative_plan_ids": ["alt_001"]
+      },
+      {
+        "date": "2026-10-04",
+        "day_theme": "第二游玩区域",
+        "activity_areas": ["示例公园片区"],
+        "start_location": "hotel_001",
+        "end_location": "hotel_001",
+        "nodes": [],
+        "travel_legs": [],
+        "total_activity_minutes": 120,
+        "total_travel_minutes": 40,
+        "intensity_level": "LOW",
+        "estimated_cost": {"amount": null, "min_amount": 50, "max_amount": 100, "currency": "CNY"},
+        "warnings": [],
+        "alternative_plan_ids": []
+      },
+      {
+        "date": "2026-10-05",
+        "day_theme": "返程",
+        "activity_areas": ["住宿周边"],
+        "start_location": "hotel_001",
+        "end_location": "返程站",
+        "nodes": [],
+        "travel_legs": [],
+        "total_activity_minutes": 60,
+        "total_travel_minutes": 40,
+        "intensity_level": "LOW",
+        "estimated_cost": {"amount": 6, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "warnings": [],
+        "alternative_plan_ids": []
+      }
+    ],
+    "budget_and_alternatives": {
+      "budget_summary": {
+        "currency": "CNY",
+        "total_limit": 5000,
+        "known_total": 100,
+        "estimated_min_total": 108,
+        "estimated_max_total": 108,
+        "remaining_min": 4892,
+        "remaining_max": 4892,
+        "by_category": {"TICKET": 100, "LOCAL_TRANSPORT": 8},
+        "unknown_cost_item_ids": []
+      },
+      "alternative_plans": [
+        {
+          "alternative_plan_id": "alt_001",
+          "trigger": "LATE_START",
+          "affected_node_ids": ["node_001"],
+          "replacement_resource_ids": ["poi_002"],
+          "cost_delta": {"amount": 0, "min_amount": null, "max_amount": null, "currency": "CNY"},
+          "time_delta_minutes": -60,
+          "reason": "减少上午安排并保留核心活动",
+          "requires_user_confirmation": false
+        }
+      ]
+    },
+    "sources_and_freshness": {
+      "fact_record_ids": ["fact_001"],
+      "evidence_ids": ["ev_001"],
+      "degraded_items": [],
+      "mock_items": ["weather:dest_001", "route:leg_001"],
+      "unknown_items": [],
+      "last_updated": "2026-09-24T18:00:00+08:00"
+    },
+    "plan_id": "plan_001",
+    "plan_version": 1,
+    "data_snapshot_id": "snap_001"
+  }
+}

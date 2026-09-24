@@ -114,3 +114,52 @@ C 线在 `backend/app/schemas/api.py` 定义了 `AssistantReply`（含
 
 **说明**：这些是接口层对象，不是领域契约；但它们决定 B 线前端的对接方式，
 确认后建议一并写进契约。
+
+---
+
+## 5. v0.4 对本清单的处理结果（2026-09-24 更新）
+
+启动包 v0.4 上线后，本清单前面的问题大部分被正式契约解决了。
+下面逐条对账，避免三个人重复讨论已经定论的事。
+
+### 5.1 已被 v0.4 解决
+
+| 原问题 | v0.4 的处理 | 位置 |
+|---|---|---|
+| 第 1 节：9 个字段只有示例值、没有取值集合 | 全部枚举已定义，含 `pace = RELAXED / BALANCED / INTENSE`、`ConflictSeverity`、`NodeType`、`TravelMode` 等 | `CONTRACTS.md` §1.3、§8 |
+| 第 2 节：`travel_dates`、`temperature_range` 嵌套结构未定义 | 由 v0.4 的 MCP 工具契约与 `Money`/`TimeWindow` 统一类型取代 | §1.1、§1.2、§12 |
+| 第 3 节：MCP 工具 3 个还是 6 个 | 定为 **9 个**，并重新命名 | §12.1–§12.9 |
+| 4.1 `TripProfile` 允许不完整 | ⚠️ **未解决**，见 5.2 | — |
+| 4.2 `PlanState` 没有承载本轮用户输入的位置 | 明确为 REST 请求参数（`{text, expected_profile_version?}`），不进状态 | §13.1 |
+| 4.3 `PlanState.stage` 取值集合 | 定义完整状态链 `PARSING → ASKING_CLARIFICATION → RECOMMENDING → WAITING_CONFIRMATION → PLANNING → VALIDATING → COMPOSING_GUIDE → PRESENTED → REPLANNING` | §14 |
+| 4.4 `Budget` 无法表达"预算不限" | `Money` 支持 `amount / min_amount / max_amount` 可空组合 + `budget_flexibility` | §1.1、§2.3 |
+| 4.5 REST 响应体未定义 | 统一信封 `{ok, data, warnings, error, trace_id}` + 8 个错误码 | §13 |
+| `RepairOption.action`、`Conflict.type` 取值集合 | 已完整定义 | §8.1、§8.2 |
+| `PlanNode` 的 `TRANSFER` 歧义 | `NodeType` 删除 `TRANSFER`，普通交通只用 `TravelLeg` | §1.3 |
+
+### 5.2 仍然存在的问题（需要三人拍板）
+
+**Q1（阻塞 C1）：`TripProfile` 在 v0.4 里仍是全字段必填，无法表示"还没问全"的画像。**
+
+`CONTRACTS.md` §2.3 的 `TripProfile` 带 `missing_fields` 字段，说明设计上本来就预期
+画像可以处于"部分已知"状态；但 §2.3 的示例与 `contracts/contract_models.py` 的
+基线实现都是全字段必填（`departure_city`、`start_date`、`budget`、`pace` 等都没有默认值）。
+
+后果：**"缺日期/预算就追问"这条 P0 要求无法用一个合法的 `TripProfile` 对象表达**——
+在补齐所有字段之前，根本构造不出这个对象。
+
+C1 会先按"可缺失字段允许为 `None` + 用 `missing_fields` 记录"实现，
+但必须三人确认后写回 `CONTRACTS.md`。
+
+**Q2：统一 Error / Warning 对象的结构未定义。**
+
+§13 规定了信封里有 `warnings` 和 `error` 两个字段，但没有定义它们的内部结构。
+C1 需要一个最小结构（例如 `code / message / details`），
+并且要与 §13.3 的 8 个错误码、`DATA_PROVIDER_ARCHITECTURE.md` 的
+`DATA_MISSING` / `NO_FEASIBLE_PLAN` 对齐。
+
+**Q3：9 个 MCP 工具的 Request / Response 结构只有字段描述。**
+
+§12 给出了每个工具的作用与输入输出要点，但基线 `contract_models.py` 只实现了
+10 个模型，没有实现任何 MCP Request/Response。
+C1 会按 §12 的描述补齐，遇到的每个歧义点都会登记在这里。

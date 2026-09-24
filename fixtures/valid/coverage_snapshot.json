@@ -1,0 +1,20 @@
+{
+  "model": "DestinationCoverageSnapshot",
+  "data": {
+    "coverage_snapshot_id": "cov_001",
+    "destination_id": "dest_001",
+    "coverage_version": "2026-09-24-v1",
+    "category_status": {
+      "destination_profile": "AVAILABLE",
+      "visit_places": "AVAILABLE",
+      "opening_rules": "AVAILABLE",
+      "routes": "AVAILABLE",
+      "lodging": "LIMITED",
+      "restaurants": "LIMITED",
+      "weather": "MOCK_ONLY"
+    },
+    "missing_capabilities": ["REALTIME_HOTEL_AVAILABILITY"],
+    "evaluated_at": "2026-09-24T10:00:00+08:00"
+  }
+}
+

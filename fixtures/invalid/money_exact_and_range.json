@@ -1,0 +1,5 @@
+{
+  "model": "Money",
+  "data": {"amount": 100, "min_amount": 80, "max_amount": 120, "currency": "CNY"}
+}
+

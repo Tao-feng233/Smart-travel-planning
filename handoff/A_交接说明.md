@@ -34,8 +34,8 @@ git checkout feature/data-rag-mcp
 | A1 | 设计数据表并导入试点数据 | 能查出目的地、景点和开放规则 |
 | A2 | 建立认知卡片（Chroma + 索引脚本） | 查询返回内容、`entity_id`、`evidence_id` |
 | A3 | 完成 RAG 检索服务 | 能按省份、目的地和类型过滤 |
-| A4 | 实现 MCP 工具 | 至少 3 个工具可独立调用 |
-| A5 | 提供地图/天气 Provider | 接口失败时可切换 fake 数据 |
+| A4 | 实现 MCP 工具 | **9 个契约工具**均有可调用实现（允许 Mock） |
+| A5 | 提供 Provider | Mock / Snapshot / Live / Hybrid 四种实现，同一套测试可对它们运行 |
 | A6 | 填写数据源可行性表 | 明确 `AVAILABLE/LIMITED/MOCK_ONLY` 等状态 |
 | A7 | 提供测试 Fixture | 正常、过期、未知三类数据 |
 
@@ -43,14 +43,31 @@ git checkout feature/data-rag-mcp
 
 ## 项目当前状态（你开工前必须知道）
 
+**⚠️ 最重要的变化：项目已升级到启动包 v0.4**
+
+- 契约从 v0.3 重写为 **v0.4**：`CONTRACTS.md`（根目录）、`fixtures/`（契约测试数据）、
+  `contracts/`（基线模型）。
+- MCP 工具从 6 个定为 **9 个**，并且改名：
+  `search_planning_ready_destinations`、`search_travel_knowledge`、`search_resources`、
+  `get_resource_facts`、`get_resource_availability`、`get_intercity_options`、
+  `get_route`、`get_weather`、`get_preparation_rules`。
+- 数据层要按 `docs/DATA_PROVIDER_ARCHITECTURE.md` 分成
+  **Mock / Snapshot / Live / Hybrid** 四种可替换 Provider，业务代码不得直接依赖第三方 SDK。
+
+**⛔ 你现在必须先遵守的暂停规则**（`docs/SHARED_SCHEMA_HANDOFF.md`）
+
+C 正在把 v0.4 契约实现成 `backend/app/schemas/`，**在此之前**：
+
+- 不要自己定义共享对象，不要用 `dict` 临时顶替，不要复制 `TripProfile` / `ResourceCandidate` 等模型；
+- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 消息（模板见该文档第 5 节）并暂停该部分；
+- **可以继续做**：Provider 内部实现、数据库连接、Chroma 索引、数据调研（A6）、
+  纯内部私有类型、不依赖缺失 Schema 的单元测试。
+
 **已经做完的**
 
 - 仓库骨架已建立：`backend/app/{api,graph,schemas,services}`。
-- **共享 Schema 已冻结**，位于 `backend/app/schemas/`，共 81 个导出对象。
-  包含 `ResourceCandidate`、`Evidence`、`KnowledgeCoverage`、
-  `DestinationRecommendation` 和 6 个 MCP 工具的输入输出模型。
-- **契约示例数据已备好**，位于 `backend/tests/fixtures/`，
-  可以直接当你的开发/测试数据源。
+- **共享 Schema 已有 v0.3 版本**（`backend/app/schemas/`，81 个导出对象），正在按 v0.4 整体重写。
+- **契约测试数据已备好**：`fixtures/valid`（6）、`fixtures/invalid`（6）、`fixtures/business`（1）。
 - 密钥模板在根目录 `.env.example`，`.env` 已被 `.gitignore` 忽略。
 
 **还没做的（也就是你要做的）**
@@ -97,11 +114,13 @@ from app.schemas import (
 ```text
 你正在参与“AI旅行决策与动态行程助手”项目，我在团队中担任成员 A：数据、RAG 与 MCP。
 项目目录已经同步到本机，请先完整阅读：
-仓库根目录的 AGENTS.md、CONTRACTS.md、PROGRESS_REPORT.md；
-docs/ 下的 CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、
-DATA_REQUIREMENTS_CATALOG.md、MODEL_PROVIDER_AND_SECRETS.md、
-PROJECT_DESIGN.md、AI_TASK_PROMPTS.md、contract-open-questions.md、
-requirements/README.md（原始需求与设计的对应关系），以及 docs/adr/。
+仓库根目录的 AGENTS.md、CONTRACTS.md（v0.4）、PROGRESS_REPORT.md；
+docs/ 下的 SCOPE_MATRIX.md、SHARED_SCHEMA_HANDOFF.md、DATA_PROVIDER_ARCHITECTURE.md、
+CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、DATA_REQUIREMENTS_CATALOG.md、
+MODEL_PROVIDER_AND_SECRETS.md、PROJECT_DESIGN.md、AI_TASK_PROMPTS.md、
+PROVIDER_ASSESSMENT_TEMPLATE.md、contract-open-questions.md、
+requirements/README.md，以及 docs/adr/。
+另外要看根目录 fixtures/ 里的契约测试数据。
 
 当前项目进度：C 线已完成共享 Schema，位于 backend/app/schemas/，已冻结；
 契约示例数据位于 backend/tests/fixtures/。
@@ -124,6 +143,10 @@ A6 数据源可行性表、A7 测试 Fixture。
 约束：不得自行修改 CONTRACTS.md；不得让 LLM 编造旅游事实；
 未完成的外部 API 一律提供符合契约的 fake 实现并标记 MOCK_ONLY；
 不要实现本角色范围外的功能。
+
+共享对象一律从 backend/app/schemas/ 导入。如果需要的对象还没实现，
+不要自己定义、也不要用 dict 顶替，按 docs/SHARED_SCHEMA_HANDOFF.md 第 5 节的
+模板输出 SCHEMA_BLOCKER 并暂停该部分，改做其他不依赖它的工作。
 ```
 
 ---

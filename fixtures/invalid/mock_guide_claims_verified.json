@@ -1,0 +1,25 @@
+{
+  "model": "TravelGuide",
+  "data": {
+    "guide_id": "guide_bad",
+    "guide_version": 1,
+    "session_id": "sess_001",
+    "run_mode": "DEMO",
+    "lifecycle_status": "DRAFT",
+    "plan_validation_status": "VALID",
+    "data_assurance_status": "VERIFIED",
+    "guide_readiness": "READY",
+    "timezone": "Asia/Shanghai",
+    "trip_summary": {},
+    "arrival_and_departure": {},
+    "preparation": {},
+    "lodging": {},
+    "daily_itinerary": [],
+    "budget_and_alternatives": {},
+    "sources_and_freshness": {},
+    "plan_id": "plan_001",
+    "plan_version": 1,
+    "data_snapshot_id": "snap_001"
+  }
+}
+

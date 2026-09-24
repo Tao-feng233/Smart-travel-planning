@@ -36,23 +36,42 @@ git checkout feature/llm-vue
 | B2 | 提取 `TripProfile` | 非固定输入能生成合法 JSON |
 | B3 | 主动追问 | 缺日期/预算等会继续询问 |
 | B4 | 目的地推荐 | 只返回候选 ID 并解释取舍 |
-| B5 | 修改意图识别 | 能识别删除、替换、减轻强度等意图 |
-| B6 | 攻略组装 `TravelGuide` | 七部分数据可由固定 JSON 组装 |
+| B5 | 修改意图识别 | 输出 v0.4 的 `UserAction`（不再是 v0.3 的 `ChangeRequest`），能识别删除、替换、减轻强度等意图 |
+| B6 | 攻略组装 | 把内部 `PlanNode`/`DayPlan` **富化**为 `GuideNode`/`GuideDay` 与七部分 `TravelGuide`（两类对象禁止混用） |
 | B7 | 前端联调 | 可推进会话并展示完整攻略和冲突 |
 
 ---
 
 ## 项目当前状态（你开工前必须知道）
 
+**⚠️ 最重要的变化：项目已升级到启动包 v0.4**
+
+- 契约从 v0.3 重写为 **v0.4**：`CONTRACTS.md`（根目录）、`fixtures/`（契约测试数据）、
+  `contracts/`（基线模型）。
+- `PlanNode`/`DayPlan`（内部）与 `GuideNode`/`GuideDay`（用户展示）**正式分离**，
+  你的 B6 就是"把内部对象富化为展示对象"，不能混用。
+- 金额统一用 `Money`（含 amount / min_amount / max_amount / currency），
+  约束统一用 `Constraint` 对象，不再是字符串数组。
+- 修改意图的载体从 `ChangeRequest` 改为 **`UserAction`**。
+- 前端拿到的 JSON 结构以 `fixtures/valid/travel_guide.json` 为准。
+
+**⛔ 你现在必须先遵守的暂停规则**（`docs/SHARED_SCHEMA_HANDOFF.md`）
+
+C 正在把 v0.4 契约实现成 `backend/app/schemas/`，**在此之前**：
+
+- 不要自己定义共享对象，不要用 `dict` 临时顶替，不要在前端复制一份 `TripProfile` 结构；
+- 需要但还没有的对象，发 `SCHEMA_BLOCKER` 消息（模板见该文档第 5 节）并暂停该部分；
+- **可以继续做**：Vue 项目骨架、页面布局与样式、路由、组件拆分、
+  不依赖共享 Schema 的前端内部类型与单元测试。
+
 **已经做完的**
 
 - 仓库骨架已建立：`backend/app/{api,graph,schemas,services}`。
-- **共享 Schema 已冻结**，位于 `backend/app/schemas/`，共 81 个导出对象。
-  你要用的 `TripProfile`、`TravelGuide`（七部分）、`ChangeRequestPayload`、
-  `DestinationRecommendation` 都已实现。
-- **契约示例数据已备好**，位于 `backend/tests/fixtures/`，
-  其中 `travel_guide.json` 是一份完整的七部分攻略样例，
-  `itinerary_plan.json` 是一份完整行程样例，可以直接拿来渲染页面。
+- **共享 Schema 已有 v0.3 版本**（`backend/app/schemas/`，81 个导出对象），
+  正在按 v0.4 整体重写；重写前不要依赖它的字段名。
+- **契约示例数据已备好**：`fixtures/valid/travel_guide.json` 是一份完整的
+  七部分攻略样例，`fixtures/valid/itinerary_plan.json` 是一份完整行程样例，
+  可以直接拿来渲染页面。
 - 根目录有 `.gitignore` 和 `.env.example`（前端不得持有任何服务端 API Key）。
 
 **还没做的**
@@ -101,16 +120,16 @@ mobility_constraints[]、hard_constraints[]、soft_preferences[]
 ```text
 你正在参与“AI旅行决策与动态行程助手”项目，我在团队中担任成员 B：LLM 决策与 Vue 前端。
 项目目录已经同步到本机，请先完整阅读：
-仓库根目录的 AGENTS.md、CONTRACTS.md、PROGRESS_REPORT.md；
-docs/ 下的 CONTEXT.md、PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、
-DATA_REQUIREMENTS_CATALOG.md、MODEL_PROVIDER_AND_SECRETS.md、
-PROJECT_DESIGN.md、AI_TASK_PROMPTS.md、contract-open-questions.md、
-requirements/README.md（原始需求与设计的对应关系），以及 docs/adr/。
+仓库根目录的 AGENTS.md、CONTRACTS.md（v0.4）、PROGRESS_REPORT.md；
+docs/ 下的 SCOPE_MATRIX.md、SHARED_SCHEMA_HANDOFF.md、CONTEXT.md、
+PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、PROJECT_DESIGN.md、
+AI_TASK_PROMPTS.md、contract-open-questions.md、requirements/README.md，
+以及 docs/adr/。另外要看根目录 fixtures/ 里的契约测试数据。
 
-当前项目进度：C 线已完成共享 Schema，位于 backend/app/schemas/，已冻结；
-契约示例数据位于 backend/tests/fixtures/，其中 travel_guide.json 是
-一份完整的七部分攻略样例，可以直接用于前端渲染。
-后端 API 尚未实现，B7 之前请使用 fixture 作为数据源。
+当前项目进度：契约已升级到 v0.4，C 正在把 v0.4 实现成 backend/app/schemas/，
+尚未冻结。契约示例数据位于 fixtures/valid/，其中 travel_guide.json 是一份
+完整的七部分攻略样例、itinerary_plan.json 是完整行程样例，可以用于前端渲染。
+后端 API 基于 v0.3 对象，正在按 v0.4 重写。
 
 我的交付边界：把用户自然语言转换成符合契约的 TripProfile 或 ChangeRequest，
 并把经过验证的 ItineraryPlan 组装、展示为七部分 TravelGuide。
@@ -130,6 +149,10 @@ B4 目的地推荐、B5 修改意图识别、B6 GuideComposer 攻略组装、B7 
 开放时间、价格、路线、住宿、餐饮和天气只能来自系统提供的数据；
 只允许返回候选集合中存在的实体 ID；前端不得持有任何 API Key；
 不要实现本角色范围外的功能。
+
+共享对象一律从 backend/app/schemas/ 导入。如果需要的对象还没实现，
+不要自己定义、也不要用 dict 顶替，按 docs/SHARED_SCHEMA_HANDOFF.md 第 5 节的
+模板输出 SCHEMA_BLOCKER 并暂停该部分，改做页面骨架等不依赖它的工作。
 ```
 
 ---

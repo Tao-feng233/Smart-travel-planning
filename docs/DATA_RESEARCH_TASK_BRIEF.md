@@ -4,6 +4,7 @@
 
 - `DATA_REQUIREMENTS_CATALOG.md`
 - `DATA_SOURCE_ASSESSMENT_TEMPLATE.md`
+- `PROVIDER_ASSESSMENT_TEMPLATE.md`
 - `TRAVEL_GUIDE_SPEC.md`
 
 ## 可直接使用的任务提示词
@@ -55,7 +56,8 @@ Agent C：旅游资源，包括景点开放/门票/预约、住宿、餐厅、�
 5. 需要API Key或申请资质的清单；
 6. 可执行的最小数据POC步骤；
 7. 填写完成的DATA_SOURCE_ASSESSMENT_TEMPLATE.md；
-8. 所有关键结论旁附当前官方来源链接和核对日期。
+8. 每个重点候选来源填写PROVIDER_ASSESSMENT_TEMPLATE.md；
+9. 所有关键结论旁附当前官方来源链接和核对日期。
 
 不要只给笼统推荐，也不要开始编写完整旅游系统。先完成数据可行性结论。
 ```
@@ -117,4 +119,3 @@ Agent C：旅游资源，包括景点开放/门票/预约、住宿、餐厅、�
 - 某个接口即使技术可调用，也要检查授权和展示限制。
 - 所有“可以使用”的结论都要附可复查证据。
 - 调研结果只决定Provider方案，不修改TravelGuide和业务契约。
-

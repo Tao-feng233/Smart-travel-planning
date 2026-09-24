@@ -1,0 +1,24 @@
+{
+  "case": "locked_node_immutability",
+  "expect_violation": true,
+  "locked_node_ids": ["node_locked"],
+  "before_nodes": {
+    "node_locked": {
+      "node_id": "node_locked",
+      "resource_id": "poi_001",
+      "start_at": "2026-10-03T09:00:00+08:00",
+      "end_at": "2026-10-03T11:00:00+08:00",
+      "locked": true
+    }
+  },
+  "after_nodes": {
+    "node_locked": {
+      "node_id": "node_locked",
+      "resource_id": "poi_002",
+      "start_at": "2026-10-03T10:00:00+08:00",
+      "end_at": "2026-10-03T12:00:00+08:00",
+      "locked": true
+    }
+  }
+}
+

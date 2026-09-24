@@ -1,0 +1,162 @@
+{
+  "model": "ItineraryPlan",
+  "data": {
+    "plan_id": "plan_001",
+    "plan_version": 1,
+    "parent_plan_version": null,
+    "session_id": "sess_001",
+    "timezone": "Asia/Shanghai",
+    "start_date": "2026-10-02",
+    "end_date": "2026-10-05",
+    "trip_segments": [
+      {
+        "segment_id": "seg_001",
+        "destination_id": "dest_001",
+        "start_date": "2026-10-02",
+        "end_date": "2026-10-05",
+        "allocated_days": 4
+      }
+    ],
+    "stay_segments": [
+      {
+        "stay_segment_id": "stay_001",
+        "check_in_date": "2026-10-02",
+        "check_out_date": "2026-10-06",
+        "lodging_id": "hotel_001",
+        "lodging_area": "示例区域",
+        "is_user_booked": false,
+        "locked": false,
+        "switch_reason": null
+      }
+    ],
+    "days": [
+      {"date": "2026-10-02", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": ["node_arrive"], "travel_leg_ids": []},
+      {"date": "2026-10-03", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": ["node_001", "node_002"], "travel_leg_ids": ["leg_001"]},
+      {"date": "2026-10-04", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": ["node_003"], "travel_leg_ids": []},
+      {"date": "2026-10-05", "segment_id": "seg_001", "stay_segment_id": "stay_001", "node_ids": ["node_return"], "travel_leg_ids": []}
+    ],
+    "nodes": [
+      {
+        "node_id": "node_arrive",
+        "node_type": "ARRIVAL",
+        "resource_id": null,
+        "start_at": "2026-10-02T12:00:00+08:00",
+        "end_at": "2026-10-02T13:00:00+08:00",
+        "cost_item_ids": [],
+        "reason": "抵达并前往住宿地",
+        "locked": false,
+        "completed": false,
+        "evidence_ids": []
+      },
+      {
+        "node_id": "node_001",
+        "node_type": "ATTRACTION",
+        "resource_id": "poi_001",
+        "start_at": "2026-10-03T09:00:00+08:00",
+        "end_at": "2026-10-03T11:00:00+08:00",
+        "cost_item_ids": ["cost_001"],
+        "reason": "符合文化偏好",
+        "locked": false,
+        "completed": false,
+        "evidence_ids": ["ev_001"]
+      },
+      {
+        "node_id": "node_002",
+        "node_type": "MEAL",
+        "resource_id": "restaurant_001",
+        "start_at": "2026-10-03T11:25:00+08:00",
+        "end_at": "2026-10-03T12:25:00+08:00",
+        "cost_item_ids": [],
+        "reason": "路线附近用餐",
+        "locked": false,
+        "completed": false,
+        "evidence_ids": []
+      },
+      {
+        "node_id": "node_003",
+        "node_type": "ATTRACTION",
+        "resource_id": "poi_002",
+        "start_at": "2026-10-04T10:00:00+08:00",
+        "end_at": "2026-10-04T12:00:00+08:00",
+        "cost_item_ids": [],
+        "reason": "安排第二个游玩区域",
+        "locked": false,
+        "completed": false,
+        "evidence_ids": []
+      },
+      {
+        "node_id": "node_return",
+        "node_type": "FREE_TIME",
+        "resource_id": null,
+        "start_at": "2026-10-05T14:00:00+08:00",
+        "end_at": "2026-10-05T15:00:00+08:00",
+        "cost_item_ids": [],
+        "reason": "返程前预留缓冲",
+        "locked": false,
+        "completed": false,
+        "evidence_ids": []
+      }
+    ],
+    "travel_legs": [
+      {
+        "leg_id": "leg_001",
+        "from_node_id": "node_001",
+        "to_node_id": "node_002",
+        "recommended_mode": "METRO",
+        "alternative_modes": ["TAXI"],
+        "depart_at": "2026-10-03T11:00:00+08:00",
+        "arrive_at": "2026-10-03T11:25:00+08:00",
+        "duration_minutes": 25,
+        "distance_km": 6.4,
+        "cost_item_ids": ["cost_002"],
+        "congestion_note": "高峰时段打车可能拥堵",
+        "walking_burden": "LOW",
+        "transfer_count": 1,
+        "reason": "地铁时间更稳定",
+        "source": "FAKE",
+        "is_estimated": true
+      }
+    ],
+    "cost_items": [
+      {
+        "cost_item_id": "cost_001",
+        "category": "TICKET",
+        "item_ref": "poi_001",
+        "unit_price": {"amount": 50, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "quantity": 2,
+        "pricing_scope": "PER_PERSON",
+        "status": "KNOWN",
+        "paid": false,
+        "refundable": null,
+        "evidence_ids": ["ev_price_001"]
+      },
+      {
+        "cost_item_id": "cost_002",
+        "category": "LOCAL_TRANSPORT",
+        "item_ref": "leg_001",
+        "unit_price": {"amount": 4, "min_amount": null, "max_amount": null, "currency": "CNY"},
+        "quantity": 2,
+        "pricing_scope": "PER_PERSON",
+        "status": "ESTIMATED",
+        "paid": false,
+        "refundable": null,
+        "evidence_ids": []
+      }
+    ],
+    "budget_summary": {
+      "currency": "CNY",
+      "total_limit": 5000,
+      "known_total": 100,
+      "estimated_min_total": 108,
+      "estimated_max_total": 108,
+      "remaining_min": 4892,
+      "remaining_max": 4892,
+      "by_category": {"TICKET": 100, "LOCAL_TRANSPORT": 8},
+      "unknown_cost_item_ids": []
+    },
+    "plan_validation_status": "VALID",
+    "conflict_ids": [],
+    "data_snapshot_id": "snap_001"
+  }
+}
+

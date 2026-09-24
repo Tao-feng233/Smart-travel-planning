@@ -38,23 +38,26 @@ P1
 
 ## 3. 知识覆盖元数据
 
-目的地不依靠人工写死的支持名单，而是由数据覆盖状态决定是否 `planning_ready`。
+目的地不依靠人工写死的支持名单。先用覆盖快照描述长期数据情况，再结合当前TripProfile做本次规划就绪评估。
 
 ```text
-KnowledgeCoverage
+DestinationCoverageSnapshot
+├── coverage_snapshot_id
 ├── destination_id
 ├── coverage_version
-├── destination_profile_status
-├── visit_place_count
-├── visit_place_fact_coverage
-├── opening_rule_coverage
-├── route_coverage
-├── lodging_coverage
-├── restaurant_coverage
-├── intercity_transport_coverage
-├── preparation_rule_coverage
-├── freshness_summary
+├── category_status{}
 ├── missing_capabilities[]
+└── evaluated_at
+
+PlanningReadinessEvaluation
+├── readiness_id
+├── destination_id
+├── trip_profile_version
+├── evaluated_for{}
+├── required_capabilities[]
+├── failed_requirements[]
+├── coverage_snapshot_id
+├── ruleset_version
 ├── planning_ready
 └── evaluated_at
 ```
@@ -602,4 +605,3 @@ notes
 6. 最小请求/响应示例或截图证据。
 7. 推荐Provider方案。
 8. 失败后的人工数据或fixture降级方案。
-
