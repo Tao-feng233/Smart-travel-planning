@@ -562,8 +562,32 @@ SHARED_SCHEMA_HANDOFF 要求的对象   全部已实现并可导入（有专门�
 
 **3）发现的问题（已登记，见 contract-open-questions 第 5.2 节）**
 
-Q4：§5.1 的公共字段与基线模型不一致（`LodgingCandidate` 用 `lodging_id`、
-`IntercityOption` 没有 `resource_id`）。统一字段名属于重命名共享字段，需三人拍板。
+Q4：§5.1 的公共字段与基线模型不一致 → **已拍板并落地**（见下）。
+
+### 步骤 3.7：Q4 拍板落地（资源候选判别联合类型）
+
+拍板内容（已写回 `CONTRACTS.md` §5.2）：
+
+```text
+ResourceCandidateUnion = VisitPlaceCandidate | LodgingCandidate
+                       | RestaurantCandidate | LodgingAreaCandidate
+四个成员全部继承 ResourceCandidateBase，统一 resource_id / destination_id / resource_type
+LodgingCandidate 不再使用 lodging_id；外部 hotel_id / lodging_id 由 A 在 Provider 层归一化
+IntercityOption（option_id）与 PreparationRule（rule_id）不属于联合类型，保留各自主键
+```
+
+代码改动：
+
+```text
+models.py      新增 ResourceCandidateBase、LodgingAreaCandidate；
+               VisitPlace / Lodging / Restaurant 改为继承 Base；
+               LodgingCandidate 的 lodging_id 改为 resource_id 并补 destination_id；
+               去掉 IntercityOption 上多余的 resource_type
+candidates.py  联合类型改为 4 个成员，Base 从 models 导入（单一来源）
+fixtures       travel_guide.json 的住宿候选改用 resource_id + destination_id
+测试           新增 3 个用例：继承与公共字段齐全、Lodging 无 lodging_id、
+               非联合类型保留 option_id / rule_id；并校验判别字段
+```
 
 **4）尚未完成（C1b）**
 

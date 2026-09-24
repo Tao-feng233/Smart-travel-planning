@@ -91,7 +91,9 @@
       ],
       "primary_candidates": [
         {
-          "lodging_id": "hotel_001",
+          "resource_id": "hotel_001",
+          "resource_type": "LODGING",
+          "destination_id": "dest_001",
           "name": "示例连锁酒店",
           "lodging_type": "CHAIN",
           "address": "示例地址",

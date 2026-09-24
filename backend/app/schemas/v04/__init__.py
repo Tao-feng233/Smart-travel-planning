@@ -48,6 +48,7 @@ from .mcp import (
 )
 from .models import *  # noqa: F401,F403
 from .models import MODEL_REGISTRY as _BASELINE_REGISTRY
+from .models import LodgingAreaCandidate
 from .planning import Conflict, ConflictType, RepairAction, RepairOption
 from .recommendation import DestinationRecommendation
 from .rest import (
@@ -83,6 +84,7 @@ MODEL_REGISTRY: dict[str, type] = {
     **_BASELINE_REGISTRY,
     "DestinationRecommendation": DestinationRecommendation,
     "ResourceCandidateBase": ResourceCandidateBase,
+    "LodgingAreaCandidate": LodgingAreaCandidate,
     "RepairOption": RepairOption,
     "Conflict": Conflict,
     "PlanState": PlanState,

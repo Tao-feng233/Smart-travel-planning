@@ -85,26 +85,38 @@ def test_mcp_tool_contract_is_complete() -> None:
 
 
 def test_resource_union_members_expose_base_fields() -> None:
-    """判别联合的每个成员都必须能按 `resource_type` 判别。
+    """Q4 拍板：联合类型成员统一继承 ResourceCandidateBase，字段名一致。"""
 
-    ⚠️ 已知差异：§5.1 的公共字段集（`resource_id`、`destination_id`、
-    `availability_status` 等）在基线模型里并不统一——例如 `LodgingCandidate`
-    用的是 `lodging_id` 且没有 `destination_id`，`IntercityOption` 也没有
-    `resource_id`。**这属于契约与基线不一致，不能由 C 自行改名**，
-    已登记在 `docs/contract-open-questions.md` 待三人拍板。
-    因此本用例只强制校验判别字段存在。
-    """
-
-    required = {"resource_type"}
+    base_fields = set(v04.ResourceCandidateBase.model_fields)
     for model in (
         v04.VisitPlaceCandidate,
         v04.LodgingCandidate,
         v04.RestaurantCandidate,
-        v04.IntercityOption,
+        v04.LodgingAreaCandidate,
     ):
-        missing = required - set(model.model_fields)
-        assert not missing, f"{model.__name__} 缺少判别所需字段：{sorted(missing)}"
-        assert v04.parse_resource_candidate
+        assert issubclass(model, v04.ResourceCandidateBase)
+        missing = base_fields - set(model.model_fields)
+        assert not missing, f"{model.__name__} 缺少公共字段：{sorted(missing)}"
+
+
+def test_lodging_candidate_uses_shared_primary_key() -> None:
+    """住宿候选不再使用 `lodging_id` 作为共享主键。"""
+
+    assert "resource_id" in v04.LodgingCandidate.model_fields
+    assert "lodging_id" not in v04.LodgingCandidate.model_fields
+
+
+def test_non_union_types_keep_their_own_ids() -> None:
+    """IntercityOption 与 PreparationRule 不属于联合类型，保留各自主键。"""
+
+    assert "option_id" in v04.IntercityOption.model_fields
+    assert "rule_id" in v04.PreparationRule.model_fields
+    assert "resource_type" not in v04.IntercityOption.model_fields
+
+
+def test_union_discriminator_resolves_members() -> None:
+    kind = v04.ResourceCandidateUnion.__metadata__[0].discriminator
+    assert kind == "resource_type"
 
 
 def test_all_handoff_objects_are_implemented() -> None:

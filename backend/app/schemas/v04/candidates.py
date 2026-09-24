@@ -6,51 +6,27 @@ A 线不得返回无类型的任意 dict；所有资源候选必须能按 `resou
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Union
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 from .models import (
     IntercityOption,
+    LodgingAreaCandidate,
     LodgingCandidate,
+    ResourceCandidateBase,
     RestaurantCandidate,
     VisitPlaceCandidate,
 )
 
-
-class ResourceCandidateBase(BaseModel):
-    """§5.1 定义的公共字段契约。
-
-    具体模型（`VisitPlaceCandidate` 等）通过继承之外的方式满足这些字段；
-    `backend/tests/test_v04_schema.py` 会校验它们确实都具备这些字段。
-    """
-
-    resource_id: str
-    resource_type: str
-    destination_id: str
-    area_id: str | None = None
-    name: str
-    address: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    categories: list[str] = Field(default_factory=list)
-    suggested_duration_minutes: int | None = None
-    availability_status: Literal[
-        "AVAILABLE", "CONDITIONAL", "UNAVAILABLE", "UNKNOWN"
-    ] = "UNKNOWN"
-    planning_fact_ids: list[str] = Field(default_factory=list)
-    evidence_ids: list[str] = Field(default_factory=list)
-
-
-#: 以 `resource_type` 为判别字段的资源候选联合类型。
-#: 注：`LODGING_AREA` 已在 §1.3 的枚举中，但基线与附录 A 尚未给出独立模型，
-#: 待三人确认后补入（已登记在 docs/contract-open-questions.md）。
+#: 以 `resource_type` 为判别字段的资源候选联合类型（Q4 拍板，2026-09-24）。
+#: `IntercityOption`（option_id）与 `PreparationRule`（rule_id）不属于本联合类型。
 ResourceCandidateUnion = Annotated[
     Union[
         VisitPlaceCandidate,
         LodgingCandidate,
         RestaurantCandidate,
-        IntercityOption,
+        LodgingAreaCandidate,
     ],
     Field(discriminator="resource_type"),
 ]

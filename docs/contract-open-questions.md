@@ -189,23 +189,26 @@ C1 需要一个最小结构（例如 `code / message / details`），
 10 个模型，没有实现任何 MCP Request/Response。
 C1 会按 §12 的描述补齐，遇到的每个歧义点都会登记在这里。
 
-**Q4（新，需三人拍板）：§5.1 的公共字段与基线模型不一致。**
+**Q4（已解决 2026-09-24）：§5.1 的公共字段与基线模型不一致。**
 
-§5 要求"代码实现使用 `resource_type` 判别联合类型"，判别字段已补齐；
-但 §5.1 `ResourceCandidateBase` 列出的公共字段，基线模型并不统一具备：
+**三人确认的处理方式**（已写回 `CONTRACTS.md` §5.2）：
+
+1. `ResourceCandidateUnion` 只包含 `VisitPlaceCandidate`、`LodgingCandidate`、
+   `RestaurantCandidate` 和可选的 `LodgingAreaCandidate`；
+2. 四个成员**全部继承 `ResourceCandidateBase`**，统一使用
+   `resource_id`、`destination_id`、`resource_type`；
+3. `LodgingCandidate` 不再使用 `lodging_id` 作为共享主键；
+   外部数据的 `hotel_id` / `lodging_id` 由 **A 线在 Provider 层归一化**；
+4. `IntercityOption`（`option_id`）与 `PreparationRule`（`rule_id`）
+   **不属于**联合类型，保留各自主键。
+
+实现与验证：
 
 ```text
-LodgingCandidate   用 lodging_id 而不是 resource_id，且没有 destination_id
-IntercityOption    没有 resource_id / destination_id
-VisitPlaceCandidate / RestaurantCandidate  基本符合
-另外 categories、availability_status、planning_fact_ids 等字段也不齐全
+backend/app/schemas/v04/models.py      ResourceCandidateBase / LodgingAreaCandidate
+                                       VisitPlace / Lodging / Restaurant 改为继承 Base
+backend/app/schemas/v04/candidates.py  联合类型改为 4 个成员
+fixtures/valid/travel_guide.json       住宿候选改用 resource_id + destination_id
+测试                                  继承关系、公共字段齐全、Lodging 无 lodging_id、
+                                      非联合类型保留 option_id / rule_id
 ```
-
-统一字段名属于**重命名共享字段**，C 不得自行处理（`AGENTS.md`）。
-三种可选方案：
-
-1. 让各具体模型继承 `ResourceCandidateBase`（改基线，字段名以 §5.1 为准）；
-2. 在 `CONTRACTS.md` 里明确"具体模型可以有自己的主键名"，并在附录 A 说明映射；
-3. 由 A 线在 Provider 层做归一化，共享 Schema 保持现状。
-
-在拍板前，`ResourceCandidateUnion` 只强制要求 `resource_type` 存在。

@@ -365,7 +365,25 @@ Chroma中的RAG认知证据，不直接参与确定性计算。
 - `IntercityOption`：增加起终站、方式、门到门耗时、价格区间、预订和行李提示。
 - `PreparationRule`：增加触发条件、准备物品、优先级、完成期限和原因。
 
-字段全集以本文件附录A为准，代码实现使用`resource_type`判别联合类型。
+字段全集以本文件附录A为准。
+
+### 5.2 判别联合类型成员（Q4 定案，2026-09-24）
+
+```text
+ResourceCandidateUnion = VisitPlaceCandidate | LodgingCandidate
+                       | RestaurantCandidate | LodgingAreaCandidate
+```
+
+规则：
+
+1. 上述成员**全部继承`ResourceCandidateBase`**，统一使用
+   `resource_id`、`destination_id`、`resource_type`三个字段；
+2. `LodgingCandidate`**不再使用`lodging_id`作为共享主键**；
+   外部数据里的`hotel_id`、`lodging_id`等由 A 线在 Provider 层归一化为`resource_id`；
+3. `LodgingAreaCandidate`为可选成员，字段以本文件附录A为准；
+4. `IntercityOption`与`PreparationRule`**不属于**`ResourceCandidateUnion`，
+   分别保留各自主键`option_id`与`rule_id`；
+5. 判别字段统一为`resource_type`，取值见 §1.3。
 
 ## 6. 目的地推荐
 

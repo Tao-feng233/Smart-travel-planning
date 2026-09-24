@@ -468,9 +468,6 @@ class BudgetSummary(BaseModel):
 
 
 class IntercityOption(BaseModel):
-    #: 判别字段：CONTRACTS.md §1.3 的 ResourceType 明确包含 INTERCITY_OPTION，
-    #: §5 要求“代码实现使用 resource_type 判别联合类型”，故在此补充。
-    resource_type: Literal["INTERCITY_OPTION"] = "INTERCITY_OPTION"
     option_id: str
     mode: Literal["FLIGHT", "HIGH_SPEED_RAIL", "TRAIN", "BUS", "INTERCITY_METRO", "SELF_DRIVE"]
     origin_station: str
@@ -521,10 +518,44 @@ class PreparationItem(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
-class LodgingCandidate(BaseModel):
-    #: 判别字段，理由同上（ResourceType 含 LODGING）
+class ResourceCandidateBase(BaseModel):
+    """资源候选公共契约（CONTRACTS.md §5.1）。
+
+    联合类型成员一律继承本类，统一使用 `resource_id` / `destination_id` /
+    `resource_type`（Q4 拍板，2026-09-24）。
+    外部数据里的 `hotel_id`、`lodging_id`、`poi_id` 等由 A 线在 Provider 层归一化。
+    """
+
+    resource_id: str
+    resource_type: str
+    destination_id: str
+    area_id: str | None = None
+    name: str
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    categories: list[str] = Field(default_factory=list)
+    suggested_duration_minutes: int | None = None
+    availability_status: Literal[
+        "AVAILABLE", "CONDITIONAL", "UNAVAILABLE", "UNKNOWN"
+    ] = "UNKNOWN"
+    planning_fact_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class LodgingAreaCandidate(ResourceCandidateBase):
+    """住宿区域候选（可选成员，ResourceType 含 LODGING_AREA）。"""
+
+    resource_type: Literal["LODGING_AREA"] = "LODGING_AREA"
+    area_type: str | None = None
+    nearby_transport: list[str] = Field(default_factory=list)
+    food_convenience: str | None = None
+
+
+class LodgingCandidate(ResourceCandidateBase):
+    #: 判别字段；共享主键统一为 resource_id（Q4 拍板，不再使用 lodging_id）
     resource_type: Literal["LODGING"] = "LODGING"
-    lodging_id: str
+    destination_id: str
     name: str
     lodging_type: Literal["STAR_HOTEL", "CHAIN", "LOCAL_FEATURED", "HOSTEL", "ECONOMY"]
     address: str
@@ -542,7 +573,7 @@ class LodgingCandidate(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
-class VisitPlaceCandidate(BaseModel):
+class VisitPlaceCandidate(ResourceCandidateBase):
     resource_id: str
     resource_type: Literal["VISIT_PLACE"] = "VISIT_PLACE"
     destination_id: str
@@ -564,7 +595,7 @@ class VisitPlaceCandidate(BaseModel):
     evidence_ids: list[str]
 
 
-class RestaurantCandidate(BaseModel):
+class RestaurantCandidate(ResourceCandidateBase):
     resource_id: str
     resource_type: Literal["RESTAURANT"] = "RESTAURANT"
     destination_id: str
