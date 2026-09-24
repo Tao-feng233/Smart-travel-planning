@@ -254,7 +254,10 @@ class TravelGuide(ContractModel):
         return self
 
 
-from .contracts import PlanState  # noqa: E402
+# `PlanState.current_guide` 用字符串前向引用指向本类。Pydantic 自己认得，
+# 但 LangGraph 会用 `typing.get_type_hints()` 解析状态模型，需要该名字出现在
+# `contracts` 模块的命名空间里，因此这里显式注入并重建模型。
+from . import contracts as _contracts  # noqa: E402
 
-PlanState.model_rebuild(force=True)
-
+_contracts.TravelGuide = TravelGuide
+_contracts.PlanState.model_rebuild(force=True)

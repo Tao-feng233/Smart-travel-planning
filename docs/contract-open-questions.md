@@ -48,3 +48,69 @@
 **建议**：以 `CONTRACTS.md` 为准，P0 至少实现 3 个可独立调用的工具，
 其中 `search_planning_ready_destinations`、`search_travel_knowledge`、
 `get_place_availability` 为必须项（分别支撑推荐、RAG 证据和前置过滤）。
+
+---
+
+## 4. 实现 LangGraph 阶段发现的语义问题（2026-09-24 补充）
+
+第 2 步（FastAPI + LangGraph）实现时暴露出 5 个契约层面解释不清的地方。
+C 线已按"最小改动 + 不破坏其他线"的方式落地，全部需要三人确认。
+
+### 4.1 `TripProfile` 必须允许"还没问全"的状态（重要）
+
+**问题**：`CONTRACTS.md` §1 的示例 JSON 里所有字段都是必填。
+但 `CONTEXT.md` 明确 `TripProfile`“会随着对话持续更新”，
+而且该对象自带 `missing_fields` 字段——如果画像必须填满所有字段才能存在，
+`missing_fields` 就永远是空的，追问也就无从进行。
+
+**C 线的处理**：除 `session_id` 外，可缺失的字段一律允许为 `None`
+（`departure_city`、`start_date`、`end_date`、`traveler_count`、
+`traveler_composition`、`budget`）。
+
+**影响**：B 线的 `TripProfile` 提取（B2）直接受益——LLM 可以只填已识别的字段。
+
+**需确认**：这个解释是否写回 `CONTRACTS.md`（把 §1 的示例说明为"信息齐全的终态"）。
+
+### 4.2 `PlanState` 没有承载"本轮用户输入"的位置
+
+**问题**：LangGraph 的入口节点需要读用户这一轮说的话，但 `PlanState` §11 没有该字段；
+契约又规定不得自行增删字段。
+
+**C 线的处理**：用 LangGraph 1.x 的 `context_schema`（运行期上下文）传递，
+自定义 `TurnContext` 放在 `backend/app/graph/context.py`，不进入契约状态。
+
+**副作用**：中间检索结果（`PlanningReadyDestination[]`）也只能放在上下文里，
+因此**前端拿不到"原始候选"，只能看到已经生成的 `DestinationRecommendation`**。
+如果 B 线需要展示原始候选，需要给契约加字段或在 REST 层另开字段。
+
+### 4.3 `PlanState.stage` 的取值集合
+
+**问题**：契约只给了示例值 `VALIDATING`。
+
+**C 线的处理**：在 `backend/app/graph/stages.py` 定义 11 个阶段名：
+
+```text
+CREATED / PARSING_REQUEST / CHECKING_FIELDS / ASKING_CLARIFICATION /
+RETRIEVING_DESTINATIONS / RECOMMENDING_DESTINATIONS /
+AWAITING_DESTINATION_CONFIRMATION / INSUFFICIENT_DATA /
+PLANNING / VALIDATING / REPAIRING / READY
+```
+
+**需确认**：B 线前端会按 stage 分支渲染，确认后应写回契约。
+
+### 4.4 `Budget` 无法表达"预算不限"
+
+**问题**：`Budget.amount` 是必填数字。用户回答"预算无所谓"时无法表示，
+会导致重复追问。
+
+**建议**：确认一种表达方式，例如 `amount` 允许为 `null` 且
+`flexibility=NEGOTIABLE` 表示"无明确上限"。
+
+### 4.5 REST 响应体未在契约中定义
+
+**问题**：`CONTRACTS.md` §14 只列出接口路径，没有响应体结构。
+C 线在 `backend/app/schemas/api.py` 定义了 `AssistantReply`（含
+`kind / text / questions / missing_fields / suggestions / notes`）等传输对象。
+
+**说明**：这些是接口层对象，不是领域契约；但它们决定 B 线前端的对接方式，
+确认后建议一并写进契约。

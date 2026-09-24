@@ -1,0 +1,268 @@
+"""把用户自然语言转为 `TripProfile`。
+
+⚠️ **本文件是 STUB**。按分工，`TripProfile` 提取属于 B 线（B2），
+真实实现应由 LLM 完成结构化输出。C 线先用一套**规则式提取器**让 LangGraph
+的“追问 → 补充 → 再解析”回路可以独立跑通；B 线完成后，
+只需实现同一个 `TripProfileParser` 协议并在 `app/api/deps.py` 中替换。
+
+设计约束：
+
+* 本解析器**不提供任何旅游事实**，只把用户话里已有的信息填进契约对象。
+* 无法识别的输入不猜测、不补全，缺失情况交给 `missing_fields` 判定后追问。
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import date, timedelta
+from typing import Mapping, Protocol
+
+from app.schemas import (
+    Budget,
+    BudgetFlexibility,
+    DestinationMode,
+    DestinationRequest,
+    TripProfile,
+)
+
+#: 中文数字，用于“三个人”“两天”这类表达。
+_CN_NUM = {
+    "一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5,
+    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+}
+
+_INTEREST_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "FOOD": ("美食", "吃", "小吃", "餐厅"),
+    "CULTURE": ("人文", "文化", "历史", "博物馆", "古镇"),
+    "NATURE": ("自然", "风景", "山水", "公园", "爬山"),
+    "NIGHTLIFE": ("夜生活", "夜景", "酒吧"),
+    "SHOPPING": ("购物", "逛街", "商场"),
+    "FAMILY": ("亲子", "带孩子"),
+}
+
+_AVOIDANCE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "HIGH_INTENSITY_HIKING": ("不想爬山", "不爬山", "爬不动", "不想徒步"),
+    "CROWDED_PLACES": ("不想挤", "人太多", "避开人流"),
+}
+
+
+class TripProfileParser(Protocol):
+    """B2 的替换点：实现同一协议即可被 LangGraph 直接使用。"""
+
+    def parse(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        previous: TripProfile | None,
+        reference_date: date,
+        known_destinations: Mapping[str, str] | None = None,
+    ) -> TripProfile: ...
+
+
+class StubTripProfileParser:
+    """规则式提取器（STUB，待 B 线替换）。"""
+
+    def parse(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        previous: TripProfile | None,
+        reference_date: date,
+        known_destinations: Mapping[str, str] | None = None,
+    ) -> TripProfile:
+        base = previous.model_copy(deep=True) if previous else TripProfile(session_id=session_id)
+        base.session_id = session_id
+
+        self._extract_departure_city(base, text)
+        self._extract_duration_or_dates(base, text, reference_date)
+        self._extract_travelers(base, text)
+        self._extract_budget(base, text)
+        self._extract_preferences(base, text)
+        self._extract_destination(base, text, known_destinations or {})
+        return base
+
+    # --- 各字段的提取规则 ---------------------------------------------------
+
+    @staticmethod
+    def _extract_departure_city(profile: TripProfile, text: str) -> None:
+        patterns = (
+            r"从([\u4e00-\u9fa5]{2,6}?)(?:出发|过去|出发去)",
+            r"出发地[是：:]?\s*([\u4e00-\u9fa5]{2,6})",
+            r"我(?:在|住在)([\u4e00-\u9fa5]{2,6})",
+            r"([\u4e00-\u9fa5]{2,6}?)出发",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                profile.departure_city = match.group(1)
+                return
+
+    @staticmethod
+    def _extract_duration_or_dates(
+        profile: TripProfile, text: str, reference_date: date
+    ) -> None:
+        start: date | None = profile.start_date
+        end: date | None = profile.end_date
+
+        explicit = list(
+            re.finditer(
+                r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?", text
+            )
+        )
+        if explicit:
+            parsed = [
+                StubTripProfileParser._to_date(
+                    match.group(1), match.group(2), match.group(3), reference_date
+                )
+                for match in explicit
+            ]
+            parsed = [d for d in parsed if d is not None]
+            if parsed:
+                start = parsed[0]
+                end = parsed[-1] if len(parsed) > 1 else end
+                # “10月2-6号”：第二段只写了日
+                compact = re.search(r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text)
+                if compact:
+                    start = StubTripProfileParser._to_date(
+                        None, compact.group(1), compact.group(2), reference_date
+                    )
+                    end = StubTripProfileParser._to_date(
+                        None, compact.group(1), compact.group(3), reference_date
+                    )
+
+        days = re.search(r"(\d+|[一二两三四五六七八九十])\s*天", text)
+        if days:
+            count = StubTripProfileParser._to_int(days.group(1))
+            if count and start is not None:
+                end = start + timedelta(days=count - 1)
+
+        if start is not None:
+            profile.start_date = start
+        if end is not None:
+            profile.end_date = end
+
+    @staticmethod
+    def _extract_travelers(profile: TripProfile, text: str) -> None:
+        count: int | None = profile.traveler_count
+        match = re.search(r"(\d+|[一二两三四五六七八九十])\s*(?:个)?(?:人|大人)", text)
+        if match:
+            parsed = StubTripProfileParser._to_int(match.group(1))
+            if parsed:
+                count = parsed
+        if "我们俩" in text or "两个人" in text:
+            count = 2
+        family = re.search(r"一家(\d|[一二两三四五六七八九十])口", text)
+        if family:
+            parsed = StubTripProfileParser._to_int(family.group(1))
+            if parsed:
+                count = parsed
+        if count is not None:
+            profile.traveler_count = count
+
+        if any(word in text for word in ("老人", "父母", "爸妈", "长辈")):
+            profile.mobility_constraints = _merge_list(
+                profile.mobility_constraints, ["同行有老人，需控制步行强度"]
+            )
+        if any(word in text for word in ("腿脚不便", "不能走太多", "走不动")):
+            profile.mobility_constraints = _merge_list(
+                profile.mobility_constraints, ["行动不便，需减少步行与换乘"]
+            )
+
+    @staticmethod
+    def _extract_budget(profile: TripProfile, text: str) -> None:
+        amount: float | None = None
+        match = re.search(
+            r"预算\s*(?:大概|大约|是|在|有|为)?\s*(\d+(?:\.\d+)?)\s*(万|千|k|K)?", text
+        )
+        if not match:
+            match = re.search(
+                r"(\d+(?:\.\d+)?)\s*(万|千)?\s*(?:元|块钱|块|人民币)", text
+            )
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2)
+            if unit in ("万",):
+                value *= 10_000
+            elif unit in ("千", "k", "K"):
+                value *= 1_000
+            amount = value
+
+        if amount is not None:
+            flexibility = profile.budget.flexibility if profile.budget else BudgetFlexibility.NEGOTIABLE
+            profile.budget = Budget(amount=amount, currency="CNY", flexibility=flexibility)
+
+    @staticmethod
+    def _extract_preferences(profile: TripProfile, text: str) -> None:
+        for tag, words in _INTEREST_KEYWORDS.items():
+            if any(word in text for word in words):
+                profile.interests = _merge_list(profile.interests, [tag])
+        for tag, words in _AVOIDANCE_KEYWORDS.items():
+            if any(word in text for word in words):
+                profile.avoidances = _merge_list(profile.avoidances, [tag])
+        if any(word in text for word in ("轻松", "慢节奏", "悠闲", "不赶")):
+            profile.pace = "RELAXED"
+        elif any(word in text for word in ("紧凑", "多去几个", "特种兵")):
+            profile.pace = "INTENSE"
+        if "不想早起" in text or "晚点起" in text:
+            profile.soft_preferences = _merge_list(profile.soft_preferences, ["不想早起"])
+        if "少走路" in text or "走不动" in text:
+            profile.soft_preferences = _merge_list(profile.soft_preferences, ["少走路"])
+
+    @staticmethod
+    def _extract_destination(
+        profile: TripProfile, text: str, known_destinations: Mapping[str, str]
+    ) -> None:
+        for name, destination_id in known_destinations.items():
+            if name not in text:
+                continue
+            requests = list(profile.destination_requests)
+            if not any(r.destination_id == destination_id for r in requests):
+                requests.append(
+                    DestinationRequest(
+                        destination_id=destination_id,
+                        name=name,
+                        priority="HIGH",
+                        fixed=True,
+                        user_reason="用户明确提到该目的地",
+                    )
+                )
+            profile.destination_requests = requests
+            profile.destination_mode = (
+                DestinationMode.MULTIPLE if len(requests) > 1 else DestinationMode.SINGLE
+            )
+            return
+
+    # --- 工具方法 -----------------------------------------------------------
+
+    @staticmethod
+    def _to_int(raw: str) -> int | None:
+        if raw.isdigit():
+            return int(raw)
+        return _CN_NUM.get(raw)
+
+    @staticmethod
+    def _to_date(
+        year: str | None, month: str, day: str, reference_date: date
+    ) -> date | None:
+        try:
+            parsed_year = int(year) if year else reference_date.year
+            candidate = date(parsed_year, int(month), int(day))
+        except ValueError:
+            return None
+        if year is None and candidate < reference_date - timedelta(days=1):
+            # 用户没写年份且日期已过，按“明年的同一日期”理解
+            try:
+                candidate = candidate.replace(year=candidate.year + 1)
+            except ValueError:
+                return None
+        return candidate
+
+
+def _merge_list(existing: list[str], additions: list[str]) -> list[str]:
+    merged = list(existing)
+    for item in additions:
+        if item not in merged:
+            merged.append(item)
+    return merged

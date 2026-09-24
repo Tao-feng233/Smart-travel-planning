@@ -22,6 +22,9 @@ chroma_db/
 *.sqlite
 *.sqlite3
 
+# C 线本地会话快照（内存状态的 JSON 落盘目录）
+.local/
+
 # 日志与编辑器
 *.log
 .idea/

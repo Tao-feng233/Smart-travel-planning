@@ -93,6 +93,16 @@ from .mcp import (
     SearchTravelKnowledgeOutput,
     TemperatureRange,
 )
+from .api import (
+    AssistantReply,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    DestinationSuggestion,
+    ReplyKind,
+    SendMessageRequest,
+    SendMessageResponse,
+    SessionStateResponse,
+)
 
 __all__ = [
     # enums
@@ -180,4 +190,13 @@ __all__ = [
     "SearchTravelKnowledgeInput",
     "SearchTravelKnowledgeOutput",
     "TemperatureRange",
+    # api（REST 传输对象，非领域契约）
+    "AssistantReply",
+    "CreateSessionRequest",
+    "CreateSessionResponse",
+    "DestinationSuggestion",
+    "ReplyKind",
+    "SendMessageRequest",
+    "SendMessageResponse",
+    "SessionStateResponse",
 ]

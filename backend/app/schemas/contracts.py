@@ -79,14 +79,25 @@ class DestinationRequest(ContractModel):
 
 
 class TripProfile(ContractModel):
+    """旅行画像：从旅行请求及后续回答中整理出的**当前**有效需求集合。
+
+    `CONTEXT.md` 明确该对象“会随着对话持续更新”，且本对象自带
+    `missing_fields` 字段——只有允许画像在补全过程中存在，这个字段才有意义。
+    因此除 `session_id` 外，可缺失的字段一律允许为 `None`，
+    由 `missing_fields` 记录当前还缺什么。
+    `CONTRACTS.md` §1 的示例 JSON 表示的是“信息已齐全”的终态。
+
+    该解释已登记到 `docs/contract-open-questions.md`，待三人确认后写回契约。
+    """
+
     session_id: str
-    departure_city: str
-    start_date: date
-    end_date: date
-    traveler_count: int
-    traveler_composition: TravelerComposition
+    departure_city: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    traveler_count: int | None = None
+    traveler_composition: TravelerComposition | None = None
     mobility_constraints: list[str] = Field(default_factory=list)
-    budget: Budget
+    budget: Budget | None = None
     # 契约只给出示例值 RELAXED，未列出完整取值集合，暂用 str 接住
     pace: str | None = None
     interests: list[str] = Field(default_factory=list)
@@ -100,13 +111,15 @@ class TripProfile(ContractModel):
 
     @model_validator(mode="after")
     def _check_dates(self) -> "TripProfile":
-        if self.end_date < self.start_date:
+        if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValueError("end_date 不得早于 start_date")
         return self
 
     @property
-    def duration_days(self) -> int:
-        """旅行总天数（含首尾两天）。"""
+    def duration_days(self) -> int | None:
+        """旅行总天数（含首尾两天）；日期未确定时返回 None。"""
+        if self.start_date is None or self.end_date is None:
+            return None
         return (self.end_date - self.start_date).days + 1
 
 
