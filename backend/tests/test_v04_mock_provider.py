@@ -10,6 +10,8 @@ from datetime import date, timedelta
 
 from app.schemas import (
     DateRange,
+    GetIntercityOptionsRequest,
+    GetPreparationRulesRequest,
     GetResourceAvailabilityRequest,
     GetRouteRequest,
     GetWeatherRequest,
@@ -20,7 +22,7 @@ from app.schemas import (
     TravelerComposition,
     TripProfile,
 )
-from app.services.v04_mock_provider import V04MockMCPProvider
+from app.services.v04_mock_provider import DataMissingError, V04MockMCPProvider
 
 client = V04MockMCPProvider()
 
@@ -126,6 +128,17 @@ def test_knowledge_search_filters_by_destination() -> None:
         assert item.acquisition_status == "MOCK_ONLY"
 
 
+def test_unrelated_knowledge_query_returns_empty() -> None:
+    output = client.search_travel_knowledge(
+        SearchTravelKnowledgeRequest(
+            query="量子芯片 编译器",
+            destination_ids=["dest_chengdu"],
+            top_k=10,
+        )
+    )
+    assert output.evidence == []
+
+
 def test_route_is_deterministic_and_marked_estimated() -> None:
     request = GetRouteRequest(origin="poi_1001", destination="poi_1003")
     first = client.get_route(request)
@@ -154,12 +167,65 @@ def test_weather_is_deterministic_and_marked_forecast() -> None:
         assert 0 <= (fact.precipitation_probability or 0) <= 1
 
 
-def test_preparation_rules_are_empty_until_C4() -> None:
-    """准备提醒属于 C4/攻略组装，当前返回空集合而不是编造内容。"""
+def test_weather_missing_day_reports_data_missing() -> None:
+    import pytest
 
-    from app.schemas import GetPreparationRulesRequest
-
-    output = client.get_preparation_rules(
-        GetPreparationRulesRequest(trip_profile=_profile())
+    request = GetWeatherRequest(
+        date_range=DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 5)),
+        destination_id="dest_chengdu",
     )
-    assert output.rules == []
+    with pytest.raises(DataMissingError) as error:
+        client.get_weather(request)
+    assert error.value.code == "DATA_MISSING"
+    assert error.value.missing_dates == (date(2026, 10, 5),)
+
+
+def test_intercity_date_mismatch_returns_empty() -> None:
+    output = client.get_intercity_options(
+        GetIntercityOptionsRequest(
+            origin_city="上海",
+            destination_id="dest_chengdu",
+            arrival_or_departure_date=date(2026, 10, 3),
+        )
+    )
+    assert output.options == []
+
+
+def test_daily_entry_window_uses_requested_date() -> None:
+    requested = date(2026, 10, 3)
+    output = client.get_resource_availability(
+        GetResourceAvailabilityRequest(resource_id="poi_1001", date=requested)
+    )
+    assert output.available_windows
+    window = output.available_windows[0]
+    assert window.start_at.date() == requested
+    assert window.end_at.date() == requested
+    assert window.end_at.strftime("%H:%M") == "16:30"
+
+
+def test_preparation_rules_use_weather_activity_and_user_conditions() -> None:
+    profile = _profile().model_copy(
+        update={"mobility_constraints": ["LIMITED_WALKING"]}
+    )
+    weather = client.get_weather(
+        GetWeatherRequest(
+            date_range=DateRange(
+                start_date=date(2026, 10, 2), end_date=date(2026, 10, 3)
+            ),
+            destination_id="dest_chengdu",
+        )
+    )
+    output = client.get_preparation_rules(
+        GetPreparationRulesRequest(
+            trip_profile=profile,
+            activity_tags=["OUTDOOR"],
+            weather_facts=weather.weather_facts,
+        )
+    )
+    assert {item.rule_id for item in output.rules} == {
+        "prep_identity",
+        "prep_rain",
+        "prep_outdoor",
+        "prep_limited_walking",
+    }
+

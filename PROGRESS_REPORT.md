@@ -9,6 +9,26 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**A线更新**：2026-09-24 · **Mock Provider 修复 + 强类型 MCP Server 接入**
+
+- 保留 C 的 `V04MockMCPProvider` 类名和九个方法签名，内部全部使用
+  `from app.schemas import ...` 的 v0.4 Request/Response；未复制或修改共享 Schema。
+- 修复知识检索零相关返回、城际交通日期过滤、按日开放窗口、路线起终点过滤、
+  天气缺日 `DATA_MISSING`、准备规则触发与 FactRecord/PlanningFact 返回。
+- 新增 `backend/app/providers/` 协议/工厂与 `backend/app/mcp_server/`，
+  九个工具通过官方 MCP Python SDK 的内存客户端实际列举和调用。
+- 不需要 LLM API：当前 C 的 Stub 解析/推荐 + A 的 Mock Provider 可完成简单会话、
+  目的地推荐、资源检索和可用性过滤测试。
+- 测试：`cd backend && python -m pytest` → **117 passed**；
+  `python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过。
+- 仍为 Mock：知识检索、事实、城际交通、路线、天气和准备规则；
+  Chroma/MySQL/Snapshot/Live/Hybrid 尚未实现。
+
+**未修改其他成员接口**：C 的图节点继续调用同一个 `V04MockMCPProvider` 接口；
+B 的 REST/前端接口无变化。
+
+---
+
 **本次更新**：2026-09-24 · 步骤 5 —— **C 线代码整体迁到 v0.4 + C3 前置过滤接入 LangGraph**
 
 **仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
@@ -890,3 +910,4 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 是否修改共享接口：否 / 是（未确认不得修改）
 下一步：
 ```
+
