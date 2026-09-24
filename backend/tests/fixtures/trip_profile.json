@@ -1,0 +1,27 @@
+{
+  "session_id": "sess_001",
+  "departure_city": "上海",
+  "start_date": "2026-10-02",
+  "end_date": "2026-10-06",
+  "traveler_count": 2,
+  "traveler_composition": {
+    "adults": 2,
+    "children": 0,
+    "seniors": 0
+  },
+  "mobility_constraints": [],
+  "budget": {
+    "amount": 5000,
+    "currency": "CNY",
+    "flexibility": "NEGOTIABLE"
+  },
+  "pace": "RELAXED",
+  "interests": ["FOOD", "CULTURE", "NATURE"],
+  "avoidances": ["HIGH_INTENSITY_HIKING"],
+  "fixed_facts": ["已购买 2026-10-02 上午高铁票"],
+  "hard_constraints": ["总预算上限 5000 元"],
+  "soft_preferences": ["少走路", "不想早起"],
+  "destination_mode": "UNKNOWN",
+  "destination_requests": [],
+  "missing_fields": []
+}

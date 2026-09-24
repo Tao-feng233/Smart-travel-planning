@@ -1,0 +1,26 @@
+[
+  {
+    "evidence_id": "ev_101",
+    "entity_id": "dest_chengdu",
+    "entity_type": "DESTINATION",
+    "content": "成都适合慢节奏的城市漫步与美食体验，节假日主要商圈人流明显上升。",
+    "source_type": "GUIDE",
+    "source_ref": "mock://guide/chengdu-overview",
+    "collected_at": "2026-09-23T10:00:00+08:00",
+    "valid_until": null,
+    "acquisition_status": "MOCK_ONLY",
+    "verification_status": "PENDING"
+  },
+  {
+    "evidence_id": "ev_301",
+    "entity_id": "poi_1001",
+    "entity_type": "VISIT_PLACE",
+    "content": "该区域适合慢节奏步行游览",
+    "source_type": "MOCK",
+    "source_ref": "mock://place/poi_1001",
+    "collected_at": "2026-09-23T10:00:00+08:00",
+    "valid_until": null,
+    "acquisition_status": "MOCK_ONLY",
+    "verification_status": "PENDING"
+  }
+]

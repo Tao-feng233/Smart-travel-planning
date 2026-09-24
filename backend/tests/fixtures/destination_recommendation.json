@@ -1,0 +1,10 @@
+{
+  "destination_id": "dest_chengdu",
+  "suggested_days": 3,
+  "coverage_version": "2026-09-23-v1",
+  "suitable": true,
+  "reason": "美食和人文资源丰富，城市内交通相对方便",
+  "tradeoffs": ["自然景观比例较低"],
+  "risk_flags": ["HOLIDAY_CROWD"],
+  "evidence_ids": ["ev_101", "ev_205"]
+}

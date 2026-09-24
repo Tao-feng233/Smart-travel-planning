@@ -1,0 +1,125 @@
+{
+  "search_planning_ready_destinations": {
+    "input": {
+      "query": "想找个能吃能逛、节奏慢一点的城市",
+      "travel_dates": {"start_date": "2026-10-02", "end_date": "2026-10-06"},
+      "duration_days": 3,
+      "traveler_constraints": ["不想早起", "少走路"],
+      "top_k": 5
+    },
+    "output": {
+      "candidates": [
+        {
+          "destination_id": "dest_chengdu",
+          "name": "成都",
+          "coverage_version": "2026-09-23-v1",
+          "planning_ready": true,
+          "coverage": null
+        }
+      ]
+    }
+  },
+  "search_travel_knowledge": {
+    "input": {
+      "query": "适合慢节奏城市漫步的区域",
+      "province": "四川省",
+      "destination_ids": ["dest_chengdu"],
+      "resource_type": "VISIT_PLACE",
+      "top_k": 5
+    },
+    "output": {
+      "evidence": [
+        {
+          "evidence_id": "ev_301",
+          "entity_id": "poi_1001",
+          "entity_type": "VISIT_PLACE",
+          "content": "该区域适合慢节奏步行游览",
+          "source_type": "MOCK",
+          "source_ref": "mock://place/poi_1001",
+          "collected_at": "2026-09-23T10:00:00+08:00",
+          "valid_until": null,
+          "acquisition_status": "MOCK_ONLY",
+          "verification_status": "PENDING"
+        }
+      ]
+    }
+  },
+  "get_place_facts": {
+    "input": {
+      "resource_ids": ["poi_1001"],
+      "start_date": "2026-10-02",
+      "end_date": "2026-10-06"
+    },
+    "output": {
+      "facts": [
+        {
+          "resource_id": "poi_1001",
+          "resource_type": "VISIT_PLACE",
+          "destination_id": "dest_chengdu",
+          "name": "示例景点A",
+          "latitude": 30.0,
+          "longitude": 104.0,
+          "categories": ["CULTURE", "INDOOR"],
+          "suggested_duration_minutes": 120,
+          "estimated_cost": 50,
+          "availability": {
+            "status": "AVAILABLE",
+            "valid_dates": ["2026-10-03"],
+            "time_windows": [{"start": "09:00", "end": "16:30"}],
+            "reservation_required": false,
+            "reason": null
+          },
+          "physical_intensity": "LOW",
+          "weather_sensitivity": "LOW",
+          "evidence_ids": ["ev_301"],
+          "source_updated_at": "2026-09-20T10:00:00+08:00",
+          "valid_until": "2026-10-10T23:59:59+08:00"
+        }
+      ]
+    }
+  },
+  "get_place_availability": {
+    "input": {
+      "resource_id": "poi_1001",
+      "date": "2026-10-03",
+      "requested_time_window": {"start": "09:30", "end": "11:30"}
+    },
+    "output": {
+      "status": "AVAILABLE",
+      "time_windows": [{"start": "09:00", "end": "16:30"}],
+      "reservation_required": false,
+      "reason": null,
+      "evidence_ids": ["ev_301"]
+    }
+  },
+  "get_route": {
+    "input": {
+      "origin": "poi_1001",
+      "destination": "rest_2001",
+      "departure_time": "11:30",
+      "mode": "METRO"
+    },
+    "output": {
+      "duration_minutes": 25,
+      "distance_km": 6.4,
+      "estimated_cost": 4,
+      "source": "FAKE",
+      "is_estimated": true,
+      "mode": "METRO"
+    }
+  },
+  "get_weather": {
+    "input": {
+      "destination_id": "dest_chengdu",
+      "date": "2026-10-03"
+    },
+    "output": {
+      "condition": "小雨",
+      "temperature_range": {"min_celsius": 16.0, "max_celsius": 22.0},
+      "precipitation_probability": 0.7,
+      "source": "MOCK",
+      "is_forecast": true,
+      "collected_at": "2026-09-23T18:00:00+08:00"
+    }
+  }
+}

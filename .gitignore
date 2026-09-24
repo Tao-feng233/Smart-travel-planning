@@ -1,0 +1,30 @@
+# 密钥：任何情况下不得提交
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 前端
+node_modules/
+dist/
+
+# 本地数据与向量库
+chroma_db/
+*.sqlite
+*.sqlite3
+
+# 日志与编辑器
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

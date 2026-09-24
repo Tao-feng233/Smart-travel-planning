@@ -1,0 +1,16 @@
+{
+  "destination_id": "dest_chengdu",
+  "coverage_version": "2026-09-23-v1",
+  "destination_profile_status": "AVAILABLE",
+  "visit_place_count": 12,
+  "visit_place_fact_coverage": 0.92,
+  "opening_rule_coverage": 0.85,
+  "route_coverage": 0.8,
+  "lodging_coverage": 0.75,
+  "restaurant_coverage": 0.5,
+  "intercity_transport_coverage": 0.6,
+  "preparation_rule_coverage": 1.0,
+  "missing_capabilities": ["REALTIME_HOTEL_AVAILABILITY"],
+  "planning_ready": true,
+  "evaluated_at": "2026-09-23T18:00:00+08:00"
+}

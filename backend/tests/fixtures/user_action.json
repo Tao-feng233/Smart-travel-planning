@@ -1,0 +1,12 @@
+{
+  "action_type": "MODIFY_GUIDE",
+  "session_id": "sess_001",
+  "guide_id": "guide_001",
+  "raw_text": "第二天太累了，下午少安排一个景点",
+  "payload": {
+    "change_type": "LOWER_INTENSITY",
+    "scope_hint": "DAY",
+    "day_date": "2026-10-03",
+    "target_node_ids": []
+  }
+}

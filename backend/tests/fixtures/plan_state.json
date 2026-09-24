@@ -1,0 +1,16 @@
+{
+  "session_id": "sess_001",
+  "stage": "VALIDATING",
+  "profile": null,
+  "destination_candidates": [],
+  "resource_candidates": [],
+  "current_plan": null,
+  "current_guide": null,
+  "conflicts": [],
+  "locked_node_ids": [],
+  "completed_node_ids": [],
+  "change_history": [],
+  "data_snapshot_id": "snap_001",
+  "repair_attempts": 0,
+  "awaiting_user_input": false
+}
