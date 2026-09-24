@@ -14,9 +14,9 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.legacy import (
-    Budget,
+from app.schemas import (
     IncompleteProfileError,
+    Money,
     TravelerComposition,
     TripProfile,
     TripProfileDraft,
@@ -31,7 +31,7 @@ def _complete_draft() -> TripProfileDraft:
         start_date=date(2026, 10, 2),
         end_date=date(2026, 10, 6),
         traveler_count=2,
-        budget=Budget(amount=5000),
+        budget=Money(amount=5000),
         interests=["FOOD", "CULTURE"],
     )
 
@@ -109,7 +109,7 @@ def test_finalize_failure_on_composition_mismatch() -> None:
 def test_incomplete_draft_cannot_be_finalized_silently() -> None:
     """确认没有“悄悄生成一个字段为空的 TripProfile”这条路径。"""
 
-    draft = TripProfileDraft(session_id="s", budget=Budget(amount=1000))
+    draft = TripProfileDraft(session_id="s", budget=Money(amount=1000))
     with pytest.raises(IncompleteProfileError):
         finalize_trip_profile(draft)
 

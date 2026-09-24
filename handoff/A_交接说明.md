@@ -82,13 +82,13 @@ from app.schemas import (          # 这就是契约 v0.4
 - **共享 Schema v0.4 已冻结**：`backend/app/schemas/`，50 个模型 + 9 个 MCP 工具 + REST 全套。
 - **契约测试数据已备好**：`fixtures/valid`（7）、`fixtures/invalid`（7）、`fixtures/business`（3），
   已接进 pytest，你自己也可以照着加。
-- C 线后端已有可运行的会话/追问回路（`backend/`，119 个测试通过），可作为接口参考。
+- C 线后端已有可运行的会话/追问/推荐回路（`backend/`，112 个测试通过），可作为接口参考。
 - 密钥模板在根目录 `.env.example`，`.env` 已被 `.gitignore` 忽略。
 
 **还没做的（也就是你要做的）**
 
 - MySQL 表、Chroma 索引、真实 MCP Server、地图/天气 Provider 全部未开始。
-- `backend/tests/fixtures/` 里的数据**全部是模拟数据**，
+- 仓库根目录 `fixtures/` 里的数据**全部是模拟数据**，
   来源标记为 `source_type=MOCK` + `acquisition_status=MOCK_ONLY`，等你用真实数据替换。
 - 试点目的地暂用 `dest_chengdu`（成都）占位，具体目的地清单待定。
 
@@ -111,16 +111,15 @@ from app.schemas import (
 
 ---
 
-## 开工前需要你确认的两件事
+## 开工前需要你确认的事（2026-09-24 更新）
 
-1. **MCP 工具到底做几个**：`CONTRACTS.md` §12 列了 6 个工具
-   （`search_planning_ready_destinations`、`search_travel_knowledge`、
-   `get_place_facts`、`get_place_availability`、`get_route`、`get_weather`），
-   但 `AI_TASK_PROMPTS.md` 的 A 角色提示词只写了 3 个。**P0 底线是至少 3 个**。
-   建议优先做这三个：`search_planning_ready_destinations`（支撑推荐）、
-   `search_travel_knowledge`（支撑 RAG 证据）、`get_place_availability`（支撑闭馆过滤）。
-2. **`ResourceCandidate` 的字段够不够用**：尤其 `availability.status=CONDITIONAL`
-   你打算用什么判定依据（预约？天气？），以及是否需要补充字段。
+1. ~~MCP 工具到底做几个~~ → **已定案：9 个**，见 `CONTRACTS.md` §12，
+   `backend/app/services/v04_mock_provider.py` 里有一份可运行的模拟实现可对照。
+2. ~~`ResourceCandidate` 的字段够不够用~~ → **已定案**：四个成员统一继承
+   `ResourceCandidateBase`（`resource_id` / `destination_id` / `resource_type`），
+   见 `CONTRACTS.md` §5.2 与 `docs/contract-open-questions.md` Q4。
+3. **仍然需要你确认的**：`CONDITIONAL`（有条件可用）在你的数据源里
+   用什么判定依据（预约？天气？）——C3 前置过滤会据此把资源降级为"非无条件主方案"。
 
 ---
 
@@ -138,7 +137,7 @@ requirements/README.md，以及 docs/adr/。
 另外要看根目录 fixtures/ 里的契约测试数据。
 
 当前项目进度：C 线已完成共享 Schema，位于 backend/app/schemas/，已冻结；
-契约示例数据位于 backend/tests/fixtures/。
+契约示例数据位于仓库根目录 fixtures/。
 三条线共用同一套 Schema，我只能 from app.schemas import，不得复制定义或新增字段。
 
 我的交付边界：给定目的地、日期和偏好，返回符合 ResourceCandidate 契约的
@@ -171,3 +170,24 @@ A6 数据源可行性表、A7 测试 Fixture。
 在自己的分支上提交，然后更新 `PROGRESS_REPORT.md` 第 1 节总览中属于你的行，
 并在第 3 节追加一条步骤记录（格式：改了哪些文件、实现了哪个业务流程、
 用了哪些契约、跑了哪些测试、哪些还是模拟数据、是否影响他人接口）。
+
+---
+
+## 追加说明（2026-09-24 步骤 5：C 线代码已整体迁到 v0.4）
+
+C 把三条线的公共代码全部换成 v0.4 对象，**v0.3 旧对象已删除**。开工前请注意：
+
+```text
+1. `app.schemas.legacy` 已经不存在；请只 from app.schemas import ...
+2. REST 响应统一成信封：{ok, data, warnings, error, trace_id}
+3. POST /api/sessions 的请求体必须带 run_mode（DEMO / VERIFIED）
+4. v0.4 模型目前【不会】拒绝契约之外的字段（v0.3 会拒绝）。
+   已登记 Q5（docs/contract-open-questions.md 5.3），三人拍板前
+   不要往契约对象里加自定义字段，也不要依赖"多传会被拒绝"这条保护。
+5. 你要替换的唯一入口：backend/app/services/v04_mock_provider.py
+   （V04MockMCPProvider 实现 CONTRACTS.md §12 的 9 个工具；
+   外部 hotel_id / lodging_id 请在 Provider 层归一化成 resource_id，见 Q4）
+```
+
+你在自己的分支写代码时，直接用 `from app.schemas import ...` 导入 Request/Response
+对象构造返回值，C 的图会直接调用这些方法，签名不一致会立刻报错。

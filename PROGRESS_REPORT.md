@@ -9,6 +9,56 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**本次更新**：2026-09-24 · 步骤 5 —— **C 线代码整体迁到 v0.4 + C3 前置过滤接入 LangGraph**
+
+**仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
+
+**这次发生了什么**
+
+- `backend/app/schemas/legacy/`（v0.3 旧对象）**已删除**，`app.schemas` 现在只有 v0.4 一层。
+  A、B 的导入语句不用改（仍是 `from app.schemas import ...`），但**旧名字不再存在**。
+- LangGraph、服务层、REST 全部改用 v0.4 对象：`TripProfileDraft → finalize_trip_profile`
+  仍是唯一入口；`PlanState` 只保存契约里的引用，画像本体存在会话存储里。
+- **REST 换成统一信封**：所有响应都是 `{ok, data, warnings, error, trace_id}`；
+  `POST /api/sessions` 需要 `{"run_mode": "DEMO"}`（契约必填，`timezone` 可选）。
+- **C3 前置过滤进入图**：用户点名目的地后，图会在规划之前**逐日**检查可用性，
+  `UNAVAILABLE` 资源被排除并带上原因（不静默丢弃），只在部分日期闭馆的资源
+  记入禁排日期交给 C4；所有候选都不能用时明确报资料不足。
+- 测试：`cd backend && python -m pytest` → **112 passed**（旧 v0.3 测试已按 v0.4 重写）。
+
+**需要 A 行动**
+
+- [ ] 只剩 Provider 一件事：把 `backend/app/services/v04_mock_provider.py` 的
+      `V04MockMCPProvider` 换成真实实现，9 个工具的签名照 `CONTRACTS.md` §12
+- [ ] 外部数据的 `hotel_id` / `lodging_id` 请在 Provider 层归一化成 `resource_id`（Q4 已定）
+- [ ] 提醒：v0.4 模型**不再自动拒绝多余字段**（v0.3 的 `extra="forbid"` 没带过来），
+      见 `docs/contract-open-questions.md` 5.3 Q5，等三人拍板
+
+**需要 B 行动**
+
+- [ ] 前端要对接新响应结构（外层信封）：`data.stage`、`data.assistant_message`、
+      `data.destination_candidates`、`data.trip_profile`、`data.degraded_items`
+- [ ] 追问清单现在是**文本**（写在 `assistant_message` 里）：v0.4 没有再定义
+      结构化的 `questions` / `missing_fields` 字段（见 5.3 Q6）
+- [ ] `TripProfile` 提取（B2）与目的地推荐（B4）仍是 C 的 STUB；
+      替换点是 `backend/app/api/deps.py` 与两个 service 里的 Protocol
+
+**需要三人共同确认**
+
+- [ ] Q5：v0.4 模型是否恢复 `extra="forbid"`（防"偷偷新增字段"，v0.3 有、v0.4 没有）
+- [ ] Q6：会话不存在时 `ErrorCode` 里没有对应取值，C 暂用 `DATA_MISSING` + HTTP 404
+
+**已完成，不需要行动**
+
+- C3 前置过滤：服务层 + 接入 LangGraph 全部完成，`UNAVAILABLE` 资源不会进入规划
+- 契约校验：`python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过
+
+---
+
+### 上一版（步骤 3/4，2026-09-24）：v0.4 落地 + TripProfileDraft 契约补全
+
+（以下为历史记录，保留备查）
+
 **本次更新**：2026-09-24 · 步骤 3 进行中 —— v0.4 落地 + **TripProfileDraft 契约补全**
 
 **仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
@@ -134,24 +184,23 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 
 | 模块 | 负责 | 目录 | 状态 | 最后更新 |
 |---|---|---|---|---|
-| 共享 Schema v0.3（旧版） | C | `backend/app/schemas/` | ⚠️ 将被 v0.4 替换 | 2026-09-24 |
+| **共享 Schema v0.4** | C | `backend/app/schemas/` | ✅ 唯一来源；v0.3 legacy 已删除 | 2026-09-24 |
 | v0.4 契约基线模型（718 行） | 启动包 | `contracts/contract_models.py` | ✅ 已就位 | 2026-09-24 |
-| v0.4 契约测试数据（13 个） | 启动包 | `fixtures/` | ✅ 已就位 | 2026-09-24 |
-| **共享 Schema v0.4（C1）** | C | `backend/app/schemas/` | 🔄 **下一步，当前阻塞项** | — |
-| 契约示例 Fixture（C/A 共用） | C | `backend/tests/fixtures/` | ✅ 完成 | 2026-09-24 |
+| 契约测试数据（17 个） | 启动包 | `fixtures/` | ✅ 已接入 pytest 与校验脚本 | 2026-09-24 |
+| 契约自检脚本 | C | `contracts/validate_fixtures.py` | ✅ 17 个用例全过 | 2026-09-24 |
 | 原始需求文档归档 | C | `docs/requirements/` | ✅ 完成 | 2026-09-24 |
 | 项目骨架与密钥配置 | C | `.gitignore`、`.env.example`、`backend/` | ✅ 完成 | 2026-09-24 |
 | FastAPI + LangGraph（C2） | C | `backend/app/api/`、`backend/app/graph/` | ✅ 完成 | 2026-09-24 |
 | 会话存储（内存 + JSON 快照） | C | `backend/app/services/session_store.py` | ✅ 完成 | 2026-09-24 |
 | 缺失字段判定与追问策略 | C | `backend/app/services/missing_fields.py` | ✅ 完成 | 2026-09-24 |
-| 模拟 MCP Client（A 线替换点） | C | `backend/app/services/travel_mcp_client.py` | ✅ 完成 | 2026-09-24 |
+| 模拟 MCP Provider（A 线替换点） | C | `backend/app/services/v04_mock_provider.py` | ✅ v0.4 契约版（9 工具） | 2026-09-24 |
 | TripProfile 提取（STUB，待 B 替换） | C→B | `backend/app/services/request_parser.py` | ⚠️ 临时实现 | 2026-09-24 |
 | 目的地推荐（STUB，待 B 替换） | C→B | `backend/app/services/destination_recommender.py` | ⚠️ 临时实现 | 2026-09-24 |
-| 前置过滤（C3） | C | `backend/app/services/` | ⬜ 未开始 | — |
+| 前置过滤（C3） | C | `backend/app/services/availability_filter.py` | ✅ 服务层 + 已接入 LangGraph | 2026-09-24 |
 | 行程生成（C4） | C | `backend/app/services/` | ⬜ 未开始 | — |
 | 验证器（C5） | C | `backend/app/services/` | ⬜ 未开始 | — |
 | 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始 | — |
-| REST 集成（C7） | C | `backend/app/api/` | ⬜ 未开始 | — |
+| REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-24 |
 | MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始 | — |
 | Chroma 认知卡片（A2） | A | `data/` | ⬜ 未开始 | — |
 | RAG 检索（A3） | A | `backend/app/services/`（A 区） | ⬜ 未开始 | — |
@@ -175,7 +224,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 4 | RAG 检索并返回 `evidence_id` | A | ⬜ | — |
 | 5 | LLM 只在 `planning_ready` 候选中推荐 | B | ⬜ | — |
 | 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 C 侧已通 | `retrieve_destinations` 实际调用 `search_planning_ready_destinations`（当前为模拟实现） |
-| 7 | 根据日期过滤闭馆或不可用景点 | C | ⬜ | — |
+| 7 | 根据日期过滤闭馆或不可用景点 | C | ✅ | `filter_candidates_for_trip` + 图上的 `filter_availability` 节点；`tests/test_availability_filter.py`、`tests/test_graph_clarification.py` |
 | 8 | 生成带时间、交通和预算的行程 | C | ⬜ | — |
 | 9 | 验证并修复至少一种冲突（闭馆替换） | C | ⬜ | — |
 | 10 | 用户修改后重新规划受影响部分（下雨） | C | ⬜ | — |
@@ -651,11 +700,81 @@ fixtures       travel_guide.json 的住宿候选改用 resource_id + destination
                非联合类型保留 option_id / rule_id；并校验判别字段
 ```
 
-**4）尚未完成（C1b）**
+### 步骤 5：C 线代码整体迁移 v0.4 + C3 前置过滤接入 LangGraph（C1c/C2c）
 
-- 把现有 graph / services / api / tests 从 v0.3 对象迁移到 v0.4 对象；
-- 迁移完成后删除 `backend/app/schemas/` 下的 v0.3 模块并扁平化命名空间；
-- 打 `schema-v0.4` 标签，宣布对 A、B 解除阻塞。
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C |
+| 状态 | ✅ 完成；v0.3 `legacy/` 已删除，C 线代码只剩 v0.4 |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/graph/                    全部改用 v0.4 对象与 run_turn(draft, profile, run_mode)
+  nodes.py                            新增 fetch_resource_candidates / filter_availability 两个节点
+  workflow.py                         新增 FETCH_RESOURCES → FILTER_AVAILABILITY 的条件边
+  stages.py                           新增 FETCHING_RESOURCES / FILTERING_RESOURCES
+  context.py                          TurnContext 承载 Draft/Profile/检索结果/过滤结果
+backend/app/services/
+  v04_mock_provider.py                v0.4 契约版模拟 Provider（9 个 MCP 工具）★新增
+  availability_filter.py              新增 filter_candidates_for_trip（逐日检查，纯函数）
+  request_parser.py                   改用 Money + budget_flexibility；软偏好改记 SOFT 约束
+  destination_recommender.py          在 v0.4 候选集合内比较，理由只引用检索到的证据
+  reply_builder.py                    输出 SendMessageData + 统一信封 warnings
+  session_store.py                    SessionExtras 承载 Draft/Profile/run_mode/被排除资源
+  session_service.py                  版本冲突检测、把过滤结果落库
+backend/app/api/
+  routes.py                           会话三接口改为统一信封；409 VERSION_CONFLICT
+  deps.py                             装配 V04MockMCPProvider
+backend/app/schemas/__init__.py       扁平化为 v0.4 一层
+backend/tests/                        5 个测试文件按 v0.4 重写，新增 trip 过滤用例
+删除：backend/app/schemas/legacy/**、services/fake_data.py、services/travel_mcp_client.py、
+      tests/test_contract_examples.py、tests/test_contract_strictness.py、tests/fixtures/**
+```
+
+**2）实现的业务流程**
+
+```text
+parse_request            用户话 → TripProfileDraft →（补齐）finalize_trip_profile
+                        画像变化时递增 profile_version（§14 不变量 7）
+check_missing_fields     缺 departure_city/start_date/end_date/traveler_count/budget → 追问
+retrieve_destinations    调 search_planning_ready_destinations，只保留 coverage 达标的目的地
+recommend_destinations   在候选集合内比较，理由必须引用 evidence_id
+fetch_resource_candidates 用户点名目的地时抓 VISIT_PLACE + RESTAURANT 候选
+filter_availability      C3：逐日检查可用性 → 全期不可用即排除（带原因）；
+                        部分日期不可用 → 保留为有条件候选并记录禁排日期；
+                        全部候选都不可用 → 明确报 INSUFFICIENT_DATA
+```
+
+**3）使用的契约**
+
+`TripProfileDraft` / `finalize_trip_profile`（§2.4–2.5）、`Constraint(SOFT)`（§2.1）、
+`DestinationRecommendation`（§6）、`ResourceCandidateBase` 联合类型（§5）、
+`SearchResourcesRequest` / `GetResourceAvailabilityRequest`（§12.3、§12.5）、
+`PlanState`（§10.2）、`SendMessageData` / `Envelope` / `ErrorDetail` / `WarningItem`（§13）。
+
+**4）运行的测试**
+
+```text
+cd backend && python -m pytest                    → 112 passed
+python contracts/validate_fixtures.py             → 7 合法 + 7 非法 + 3 业务用例全过
+```
+
+**5）仍是模拟实现**
+
+- `V04MockMCPProvider` 的 9 个工具全部是 MOCK_ONLY（含成都/乐山/都江堰三个目的地与
+  `poi_1002` 的闭馆日期），A 线接入后替换；
+- `StubTripProfileParser`（B2 替换点）与 `StubDestinationRecommender`（B4 替换点）仍是规则式；
+- 会话存储仍是内存 + JSON 快照（P1 换 MySQL）；城际交通 `get_intercity_options` 未实现（P1）。
+
+**6）是否影响其他成员接口**
+
+**是，且是破坏性变更，已同步写在"最新变更"块：**
+
+- `app.schemas.legacy` 不存在了（A、B 若导入过旧名字会报 ImportError）；
+- REST 响应改为统一信封，`POST /api/sessions` 需要 `run_mode`；
+- 追问清单从结构化字段改为文本（写进 `assistant_message`）。
 
 ---
 
@@ -663,10 +782,11 @@ fixtures       travel_guide.json 的住宿候选改用 resource_id + destination
 
 | 契约对象 | 状态 | 备注 |
 |---|---|---|
-| 全部契约对象 | ⚠️ **v0.4 重建中** | 旧 v0.3 实现保留在 `backend/app/schemas/` 运行，待 C1 整体替换 |
+| 全部契约对象 | ✅ **v0.4 单一来源** | `backend/app/schemas/`（`app.schemas` 直接导出 v0.4，v0.3 legacy 已删除） |
 | `CONTRACTS.md` | 🔒 v0.4 为准 | 唯一字段、枚举、状态和接口标准 |
 | `contracts/contract_models.py` | 📦 基线 | 718 行，仅覆盖 10 个模型，由 C1 消化进 `backend/app/schemas/` |
-| `fixtures/` | ✅ 可用 | 6 合法 + 6 非法 + 1 业务用例，C1 完成后并入 `backend/tests/` |
+| `fixtures/` | ✅ 已接入测试 | 7 合法 + 7 非法 + 3 业务用例，由 `tests/test_v04_contract_fixtures.py` 与 `contracts/validate_fixtures.py` 双重校验 |
+| 已冻结标签 | 🔒 `schema-v0.4` | 变更需三人确认；新增待确认项见 `docs/contract-open-questions.md` 5.3 |
 
 **v0.4 冻结流程**（`SHARED_SCHEMA_HANDOFF.md`）：
 
@@ -691,10 +811,10 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 数据源调研任务和 Fake Provider 方案 | ⬜ | 待 A 线执行 |
 | 首批住宿候选和基础餐厅范围 | ⬜ | 待 A 线执行 |
 | 主 LLM Provider 已通过 POC | ⬜ | 待三人确认 |
-| 地图/天气真实 API 还是模拟 | ✅ | P0 用模拟 Provider（`FakeTravelMCPClient`，全部标 MOCK_ONLY） |
+| 地图/天气真实 API 还是模拟 | ✅ | P0 用模拟 Provider（`V04MockMCPProvider`，全部标 MOCK_ONLY） |
 | 回归测试场景集 | ⬜ | 待建立 |
 | Git 仓库和各自分支 | ✅ | 已完成，见步骤 0；`main` + 三条 `feature/*` |
-| `CONTRACTS.md` v0.3 冻结 | ⚠️ | 结构与枚举已实现，待补空洞 |
+| `CONTRACTS.md` v0.4 冻结 | ✅ | 已实现并打标签 `schema-v0.4`；新增待确认项见 `docs/contract-open-questions.md` 5.3 |
 
 **验收案例（已确认）**
 
@@ -717,8 +837,8 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | B 输出的 `TripProfile` 能通过 C 的 Pydantic 校验 | B/C | ⬜ |
 | A 返回的候选 ID、证据 ID 在数据库中真实存在 | A | ⬜ |
 | LLM 没有返回候选集合外的目的地或景点 | B | ⬜ |
-| MCP 工具确实被调用，而不是只写了代码 | A/C | ⬜ |
-| 不可用地点在规划前已经过滤 | C | ⬜ |
+| MCP 工具确实被调用，而不是只写了代码 | A/C | 🔄 C 侧已在图里实际调用（当前是模拟 Provider） |
+| 不可用地点在规划前已经过滤 | C | ✅ 已由测试覆盖 |
 | 行程中包含移动时间和预算 | C | ⬜ |
 | 验证失败不会输出 `VALIDATED` | C | ⬜ |
 | 重规划没有修改锁定节点 | C | ⬜ |
@@ -735,8 +855,9 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 2 | FastAPI + `PlanState` + LangGraph 追问回路 | 能推进到追问/推荐节点 | ✅ |
 | 3 | **迁移 v0.4：文档同步 + 仓库迁移** | 以 v0.4 为准，文档与 fixtures 就位 | ✅ |
 | 3.5 | **TripProfileDraft 契约补全（原 Q1）** | Draft/正式画像/finalize 与 4 个 fixture 全过 | ✅ |
-| 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | 🔄 下一步（阻塞 A/B） |
-| 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层完成，待接入图 |
+| 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | ✅ |
+| 4.5 | **C1c/C2c：代码整体迁到 v0.4 + C3 接入图** | C 线代码只用 v0.4 对象，legacy 删除 | ✅ |
+| 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层 + 已接入图 |
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ⬜ |
 | 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ⬜ |
 | 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |
@@ -751,6 +872,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 |---|---|---|
 | 契约枚举不全，规划规则无法确定化 | ⚠️ 已发生 | 见上文遗留问题 1，优先补 |
 | 三条线各自新增临时字段 | 已用 `extra="forbid"` 自动拦截 | 由 12 个严格性测试守护 |
+| ⚠️ 回归：v0.4 模型不再拦截多余字段 | **已发生** | v0.3 的 `extra="forbid"` 没有迁移到 v0.4；已登记 Q5，等三人拍板后加回 |
 | 模拟数据被当成真实数据 | 已强制标记 `MOCK` + `MOCK_ONLY` | 由测试守护 |
 | 外部 API 拿不到 | 未发生 | 统一 Provider 接口 + fake 实现 |
 | 联调才发现字段不对齐 | 已缓解 | 共享 Schema + 共用 fixture |

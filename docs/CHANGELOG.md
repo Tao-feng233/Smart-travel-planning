@@ -1,5 +1,13 @@
 # 变更记录
 
+## v0.4 实现（2026-09-24，C 线步骤 5）
+
+- 共享 Schema 落地为单一 v0.4 层：`app.schemas` 直接导出 v0.4，v0.3 旧对象已删除。
+- LangGraph、服务层与 REST 全部改用 v0.4 对象；REST 统一响应信封
+  `{ok, data, warnings, error, trace_id}`。
+- C3 前置过滤接入图：规划之前逐日检查可用性，`UNAVAILABLE` 资源被排除并记录原因。
+- 新增待确认项 Q5/Q6/Q7，见 `docs/contract-open-questions.md` 第 5.3 节。
+
 ## v0.4
 
 - 建立`SCOPE_MATRIX.md`作为P0/P1唯一范围。
@@ -22,4 +30,3 @@
 - 最终产物统一为七部分TravelGuide。
 - 明确LLM不是旅游事实来源。
 - 增加KnowledgeCoverage、完整数据目录和数据调研任务说明。
-

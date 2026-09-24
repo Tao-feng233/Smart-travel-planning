@@ -1,4 +1,4 @@
-"""规则式 TripProfile 提取器测试（STUB 行为契约）。
+"""规则式需求提取器测试（STUB 行为契约，对象是 v0.4 的 `TripProfileDraft`）。
 
 这些用例同时是 B 线替换 LLM 实现时的**行为基准**：
 提取器只能使用用户说过的话，不能凭空补全。
@@ -10,13 +10,14 @@ from datetime import date
 
 import pytest
 
+from app.schemas import TripProfileDraft
 from app.services.request_parser import StubTripProfileParser
 
 REFERENCE = date(2026, 9, 24)
 KNOWN = {"成都": "dest_chengdu", "乐山": "dest_leshan"}
 
 
-def parse(text: str, previous=None, known=None):
+def parse(text: str, previous=None, known=None) -> TripProfileDraft:
     return StubTripProfileParser().parse(
         session_id="sess_test",
         text=text,
@@ -33,6 +34,7 @@ def test_extracts_full_request() -> None:
     assert profile.end_date == date(2026, 10, 6)
     assert profile.traveler_count == 2
     assert profile.budget is not None and profile.budget.amount == 5000
+    assert profile.budget_flexibility == "NEGOTIABLE"
     assert set(profile.interests) == {"FOOD", "CULTURE"}
     assert profile.pace == "RELAXED"
     assert (profile.end_date - profile.start_date).days + 1 == 5
@@ -51,8 +53,7 @@ def test_duration_only_works_when_start_known() -> None:
 
 
 def test_past_month_rolls_to_next_year() -> None:
-    profile = parse("3月5号出发")
-    assert profile.start_date == date(2027, 3, 5)
+    assert parse("3月5号出发").start_date == date(2027, 3, 5)
 
 
 def test_chinese_number_travelers() -> None:
@@ -66,6 +67,12 @@ def test_budget_with_wan_unit() -> None:
     assert parse("总共8000元").budget.amount == 8000
 
 
+def test_fixed_budget_is_marked_inflexible() -> None:
+    """“预算不能超 5000” 属于不可协商的预算上限（v0.4 拆成独立字段）。"""
+
+    assert parse("预算不能超过5000元").budget_flexibility == "FIXED"
+
+
 def test_date_digits_are_not_mistaken_for_budget() -> None:
     """“10月2号”里的数字不能被当成预算（否则会静默填错金额）。"""
 
@@ -75,13 +82,14 @@ def test_date_digits_are_not_mistaken_for_budget() -> None:
 def test_unknown_destination_is_not_invented() -> None:
     profile = parse("我想去哈尔滨")
     assert profile.destination_requests == []
-    assert profile.destination_mode.value == "UNKNOWN"
+    assert profile.destination_mode == "UNKNOWN"
 
 
 def test_known_destination_becomes_fixed_request() -> None:
     profile = parse("想去成都玩")
-    assert profile.destination_mode.value == "SINGLE"
+    assert profile.destination_mode == "SINGLE"
     assert [r.destination_id for r in profile.destination_requests] == ["dest_chengdu"]
+    assert profile.destination_requests[0].fixed is True
 
 
 def test_noise_input_yields_empty_profile() -> None:
@@ -91,6 +99,13 @@ def test_noise_input_yields_empty_profile() -> None:
     assert profile.departure_city is None
     assert profile.start_date is None
     assert profile.budget is None
+    assert profile.compute_missing_fields() == [
+        "departure_city",
+        "start_date",
+        "end_date",
+        "traveler_count",
+        "budget",
+    ]
 
 
 def test_merges_with_previous_profile_instead_of_overwriting() -> None:
@@ -108,10 +123,21 @@ def test_mobility_constraints_are_recorded() -> None:
     assert any("行动不便" in item for item in profile.mobility_constraints)
 
 
-def test_avoidance_and_soft_preference() -> None:
+def test_avoidance_and_soft_preference_are_recorded_as_soft_constraints() -> None:
+    """软偏好必须记成 `SOFT` 约束，不得当成 `FIXED` 硬约束。"""
+
     profile = parse("不想爬山，也不想早起")
     assert "HIGH_INTENSITY_HIKING" in profile.avoidances
-    assert "不想早起" in profile.soft_preferences
+    soft = [item for item in profile.constraints if item.kind == "SOFT"]
+    assert [item.constraint_id for item in soft] == ["c_soft_late_start"]
+    assert soft[0].field == "earliest_day_start"
+    assert soft[0].source_text == "不想早起"
+
+
+def test_soft_preference_is_not_duplicated_across_turns() -> None:
+    first = parse("不想早起")
+    second = parse("还是不想早起", previous=first)
+    assert [item.constraint_id for item in second.constraints] == ["c_soft_late_start"]
 
 
 @pytest.mark.parametrize(

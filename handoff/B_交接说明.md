@@ -84,16 +84,18 @@ from app.schemas import (          # 这就是契约 v0.4
 - **契约示例数据已备好**：`fixtures/valid/travel_guide.json` 是一份完整的
   七部分攻略样例，`fixtures/valid/itinerary_plan.json` 是一份完整行程样例，
   可以直接拿来渲染页面。
-- C 线后端已有可运行的会话/追问/推荐接口（`backend/`，119 个测试通过），
+- C 线后端已有可运行的会话/追问/推荐/前置过滤接口（`backend/`，112 个测试通过），
   B7 联调时直接用，不必等。
 - 根目录有 `.gitignore` 和 `.env.example`（前端不得持有任何服务端 API Key）。
 
 **还没做的**
 
 - `frontend/` 目录还不存在，Vue 项目需要你从零搭建。
-- 后端 API 还没有（C 线在 C7 阶段做），所以 B7 之前请用 `backend/tests/fixtures/` 里的 JSON 做数据源。
+- 会话 API 已经能跑（`POST /api/sessions`、`POST /api/sessions/{id}/messages`、
+  `GET /api/sessions/{id}`，统一响应信封）；攻略类接口属于 C7，还没做。
+  B7 之前可以用仓库根目录 `fixtures/` 里的 JSON 做数据源。
 - A 线的 RAG 接口还没有，B4 阶段先用 fixture 里的 `evidence.json` 和 `resource_candidates.json`。
-- `backend/tests/fixtures/` 里的数据**全部是模拟数据**，不得当成真实旅游事实展示。
+- 根目录 `fixtures/` 里的数据**全部是模拟数据**，不得当成真实旅游事实展示。
 
 **可以直接 import / 读取的东西**
 
@@ -112,20 +114,18 @@ from app.schemas import (
 
 ---
 
-## 开工前需要你确认的一件事
+## 开工前需要你确认的事（2026-09-24 更新）
 
-**`TripProfile` 里有几个字段只有示例值、没有取值集合**：
-
-```text
-pace                  示例 RELAXED，未列取值集合
-interests[]           示例 FOOD / CULTURE / NATURE
-avoidances[]          示例 HIGH_INTENSITY_HIKING
-mobility_constraints[]、hard_constraints[]、soft_preferences[]
-```
-
-在你和三人确认之前，**这些字段按字符串处理**，不要自己发明枚举。
-这件事记在 `docs/contract-open-questions.md` 第 1 节，建议你和 C、A 一起尽快定下来，
-因为你的 B2 提取逻辑和 C 的规划强度校验都要用。
+1. ~~`TripProfile` 里有几个字段只有示例值、没有取值集合~~ → **已在 v0.4 定案**：
+   `pace = RELAXED / BALANCED / INTENSE`；`interests[]` / `avoidances[]` 仍是字符串标签
+   （C 的 STUB 用 `FOOD / CULTURE / NATURE / NIGHTLIFE / SHOPPING / FAMILY`）。
+   注意 v0.4 **已删除** `soft_preferences[]` 与 `hard_constraints[]`，
+   改用 `constraints[]`（`kind = FIXED / NEGOTIABLE_HARD / SOFT`）。
+2. **仍然需要你确认的**：追问怎么呈现。v0.4 只有文本 `assistant_message`，
+   没有结构化的 `questions` / `missing_fields`（见 `contract-open-questions.md` Q6）——
+   页面要结构化追问的话，请提出来，这属于契约变更。
+3. **仍然需要你确认的**：`TripProfile` 提取（B2）用 LLM 结构化输出时，
+   `budget` 用 `Money.amount` 还是 `min_amount/max_amount` 区间（v0.4 §1.1 两种情况互斥）。
 
 ---
 
@@ -140,10 +140,10 @@ PROJECT_OVERVIEW.md、TRAVEL_GUIDE_SPEC.md、PROJECT_DESIGN.md、
 AI_TASK_PROMPTS.md、contract-open-questions.md、requirements/README.md，
 以及 docs/adr/。另外要看根目录 fixtures/ 里的契约测试数据。
 
-当前项目进度：契约已升级到 v0.4，C 正在把 v0.4 实现成 backend/app/schemas/，
-尚未冻结。契约示例数据位于 fixtures/valid/，其中 travel_guide.json 是一份
+当前项目进度：契约 v0.4 **已冻结（标签 schema-v0.4）**，backend/app/schemas/ 已是
+唯一的 v0.4 实现（v0.3 旧对象已删除），LangGraph/服务层/REST 也已按 v0.4 重写完成。
+契约示例数据位于仓库根目录 fixtures/valid/，其中 travel_guide.json 是一份
 完整的七部分攻略样例、itinerary_plan.json 是完整行程样例，可以用于前端渲染。
-后端 API 基于 v0.3 对象，正在按 v0.4 重写。
 
 我的交付边界：把用户自然语言转换成符合契约的 TripProfile 或 ChangeRequest，
 并把经过验证的 ItineraryPlan 组装、展示为七部分 TravelGuide。
@@ -176,3 +176,27 @@ B4 目的地推荐、B5 修改意图识别、B6 GuideComposer 攻略组装、B7 
 在自己的分支上提交，然后更新 `PROGRESS_REPORT.md` 第 1 节总览中属于你的行，
 并在第 3 节追加一条步骤记录（格式：改了哪些文件、实现了哪个业务流程、
 用了哪些契约、跑了哪些测试、哪些还是模拟数据、是否影响他人接口）。
+
+---
+
+## 追加说明（2026-09-24 步骤 5：C 线代码已整体迁到 v0.4）
+
+C 把三条线的公共代码全部换成 v0.4 对象，**v0.3 旧对象已删除**。开工前请注意：
+
+```text
+1. `app.schemas.legacy` 已经不存在；请只 from app.schemas import ...
+2. REST 响应统一成信封：{ok, data, warnings, error, trace_id}
+3. POST /api/sessions 的请求体必须带 run_mode（DEMO / VERIFIED）
+4. 前端要读的字段都在 data 里：
+   stage / assistant_message / trip_profile / destination_candidates /
+   degraded_items（模拟数据提示也在这里）
+5. 【重要】追问清单现在是文本，写在 assistant_message 里；
+   v0.4 没有结构化的 questions / missing_fields 字段（见 Q6）。
+   如果页面需要结构化追问，请提出来，这是契约变更，需要三人确认。
+6. v0.4 模型目前不会拒绝契约之外的字段；拍板前不要往契约对象里加自定义字段。
+```
+
+你要替换的两个入口：
+`backend/app/services/request_parser.py`（B2 需求提取）与
+`backend/app/services/destination_recommender.py`（B4 目的地比较），
+都实现了同一套 Protocol，只需在 `backend/app/api/deps.py` 换装配。

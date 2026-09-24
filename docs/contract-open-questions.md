@@ -183,11 +183,50 @@ C1 需要一个最小结构（例如 `code / message / details`），
 并且要与 §13.3 的 8 个错误码、`DATA_PROVIDER_ARCHITECTURE.md` 的
 `DATA_MISSING` / `NO_FEASIBLE_PLAN` 对齐。
 
+**C1 的实现（待确认）**：`ErrorDetail` 与 `WarningItem` 都取 `code / message / details`，
+其中 `WarningItem.code` 不限于 8 个错误码（例如 `MOCK_DATA_IN_DEMO`、
+`MISSING_PROFILE_FIELDS`）。见 `backend/app/schemas/v04/rest.py`。
+
 **Q3：9 个 MCP 工具的 Request / Response 结构只有字段描述。**
 
 §12 给出了每个工具的作用与输入输出要点，但基线 `contract_models.py` 只实现了
 10 个模型，没有实现任何 MCP Request/Response。
 C1 会按 §12 的描述补齐，遇到的每个歧义点都会登记在这里。
+
+**C1 的实现（待确认）**：9 个工具在 `backend/app/schemas/v04/mcp.py` 里都有
+Request/Response，注册表 `MCP_TOOL_MODELS` 由测试确保数量为 9。
+`GetIntercityOptionsRequest/Response` 按 §12.6 的最小子集实现（`option_id` 等见 §5.2 Q4）。
+
+### 5.3 步骤 5（C 线代码迁移到 v0.4）新发现（2026-09-24）
+
+**Q5：v0.4 模型不再拒绝多余字段——"防偷偷新增字段"的保护丢了。**
+
+v0.3 的实现给所有模型加了 `extra="forbid"`，A/B 多传一个字段会**立刻报错**；
+v0.4 的模型没有这个配置，多传的字段会被**静默忽略**，
+于是 `PROGRESS_REPORT.md` 风险登记里"已用 `extra="forbid"` 自动拦截"一条已经失效。
+
+C 的**建议**（等三人确认后再动，因为这是共享 Schema 的行为变化）：
+
+```text
+1. 在所有契约模型上恢复 extra="forbid"；
+2. 补一组严格性测试（多余字段必须 ValidationError）；
+3. 提前通知 A/B：若现有代码多传字段，会从"静默通过"变成"立刻失败"。
+```
+
+**Q6：追问内容没有结构化字段。**
+
+`SendMessageData` 只有 `assistant_message`（一段文本），没有 `questions` / `missing_fields`。
+v0.3 曾有结构化追问列表，前端可以直接渲染成待填字段。
+
+C 当前做法：把追问编号写进 `assistant_message`，用 `stage = ASKING_CLARIFICATION` 标记，
+并在 `GET /api/sessions/{id}` 的 `warnings` 里给出 `MISSING_PROFILE_FIELDS`。
+如果 B 的前端需要结构化追问，需要新增字段（契约变更，需三人确认）。
+
+**Q7：会话不存在的错误码缺失。**
+
+`ErrorCode`（§13.3）的 8 个取值里没有"会话/资源不存在"这类取值。
+C 暂用 `DATA_MISSING` + HTTP 404，并把 `session_id` 放进 `details`；
+如需更精确，请拍板新增错误码（例如 `SESSION_NOT_FOUND`）。
 
 **Q4（已解决 2026-09-24）：§5.1 的公共字段与基线模型不一致。**
 

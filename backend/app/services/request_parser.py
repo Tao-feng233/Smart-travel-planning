@@ -1,14 +1,16 @@
-"""把用户自然语言转为 `TripProfile`。
+"""把用户自然语言转为 `TripProfileDraft` / `TripProfile`（v0.4 契约）。
 
-⚠️ **本文件是 STUB**。按分工，`TripProfile` 提取属于 B 线（B2），
+⚠️ **本文件是 STUB**。按分工，需求提取属于 B 线（B2），
 真实实现应由 LLM 完成结构化输出。C 线先用一套**规则式提取器**让 LangGraph
 的“追问 → 补充 → 再解析”回路可以独立跑通；B 线完成后，
 只需实现同一个 `TripProfileParser` 协议并在 `app/api/deps.py` 中替换。
 
 设计约束：
 
-* 本解析器**不提供任何旅游事实**，只把用户话里已有的信息填进契约对象。
-* 无法识别的输入不猜测、不补全，缺失情况交给 `missing_fields` 判定后追问。
+* 本解析器**不提供任何旅游事实**，只把用户话里已有的信息填进契约对象；
+* 无法识别的输入不猜测、不补全，缺失情况交给 `missing_fields` 判定后追问；
+* 用户只是"提过一句"的偏好，按 `constraints` 的 `SOFT` 类型记录
+  （`CONTRACTS.md` §2.1），不得写进 `FIXED`。
 """
 
 from __future__ import annotations
@@ -17,11 +19,10 @@ import re
 from datetime import date, timedelta
 from typing import Mapping, Protocol
 
-from app.schemas.legacy import (
-    Budget,
-    BudgetFlexibility,
-    DestinationMode,
+from app.schemas import (
+    Constraint,
     DestinationRequest,
+    Money,
     TripProfileDraft,
 )
 
@@ -44,6 +45,16 @@ _AVOIDANCE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "HIGH_INTENSITY_HIKING": ("不想爬山", "不爬山", "爬不动", "不想徒步"),
     "CROWDED_PLACES": ("不想挤", "人太多", "避开人流"),
 }
+
+#: 软偏好 → `Constraint`（`kind = SOFT`）。字段名对齐 `TripProfile` 的真实字段，
+#: 便于 C4 规划时把它翻译成可放宽的约束。
+_SOFT_PREFERENCE_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("soft_late_start", "earliest_day_start", ("不想早起", "不要早起", "晚点起")),
+    ("soft_less_walking", "mobility_constraints", ("少走路", "不想走太多")),
+)
+
+#: 预算"不能超"的表达 → `budget_flexibility = FIXED`。
+_FIXED_BUDGET_WORDS = ("预算固定", "不能超过", "不能超", "最多", "上限")
 
 
 class TripProfileParser(Protocol):
@@ -127,7 +138,9 @@ class StubTripProfileParser:
                 start = parsed[0]
                 end = parsed[-1] if len(parsed) > 1 else end
                 # “10月2-6号”：第二段只写了日
-                compact = re.search(r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text)
+                compact = re.search(
+                    r"(\d{1,2})月(\d{1,2})[日号]?\s*[-~至到]\s*(\d{1,2})[日号]", text
+                )
                 if compact:
                     start = StubTripProfileParser._to_date(
                         None, compact.group(1), compact.group(2), reference_date
@@ -194,8 +207,12 @@ class StubTripProfileParser:
             amount = value
 
         if amount is not None:
-            flexibility = profile.budget.flexibility if profile.budget else BudgetFlexibility.NEGOTIABLE
-            profile.budget = Budget(amount=amount, currency="CNY", flexibility=flexibility)
+            # v0.4：金额与"是否可协商"是两个字段（`Money` + `budget_flexibility`）
+            profile.budget = Money(amount=amount, currency="CNY")
+            if any(word in text for word in _FIXED_BUDGET_WORDS):
+                profile.budget_flexibility = "FIXED"
+            elif profile.budget_flexibility is None:
+                profile.budget_flexibility = "NEGOTIABLE"
 
     @staticmethod
     def _extract_preferences(profile: TripProfileDraft, text: str) -> None:
@@ -209,10 +226,22 @@ class StubTripProfileParser:
             profile.pace = "RELAXED"
         elif any(word in text for word in ("紧凑", "多去几个", "特种兵")):
             profile.pace = "INTENSE"
-        if "不想早起" in text or "晚点起" in text:
-            profile.soft_preferences = _merge_list(profile.soft_preferences, ["不想早起"])
-        if "少走路" in text or "走不动" in text:
-            profile.soft_preferences = _merge_list(profile.soft_preferences, ["少走路"])
+
+        for key, field_name, words in _SOFT_PREFERENCE_RULES:
+            hit = next((word for word in words if word in text), None)
+            if hit is None:
+                continue
+            profile.constraints = _merge_constraint(
+                profile.constraints,
+                Constraint(
+                    constraint_id=f"c_{key}",
+                    kind="SOFT",
+                    field=field_name,
+                    operator="CONTAINS",
+                    value=hit,
+                    source_text=hit,
+                ),
+            )
 
     @staticmethod
     def _extract_destination(
@@ -222,7 +251,7 @@ class StubTripProfileParser:
             if name not in text:
                 continue
             requests = list(profile.destination_requests)
-            if not any(r.destination_id == destination_id for r in requests):
+            if not any(item.destination_id == destination_id for item in requests):
                 requests.append(
                     DestinationRequest(
                         destination_id=destination_id,
@@ -233,9 +262,7 @@ class StubTripProfileParser:
                     )
                 )
             profile.destination_requests = requests
-            profile.destination_mode = (
-                DestinationMode.MULTIPLE if len(requests) > 1 else DestinationMode.SINGLE
-            )
+            profile.destination_mode = "MULTIPLE" if len(requests) > 1 else "SINGLE"
             return
 
     # --- 工具方法 -----------------------------------------------------------
@@ -269,4 +296,12 @@ def _merge_list(existing: list[str], additions: list[str]) -> list[str]:
     for item in additions:
         if item not in merged:
             merged.append(item)
+    return merged
+
+
+def _merge_constraint(existing: list[Constraint], item: Constraint) -> list[Constraint]:
+    """同一条软偏好只保留一条（重复说"不想早起"不产生重复约束）。"""
+
+    merged = [c for c in existing if c.constraint_id != item.constraint_id]
+    merged.append(item)
     return merged

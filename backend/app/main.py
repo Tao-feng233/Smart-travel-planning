@@ -19,8 +19,11 @@ from app.core import settings
 def create_app() -> FastAPI:
     app = FastAPI(
         title="AI旅行决策与动态行程助手 API",
-        version="0.1.0",
-        description="C 线后端接口。当前实现会话与追问/推荐回路，攻略接口属于 C7。",
+        version="0.2.0",
+        description=(
+            "C 线后端接口（契约 v0.4）。当前实现会话、画像解析、目的地推荐"
+            "与 C3 前置过滤；行程生成、验证与攻略接口属于 C4–C7。"
+        ),
     )
     app.include_router(router)
 

@@ -12,8 +12,8 @@
 > 用法      from app.schemas import TripProfile, ResourceCandidateUnion, ...
 > ```
 >
-> `backend/app/schemas/legacy/` 是 C 线内部迁移用的 v0.3 旧对象，**A、B 不要引用**，
-> 它会在后续步骤中删除。
+> v0.3 的旧对象（`backend/app/schemas/legacy/`）**已经删除**（2026-09-24 步骤 5）。
+> 现在 `backend/app/schemas/` 只有 v0.4 一层，旧名字一律不可用。
 >
 > 第 4 节的暂停规则依然有效：缺对象请发 `SCHEMA_BLOCKER`，不要自己造。
 

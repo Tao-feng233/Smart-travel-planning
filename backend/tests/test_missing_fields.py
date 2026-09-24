@@ -1,10 +1,10 @@
-"""关键缺失字段判定策略测试（对象为 `TripProfileDraft`）。"""
+"""关键缺失字段判定策略测试（对象为 v0.4 的 `TripProfileDraft`）。"""
 
 from __future__ import annotations
 
 from datetime import date
 
-from app.schemas.legacy import Budget, TripProfileDraft
+from app.schemas import Money, TripProfileDraft
 from app.services.missing_fields import build_questions, find_missing_fields
 
 
@@ -15,7 +15,7 @@ def _draft(**overrides) -> TripProfileDraft:
         start_date=date(2026, 10, 2),
         end_date=date(2026, 10, 6),
         traveler_count=2,
-        budget=Budget(amount=5000),
+        budget=Money(amount=5000),
     )
     base.update(overrides)
     return TripProfileDraft(**base)
@@ -50,7 +50,7 @@ def test_partial_draft_only_reports_missing_parts() -> None:
 def test_soft_preferences_are_not_asked() -> None:
     """兴趣偏好属于软偏好，不阻塞推荐，不应进入追问列表。"""
 
-    draft = _draft(interests=[], soft_preferences=[], pace=None)
+    draft = _draft(interests=[], pace=None)
     assert find_missing_fields(draft) == []
 
 
@@ -70,6 +70,10 @@ def test_draft_missing_fields_are_computed_not_declared() -> None:
     """Draft 的 missing_fields 由系统计算，忽略外部随意填写的内容。"""
 
     draft = TripProfileDraft(session_id="s", missing_fields=["随便写的"])
-    assert draft.compute_missing_fields() == list(
-        ("departure_city", "start_date", "end_date", "traveler_count", "budget")
-    )
+    assert draft.compute_missing_fields() == [
+        "departure_city",
+        "start_date",
+        "end_date",
+        "traveler_count",
+        "budget",
+    ]
