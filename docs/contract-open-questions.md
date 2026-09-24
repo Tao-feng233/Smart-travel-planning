@@ -188,3 +188,24 @@ C1 需要一个最小结构（例如 `code / message / details`），
 §12 给出了每个工具的作用与输入输出要点，但基线 `contract_models.py` 只实现了
 10 个模型，没有实现任何 MCP Request/Response。
 C1 会按 §12 的描述补齐，遇到的每个歧义点都会登记在这里。
+
+**Q4（新，需三人拍板）：§5.1 的公共字段与基线模型不一致。**
+
+§5 要求"代码实现使用 `resource_type` 判别联合类型"，判别字段已补齐；
+但 §5.1 `ResourceCandidateBase` 列出的公共字段，基线模型并不统一具备：
+
+```text
+LodgingCandidate   用 lodging_id 而不是 resource_id，且没有 destination_id
+IntercityOption    没有 resource_id / destination_id
+VisitPlaceCandidate / RestaurantCandidate  基本符合
+另外 categories、availability_status、planning_fact_ids 等字段也不齐全
+```
+
+统一字段名属于**重命名共享字段**，C 不得自行处理（`AGENTS.md`）。
+三种可选方案：
+
+1. 让各具体模型继承 `ResourceCandidateBase`（改基线，字段名以 §5.1 为准）；
+2. 在 `CONTRACTS.md` 里明确"具体模型可以有自己的主键名"，并在附录 A 说明映射；
+3. 由 A 线在 Provider 层做归一化，共享 Schema 保持现状。
+
+在拍板前，`ResourceCandidateUnion` 只强制要求 `resource_type` 存在。

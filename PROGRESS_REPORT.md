@@ -524,6 +524,53 @@ Validated 6 valid, 6 invalid, and 1 business fixtures   ← v0.4 基线自检通
 影响：`TripProfile` 不再有 `missing_fields`；A、B 若之前引用过该字段需要改读 Draft。
 `fixtures/valid/trip_profile.json` 已同步删掉该字段。
 
+### 步骤 3.6：C1a —— v0.4 全部契约对象实现 + fixtures 接进 pytest
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C |
+| 状态 | ✅ 完成（C1b 迁移待做） |
+
+**1）修改/新增的文件**
+
+```text
+契约基线迁入   contracts/contract_models.py → backend/app/schemas/v04/models.py
+                （不再保留独立副本，单一来源）
+新增模块       backend/app/schemas/v04/candidates.py   ResourceCandidateBase + 判别联合
+                backend/app/schemas/v04/planning.py     Conflict / RepairOption
+                backend/app/schemas/v04/state.py        PlanState / VersionLineage / UserAction
+                backend/app/schemas/v04/recommendation.py DestinationRecommendation
+                backend/app/schemas/v04/mcp.py          9 个 MCP 工具 Request/Response
+                backend/app/schemas/v04/rest.py         统一信封 + 会话/攻略接口
+                backend/app/schemas/v04/__init__.py     统一导出 + MODEL_REGISTRY(50)
+新增测试       backend/tests/test_v04_contract_fixtures.py
+自检脚本       contracts/validate_fixtures.py 改为从 backend/app/schemas/v04 导入
+```
+
+**2）完成情况**
+
+```text
+MODEL_REGISTRY            50 个模型
+MCP_TOOL_MODELS           9 个工具（请求 + 响应齐全）
+fixtures/valid            7 个全部通过
+fixtures/invalid          7 个全部按预期失败
+fixtures/business         3 个全部符合预期
+backend 全量测试          ✅ 全绿（含 v0.3 回路的旧用例）
+SHARED_SCHEMA_HANDOFF 要求的对象   全部已实现并可导入（有专门用例守护）
+```
+
+**3）发现的问题（已登记，见 contract-open-questions 第 5.2 节）**
+
+Q4：§5.1 的公共字段与基线模型不一致（`LodgingCandidate` 用 `lodging_id`、
+`IntercityOption` 没有 `resource_id`）。统一字段名属于重命名共享字段，需三人拍板。
+
+**4）尚未完成（C1b）**
+
+- 把现有 graph / services / api / tests 从 v0.3 对象迁移到 v0.4 对象；
+- 迁移完成后删除 `backend/app/schemas/` 下的 v0.3 模块并扁平化命名空间；
+- 打 `schema-v0.4` 标签，宣布对 A、B 解除阻塞。
+
 ---
 
 ## 4. 契约冻结状态

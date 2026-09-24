@@ -468,6 +468,9 @@ class BudgetSummary(BaseModel):
 
 
 class IntercityOption(BaseModel):
+    #: 判别字段：CONTRACTS.md §1.3 的 ResourceType 明确包含 INTERCITY_OPTION，
+    #: §5 要求“代码实现使用 resource_type 判别联合类型”，故在此补充。
+    resource_type: Literal["INTERCITY_OPTION"] = "INTERCITY_OPTION"
     option_id: str
     mode: Literal["FLIGHT", "HIGH_SPEED_RAIL", "TRAIN", "BUS", "INTERCITY_METRO", "SELF_DRIVE"]
     origin_station: str
@@ -519,6 +522,8 @@ class PreparationItem(BaseModel):
 
 
 class LodgingCandidate(BaseModel):
+    #: 判别字段，理由同上（ResourceType 含 LODGING）
+    resource_type: Literal["LODGING"] = "LODGING"
     lodging_id: str
     name: str
     lodging_type: Literal["STAR_HOTEL", "CHAIN", "LOCAL_FEATURED", "HOSTEL", "ECONOMY"]

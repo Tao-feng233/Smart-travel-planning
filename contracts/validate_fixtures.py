@@ -1,17 +1,20 @@
 import json
+import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from contract_models import (
+ROOT = Path(__file__).resolve().parents[1]
+
+# 契约模型已并入 backend/app/schemas/v04/（单一来源，不再保留独立副本）
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.schemas.v04.models import (  # noqa: E402
     MODEL_REGISTRY,
     IncompleteProfileError,
     TripProfileDraft,
     finalize_trip_profile,
 )
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(path: Path) -> dict:
