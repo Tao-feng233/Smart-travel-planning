@@ -13,6 +13,7 @@ from app.schemas import (
     GetIntercityOptionsRequest,
     GetPreparationRulesRequest,
     GetResourceAvailabilityRequest,
+    GetResourceFactsRequest,
     GetRouteRequest,
     GetWeatherRequest,
     Money,
@@ -96,6 +97,32 @@ def test_resource_search_returns_contract_candidates() -> None:
         assert item.resource_id
         assert item.destination_id == "dest_chengdu"
         assert item.resource_type == "VISIT_PLACE"
+
+
+def test_all_mock_candidate_planning_facts_are_resolvable() -> None:
+    date_range = DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 4))
+    resources = []
+    for resource_type in ("VISIT_PLACE", "RESTAURANT"):
+        resources.extend(
+            client.search_resources(
+                SearchResourcesRequest(
+                    resource_type=resource_type,
+                    destination_id="dest_chengdu",
+                    date_range=date_range,
+                )
+            ).resources
+        )
+    response = client.get_resource_facts(
+        GetResourceFactsRequest(
+            resource_ids=[item.resource_id for item in resources],
+            date_range=date_range,
+        )
+    )
+    available = {item.planning_fact_id for item in response.planning_facts}
+    referenced = {
+        fact_id for item in resources for fact_id in item.planning_fact_ids
+    }
+    assert referenced.issubset(available)
 
 
 def test_closed_place_reports_unavailable_with_reason() -> None:

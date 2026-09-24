@@ -22,7 +22,7 @@ backend/
 │   ├── main.py        FastAPI 应用入口
 │   └── services/      缺失字段判定、提取、推荐、前置过滤、Mock Provider、会话存储
 ├── tests/
-│   └── ...            117 个用例
+│   └── ...            118 个用例
 └── requirements.txt
 ```
 
@@ -78,7 +78,7 @@ cd backend
 python -m pytest
 ```
 
-当前结果：`117 passed`；根目录契约校验为 7 个合法、7 个非法、3 个业务用例通过。
+当前结果：`118 passed`；根目录契约校验为 7 个合法、7 个非法、3 个业务用例通过。
 
 ## 运行 A 线 MCP Server
 
