@@ -1,7 +1,15 @@
 # 给成员 A 的交接说明
 
-> 用法：把「提示词」整段复制给你电脑上的 AI 助手。前提是
-> `travel-planner-starter-pack` 整个目录已经同步到你的电脑。
+> 用法：先 clone 仓库并切到你的分支，再把「提示词」整段复制给你电脑上的 AI 助手。
+
+```bash
+git clone https://github.com/Tao-feng233/Smart-travel-planning
+cd Smart-travel-planning
+git checkout feature/data-rag-mcp
+```
+
+如果 clone 连不上 github.com（国内网络常见），加代理参数：
+`git -c http.proxy=http://127.0.0.1:7897 clone https://github.com/Tao-feng233/Smart-travel-planning`
 
 生成日期：2026-09-24　对应项目步骤：步骤 1 完成（C 线共享 Schema 已冻结）
 

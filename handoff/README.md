@@ -15,14 +15,33 @@
 各自一台电脑时，对方的 AI 助手读不到仓库，所以必须先给出一段
 **自包含的上下文**：项目是什么、已经做到哪、他们要做什么、边界在哪。
 
-## 同步方式（三选一，需三人约定）
+## 同步方式：Git 远程仓库（已建好）
 
-1. **Git 远程仓库**（推荐）：建一个仓库，三人各自 clone，按 `feature/*` 分支提交。
-2. **网盘同步文件夹**：把 `travel-planner-starter-pack` 整个目录放在同步盘里，
-   注意只同步源码和文档，不要同步 `.env`。
-3. **压缩包传递**：每次交接打包整个目录发送；缺点是容易版本错乱。
+```bash
+git clone https://github.com/Tao-feng233/Smart-travel-planning
+cd Smart-travel-planning
+```
 
-无论用哪种方式，**必须遵守**：
+| 成员 | 分支 | 切换命令 |
+|---|---|---|
+| A | `feature/data-rag-mcp` | `git checkout feature/data-rag-mcp` |
+| B | `feature/llm-vue` | `git checkout feature/llm-vue` |
+| C | `feature/graph-planner` | `git checkout feature/graph-planner` |
+
+**仓库根目录就是 `Smart-travel-planning` 这一层**，
+`AGENTS.md`、`CONTRACTS.md` 都在根目录，不要进到子目录里去找。
+
+**如果 clone 时报连不上 github.com**：说明需要代理（国内网络常见）。
+临时用法：
+
+```bash
+git -c http.proxy=http://127.0.0.1:7897 clone https://github.com/Tao-feng233/Smart-travel-planning
+```
+
+（端口按自己机器的代理软件改；也可以只为本仓库配置：
+`git config http.proxy http://127.0.0.1:7897`）
+
+**必须遵守**：
 
 - `.env` 不得传给任何人，各自按 `.env.example` 建本地文件。
 - 每人在自己的分支上开发，不要直接改 `main`。
@@ -30,7 +49,7 @@
 
 ## 使用步骤
 
-1. 把整个 `travel-planner-starter-pack` 目录同步给对方。
-2. 把对应角色的 `*_交接说明.md` 发给对方。
+1. 对方从上面的仓库地址 clone，并切到自己的分支。
+2. 把对应角色的 `*_交接说明.md` 发给对方（或直接让对方打开本目录下的文件）。
 3. 对方把文档里的「提示词」整段复制给自己电脑上的 AI 助手。
 4. 对方的 AI 应先复述边界、输入、输出、依赖，再开始写代码。

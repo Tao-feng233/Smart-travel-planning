@@ -9,9 +9,25 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**本次更新**：2026-09-24 · 步骤 1 完成 —— 后端骨架 + 共享 Schema（C1）
+**本次更新**：2026-09-24 · 仓库已上线，三条开发线可以并行开工
 
-**一句话结论**：三条线共用的数据对象已经冻结，A、B 现在可以各自开工，不用等 C。
+**仓库地址**：https://github.com/Tao-feng233/Smart-travel-planning
+
+**第一件事：clone 并切到自己的分支**
+
+```bash
+git clone https://github.com/Tao-feng233/Smart-travel-planning
+cd Smart-travel-planning
+git checkout feature/<你的分支>
+```
+
+| 成员 | 分支 |
+|---|---|
+| A（数据、RAG 与 MCP） | `feature/data-rag-mcp` |
+| B（LLM 决策与 Vue 前端） | `feature/llm-vue` |
+| C（LangGraph、规划与验证） | `feature/graph-planner` |
+
+**本次结论**：共享 Schema 已冻结，A、B 现在可以各自开工，不用等 C。
 
 **需要 A 行动**
 
@@ -26,9 +42,10 @@
 **需要三人共同确认**
 
 - [ ] `docs/contract-open-questions.md` 第 1 节列出的 9 个字段取值集合（`pace`、`physical_intensity`、`Conflict.type`、`RepairOption.action`、`PlanState.stage` 等）
-- [ ] 三人各自仓库地址与分支（`main` + `feature/data-rag-mcp` / `feature/llm-vue` / `feature/graph-planner`）
 
-**本次不需要任何人行动的**：无
+**已完成，不需要行动**
+
+- 仓库与分支已建好（地址与分支见上方表格）
 
 ---
 
@@ -113,6 +130,38 @@
 ---
 
 ## 3. 已完成步骤记录
+
+### 步骤 0：Git 仓库与分支搭建（协作基础设施）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-24 |
+| 执行线 | C（受全体委托） |
+| 状态 | ✅ 完成 |
+| 目标 | 建立三人各自一台电脑时的同步方式 |
+
+**1）做了什么**
+
+- 仓库根目录定为 `travel-planner-starter-pack`（`AGENTS.md`、`CONTRACTS.md` 所在层）。
+- 远程：`https://github.com/Tao-feng233/Smart-travel-planning`。
+- `main` 分支包含完整启动包、后端骨架、共享 Schema、契约 fixture、进度报告与交接文档。
+- 建立并推送三条开发分支：`feature/data-rag-mcp`、`feature/llm-vue`、`feature/graph-planner`。
+- 仓库内配置 HTTP 代理（`http://127.0.0.1:7897`，**仅本仓库生效**），因为本机直连 GitHub 超时。
+
+**2）历史处理**
+
+远程原有 3 个提交（早期需求文档）已通过 `git merge -s ours --allow-unrelated-histories`
+并入历史，但**项目内容以启动包为基准**，旧的需求文档不再出现在工作区。
+如需取回原文，可用 `git show 4f20e15` 或 `git show ca70d49` 查看。
+
+**3）是否影响其他成员接口**
+
+否。这是纯基础设施步骤，未改任何契约或代码。
+
+**4）遗留**
+
+本地 `C:\Users\HP\.git`（家目录被误初始化的空仓库）内容已移走，
+家目录不再被 git 识别为仓库；剩余的空目录与 `.git.disabled-20260924` 待人工清理。
 
 ### 步骤 1：项目骨架 + 共享 Schema（C1）
 
@@ -235,7 +284,7 @@ A、B 两条线请通过 `from app.schemas import ...` 使用，不得复制定�
 | 主 LLM Provider 已通过 POC | ⬜ | 待三人确认 |
 | 地图/天气真实 API 还是模拟 | ⚠️ 待定 | 建议 P0 用模拟 Provider + 人工路线矩阵 |
 | 回归测试场景集 | ⬜ | 待建立 |
-| Git 仓库和各自分支 | ⬜ | 建议 `main` + 三条 `feature/*` |
+| Git 仓库和各自分支 | ✅ | 已完成，见步骤 0；`main` + 三条 `feature/*` |
 | `CONTRACTS.md` v0.3 冻结 | ⚠️ | 结构与枚举已实现，待补空洞 |
 
 **验收案例（已确认）**
