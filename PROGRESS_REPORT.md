@@ -19,7 +19,8 @@
   九个工具通过官方 MCP Python SDK 的内存客户端实际列举和调用。
 - 不需要 LLM API：当前 C 的 Stub 解析/推荐 + A 的 Mock Provider 可完成简单会话、
   目的地推荐、资源检索和可用性过滤测试。
-- 测试：`cd backend && python -m pytest` → **118 passed**；
+- 测试：安装完整 requirements 时 `cd backend && python -m pytest` → **223 passed**；
+  未安装 MCP SDK 时 → **222 passed + 1 skipped**，不会在收集阶段中断；
   `python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过。
 - 仍为 Mock：知识检索、事实、城际交通、路线、天气和准备规则；
   Chroma/MySQL/Snapshot/Live/Hybrid 尚未实现。
@@ -1110,3 +1111,4 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 是否修改共享接口：是（两处：backend/app/api/deps.py 为 B 线唯一允许修改的共享文件；以及 C 线文件 backend/app/services/request_parser.py，修正返回日期误判与中文数字预算解析，改动最小化、原有 196 个用例全过）
 下一步：待 C7 攻略接口就位后完成 B6/B7 端到端联调；本轮已完成 B 线首次提交
 ```
+

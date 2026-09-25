@@ -22,7 +22,7 @@ backend/
 │   ├── main.py        FastAPI 应用入口
 │   └── services/      缺失字段判定、提取、推荐、前置过滤、Mock Provider、会话存储
 ├── tests/
-│   └── ...            118 个用例
+│   └── ...            223 个用例（安装完整 requirements）
 └── requirements.txt
 ```
 
@@ -78,7 +78,9 @@ cd backend
 python -m pytest
 ```
 
-当前结果：`118 passed`；根目录契约校验为 7 个合法、7 个非法、3 个业务用例通过。
+当前结果：安装完整 requirements 时 `223 passed`；未安装可选 MCP SDK 时
+`222 passed, 1 skipped`，不会在测试收集阶段中断。根目录契约校验为
+7 个合法、7 个非法、3 个业务用例通过。
 
 ## 运行 A 线 MCP Server
 
@@ -120,4 +122,5 @@ HTTP MCP 端点为 `http://127.0.0.1:8001/mcp`。
   修改前请先确认契约。
 - `docs/contract-open-questions.md` 记录了契约中尚未确认的取值集合，
   收紧前不要依赖这些字段做枚举判断。
+
 
