@@ -5,6 +5,13 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 
+import pytest
+
+pytest.importorskip(
+    "mcp",
+    reason="MCP SDK未安装；运行 pip install -r backend/requirements.txt 后启用本测试",
+)
+
 from mcp import Client
 
 from app.mcp_server.server import create_mcp_server
@@ -57,5 +64,4 @@ def test_mcp_server_lists_and_calls_nine_typed_tools() -> None:
             assert result.structured_content
 
     asyncio.run(run())
-
 

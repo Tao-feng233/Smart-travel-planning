@@ -56,6 +56,50 @@ def test_past_month_rolls_to_next_year() -> None:
     assert parse("3月5号出发").start_date == date(2027, 3, 5)
 
 
+def test_labeled_return_date_keeps_existing_start() -> None:
+    """用户被追问"哪天回来"后只报返回日：不能把已确认的出发日覆盖掉。"""
+
+    first = parse("出发日期：10月2号")
+    second = parse("返回日期：2026-10-06", previous=first)
+    assert second.start_date == date(2026, 10, 2)
+    assert second.end_date == date(2026, 10, 6)
+
+
+def test_message_with_one_labeled_date_keeps_the_bare_one() -> None:
+    """一句话里"无标签的出发日 + 有标签的返回日"必须两个都留下。"""
+
+    profile = parse("10月2号出发，返回日期：10月6号")
+    assert profile.start_date == date(2026, 10, 2)
+    assert profile.end_date == date(2026, 10, 6)
+
+
+def test_message_with_bare_start_and_return_phrase_keeps_both() -> None:
+    profile = parse("10月2号出发，10月6号回来")
+    assert profile.start_date == date(2026, 10, 2)
+    assert profile.end_date == date(2026, 10, 6)
+
+
+@pytest.mark.parametrize("text", ["改到10月8号出发", "10月8号出发"])
+def test_new_departure_date_takes_effect_and_clears_illegal_return(text: str) -> None:
+    """改出发日期必须生效，而且不能留下 end < start 的非法区间。"""
+
+    first = parse("从上海出发，10月2号到10月6号")
+    second = parse(text, previous=first)
+    assert second.start_date == date(2026, 10, 8)
+    assert second.end_date is None
+    # 返回日被清空 → 追问会重新问返回日期（其余关键字段本来就没填）
+    assert "end_date" in second.compute_missing_fields()
+
+
+def test_bare_later_date_is_still_read_as_return_date() -> None:
+    """没有"出发"字样时，更晚的裸日期还是读作返回日。"""
+
+    first = parse("10月2号出发")
+    second = parse("10月6号", previous=first)
+    assert second.start_date == date(2026, 10, 2)
+    assert second.end_date == date(2026, 10, 6)
+
+
 def test_chinese_number_travelers() -> None:
     assert parse("我们俩一起去").traveler_count == 2
     assert parse("一家三口").traveler_count == 3

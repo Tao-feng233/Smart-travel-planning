@@ -2,19 +2,29 @@
 
 所有可替换的实现都在这里装配：
 
-* `TripProfileParser`        → 现在 `StubTripProfileParser`，B2 完成后替换
-* `DestinationRecommender`   → 现在 `StubDestinationRecommender`，B4 完成后替换
+* `TripProfileParser`        → **B2 已替换为 `LLMTripProfileParser`**（LLM 提取，
+  未配置模型接口或调用失败时自动降级回 C 线的 `StubTripProfileParser`）
+* `DestinationRecommender`   → **B4 已替换为 `LLMDestinationRecommender`**
+  （降级口径同 B2，回落到 `StubDestinationRecommender`）
 * `MCPProvider`（9 个工具）  → 现在 `V04MockMCPProvider`，A4 完成后替换
 * `SessionRepository`        → 现在内存 + JSON 快照，P1 可换成 MySQL
+
+**B 线改动说明**：只改了 `build_node_deps()` 里的两行装配，
+没有改动任何契约对象、图节点或服务层代码；两个 STUB 文件原样保留作为降级出口。
+模型通道由 `.env` 的 `LLM_PRIMARY_*` 配置，未配置时 `get_llm_provider()`
+返回不可用的占位实现，整条链路自动走规则式路径，**行为与替换前完全一致**。
 """
 
 from __future__ import annotations
 
 from app.core import settings
 from app.graph import NodeDeps, build_graph
+from app.llm import (
+    LLMDestinationRecommender,
+    LLMTripProfileParser,
+    get_llm_provider,
+)
 from app.services import v04_mock_provider
-from app.services.destination_recommender import StubDestinationRecommender
-from app.services.request_parser import StubTripProfileParser
 from app.services.session_service import SessionService
 from app.services.session_store import InMemorySessionRepository
 from app.services.v04_mock_provider import V04MockMCPProvider
@@ -26,10 +36,13 @@ def build_repository() -> InMemorySessionRepository:
 
 
 def build_node_deps() -> NodeDeps:
+    """装配节点依赖（B 线的两个替换点在此接入）。"""
+
+    provider = get_llm_provider()
     return NodeDeps(
-        parser=StubTripProfileParser(),
+        parser=LLMTripProfileParser(provider=provider),
         mcp=V04MockMCPProvider(),
-        recommender=StubDestinationRecommender(),
+        recommender=LLMDestinationRecommender(provider=provider),
         known_destinations=v04_mock_provider.known_destinations(),
     )
 

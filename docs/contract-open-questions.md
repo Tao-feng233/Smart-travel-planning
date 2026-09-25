@@ -228,6 +228,21 @@ C 当前做法：把追问编号写进 `assistant_message`，用 `stage = ASKING
 C 暂用 `DATA_MISSING` + HTTP 404，并把 `session_id` 放进 `details`；
 如需更精确，请拍板新增错误码（例如 `SESSION_NOT_FOUND`）。
 
+**Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 线提出，2026-09-25）。**
+
+B 的前端候选卡片现在只能显示 `dest_chengdu` 这种 ID——`DestinationRecommendation`（§6）
+只有 `destination_id`，没有可展示名称，前端也不允许自己编名字（那是事实性内容）。
+
+两个可选做法（**属于契约变更，需三人确认**）：
+
+```text
+1. 在 DestinationRecommendation 上新增可选字段 name（后端从目的地表取中文名）；
+2. 不改契约，前端用别的方式取名字（例如再调一次 MCP 工具拿目的地资料）。
+```
+
+C 的当前做法：不改契约。C 这边的 `SendMessageData.assistant_message` 里已经带了中文名，
+但要结构化的候选卡片标题，就得走方案 1。
+
 **Q4（已解决 2026-09-24）：§5.1 的公共字段与基线模型不一致。**
 
 **三人确认的处理方式**（已写回 `CONTRACTS.md` §5.2）：
