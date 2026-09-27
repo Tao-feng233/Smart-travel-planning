@@ -26,7 +26,7 @@ backend/
 │   └── services/      缺失字段判定、提取、推荐、前置过滤、行程生成、计划验证、
 │                      修复引擎、Mock Provider、会话存储
 ├── tests/
-│   └── ...            285 个用例（装齐 requirements；未装 MCP SDK 时 284 passed, 1 skipped）
+│   └── ...            299 个用例（装齐 requirements；未装 MCP SDK 时 298 passed, 1 skipped）
 └── requirements.txt
 ```
 
@@ -87,9 +87,21 @@ cd backend
 python -m pytest
 ```
 
-当前结果：安装完整 requirements 时 `223 passed`；未安装可选 MCP SDK 时
-`222 passed, 1 skipped`，不会在测试收集阶段中断。根目录契约校验为
+当前结果：安装完整 requirements 时 `299 passed`；未安装可选 MCP SDK 时
+对应的 MCP 冒烟测试会自动跳过，不会在测试收集阶段中断。根目录契约校验为
 7 个合法、7 个非法、3 个业务用例通过。
+
+测试必须从 `backend` 目录运行；直接在仓库根目录运行时，Python 不会自动把
+`backend` 加入模块搜索路径。
+
+### A 线 Mock 数据边界
+
+- 当前成都演示数据覆盖 2026-10-02 至 2026-10-06，包括 11 个游玩地点、
+  2 个住宿区域、4 个住宿候选、双向本地路线、去返程城际交通和 5 天天气。
+- `get_weather` 请求范围内缺少任意一天时会抛出 `DataMissingError`；该异常继承
+  `RuntimeError`，调用方必须明确降级或报告缺失日期，不能把不完整天气当作完整结果。
+- 住宿价格、路线耗时、开放信息、天气等均为 `MOCK` / `ESTIMATED` 演示数据，
+  不表示实时库存或真实可预订状态。
 
 ## 运行 A 线 MCP Server
 
