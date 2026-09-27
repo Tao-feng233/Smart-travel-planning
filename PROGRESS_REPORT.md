@@ -1,5 +1,16 @@
 # 项目进度报告（三人协作版）
 
+## 2026-09-27 · A 线 Mock 联调更新
+
+- 已补齐 11 个可检索游玩地点、2 个住宿区域、4 个住宿候选、成都演示日期
+  5 天天气、去返程城际及景点/餐厅/住宿/车站间双向路线；A 数据自查 7 组全绿。
+- 新增 A Mock→C4/C5 确定性业务测试，并更新原“住宿必定缺失”的过期断言。
+- `cd backend && python -m pytest`：299 passed；契约 fixtures：7 valid、
+  7 invalid、3 business；前端 `npm run build`：通过。
+- 未修改共享 Schema；新增内容仍全部是 Mock/Estimated 演示数据。
+- 当前完整攻略仍受 C 线阻塞：返程请求未反转方向，实际链路出现
+  `stage=READY` 但 `guide_id=null`；详见 `docs/A_C_INTEGRATION_ISSUES.md`。
+
 > 本文件是三条开发线的**共享进度台账**。每完成一步就在这里追加一条记录，
 > 不删除历史记录；有变更就新增一条并在末尾说明覆盖了什么。
 

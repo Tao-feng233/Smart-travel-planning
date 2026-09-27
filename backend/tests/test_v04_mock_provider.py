@@ -23,7 +23,11 @@ from app.schemas import (
     TravelerComposition,
     TripProfile,
 )
-from app.services.v04_mock_provider import DataMissingError, V04MockMCPProvider
+from app.services.v04_mock_provider import (
+    DESTINATIONS,
+    DataMissingError,
+    V04MockMCPProvider,
+)
 
 client = V04MockMCPProvider()
 
@@ -58,13 +62,26 @@ def test_only_planning_ready_destinations_are_returned() -> None:
 
 
 def test_coverage_is_recomputed_for_longer_trips() -> None:
-    """覆盖阈值按天数重算：5 天的行程无法只靠乐山的 6 个地点支撑。"""
+    """没有可检索资源的目的地不能仅靠元数据进入推荐。"""
 
     short = {item.destination_id for item in _search(days=2).recommendations}
     long = {item.destination_id for item in _search(days=5).recommendations}
-    assert "dest_leshan" in short
+    assert "dest_leshan" not in short
     assert "dest_leshan" not in long
     assert "dest_chengdu" in long
+
+
+def test_chengdu_coverage_count_matches_searchable_places() -> None:
+    resources = client.search_resources(
+        SearchResourcesRequest(
+            resource_type="VISIT_PLACE",
+            destination_id="dest_chengdu",
+            date_range=DateRange(
+                start_date=date(2026, 10, 2), end_date=date(2026, 10, 6)
+            ),
+        )
+    ).resources
+    assert DESTINATIONS["dest_chengdu"]["visit_place_count"] == len(resources)
 
 
 def test_readiness_evaluation_is_always_returned() -> None:
@@ -97,6 +114,61 @@ def test_resource_search_returns_contract_candidates() -> None:
         assert item.resource_id
         assert item.destination_id == "dest_chengdu"
         assert item.resource_type == "VISIT_PLACE"
+
+
+def test_lodging_search_returns_two_areas_and_four_mock_candidates() -> None:
+    date_range = DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 6))
+    lodgings = client.search_resources(
+        SearchResourcesRequest(
+            resource_type="LODGING",
+            destination_id="dest_chengdu",
+            date_range=date_range,
+        )
+    ).resources
+    areas = client.search_resources(
+        SearchResourcesRequest(
+            resource_type="LODGING_AREA",
+            destination_id="dest_chengdu",
+            date_range=date_range,
+        )
+    ).resources
+
+    assert len(lodgings) == 4
+    assert len(areas) == 2
+    assert {item.area_id for item in lodgings} == {item.resource_id for item in areas}
+    for item in lodgings:
+        assert item.resource_id.startswith("lodging_")
+        assert item.price_range.min_amount is not None
+        assert item.price_range.max_amount is not None
+        assert item.commute_summary
+        assert item.lodging_area
+        assert item.availability_is_realtime is False
+
+
+def test_candidate_evidence_points_to_the_same_resource() -> None:
+    date_range = DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 6))
+    resources = []
+    for resource_type in ("VISIT_PLACE", "RESTAURANT", "LODGING", "LODGING_AREA"):
+        resources.extend(
+            client.search_resources(
+                SearchResourcesRequest(
+                    resource_type=resource_type,
+                    destination_id="dest_chengdu",
+                    date_range=date_range,
+                )
+            ).resources
+        )
+    evidence = client.search_travel_knowledge(
+        SearchTravelKnowledgeRequest(
+            query="", destination_ids=["dest_chengdu"], top_k=50
+        )
+    ).evidence
+    evidence_by_id = {item.evidence_id: item for item in evidence}
+
+    for resource in resources:
+        assert resource.evidence_ids
+        for evidence_id in resource.evidence_ids:
+            assert evidence_by_id[evidence_id].entity_id == resource.resource_id
 
 
 def test_all_mock_candidate_planning_facts_are_resolvable() -> None:
@@ -179,14 +251,31 @@ def test_route_is_deterministic_and_marked_estimated() -> None:
     assert route.distance_km and route.distance_km > 0
 
 
+def test_route_matrix_covers_demo_places_restaurant_and_lodging() -> None:
+    pairs = [
+        ("poi_1001", "poi_1002"),
+        ("poi_1002", "poi_1001"),
+        ("poi_1001", "rest_2001"),
+        ("rest_2001", "poi_1003"),
+        ("lodging_3004", "poi_1001"),
+        ("成都东站", "lodging_3004"),
+        ("lodging_3004", "成都东站"),
+    ]
+    for origin, destination in pairs:
+        output = client.get_route(GetRouteRequest(origin=origin, destination=destination))
+        assert output.routes, f"missing mock route: {origin} -> {destination}"
+        assert output.routes[0].source == "MOCK"
+        assert output.routes[0].is_estimated is True
+
+
 def test_weather_is_deterministic_and_marked_forecast() -> None:
     request = GetWeatherRequest(
-        date_range=DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 4)),
+        date_range=DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 6)),
         destination_id="dest_chengdu",
     )
     assert client.get_weather(request) == client.get_weather(request)
     output = client.get_weather(request)
-    assert len(output.weather_facts) == 3
+    assert len(output.weather_facts) == 5
     for fact in output.weather_facts:
         assert fact.is_forecast is True
         assert fact.source == "MOCK"
@@ -198,13 +287,13 @@ def test_weather_missing_day_reports_data_missing() -> None:
     import pytest
 
     request = GetWeatherRequest(
-        date_range=DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 5)),
+        date_range=DateRange(start_date=date(2026, 10, 2), end_date=date(2026, 10, 7)),
         destination_id="dest_chengdu",
     )
     with pytest.raises(DataMissingError) as error:
         client.get_weather(request)
     assert error.value.code == "DATA_MISSING"
-    assert error.value.missing_dates == (date(2026, 10, 5),)
+    assert error.value.missing_dates == (date(2026, 10, 7),)
 
 
 def test_intercity_date_mismatch_returns_empty() -> None:
@@ -216,6 +305,19 @@ def test_intercity_date_mismatch_returns_empty() -> None:
         )
     )
     assert output.options == []
+
+
+def test_return_intercity_option_matches_demo_end_date() -> None:
+    output = client.get_intercity_options(
+        GetIntercityOptionsRequest(
+            origin_city="dest_chengdu",
+            destination_id="上海",
+            arrival_or_departure_date=date(2026, 10, 6),
+        )
+    )
+    assert len(output.options) == 1
+    assert output.options[0].origin_station == "成都东站"
+    assert output.options[0].destination_station == "上海虹桥站"
 
 
 def test_daily_entry_window_uses_requested_date() -> None:

@@ -7,18 +7,25 @@
       → 确认攻略（锁定节点）→ 突发下雨重规划 → 取新攻略（版本 +1）
 ```
 
-数据来自 `test_graph_planning` 的假 Provider（A 的 Mock 目前缺住宿/路线/返程城际）。
-A 补齐数据后，这个文件里的 `_deps()` 换成 `build_node_deps()` 就是真实端到端。
+主流程使用 `test_graph_planning` 的隔离测试 Provider；文件末尾另用默认依赖检查
+A 线真实 Mock Provider 的数据覆盖不会退回到“住宿缺失”。
 """
 
 from __future__ import annotations
+
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import build_session_service, get_session_service
+from app.graph import NodeDeps
 from app.main import create_app
+from app.services import v04_mock_provider
+from app.services.destination_recommender import StubDestinationRecommender
+from app.services.request_parser import StubTripProfileParser
 from app.services.session_store import InMemorySessionRepository
+from app.services.v04_mock_provider import V04MockMCPProvider
 from test_graph_planning import TRIP_TEXT, _deps
 
 
@@ -30,6 +37,16 @@ def client() -> TestClient:
     )
     app.dependency_overrides[get_session_service] = lambda: service
     return TestClient(app)
+
+
+def _a_mock_deps() -> NodeDeps:
+    return NodeDeps(
+        parser=StubTripProfileParser(),
+        mcp=V04MockMCPProvider(),
+        recommender=StubDestinationRecommender(),
+        known_destinations=v04_mock_provider.known_destinations(),
+        today=lambda: date(2026, 9, 24),
+    )
 
 
 def test_full_p0_flow_from_message_to_replanned_guide(client: TestClient) -> None:
@@ -121,13 +138,15 @@ def test_full_p0_flow_from_message_to_replanned_guide(client: TestClient) -> Non
     assert old.json()["data"]["travel_guide"]["guide_version"] == guide["guide_version"]
 
 
-def test_real_provider_reports_missing_lodging_instead_of_failing(
+def test_real_provider_no_longer_reports_missing_lodging(
     client: TestClient,
 ) -> None:
-    """真实 Mock 数据（没有住宿）下的行为：明确报缺，不崩、不伪造。"""
+    """A 线真实 Mock 已包含住宿，不应继续报告住宿数据缺失。"""
 
     app = create_app()
-    service = build_session_service(repository=InMemorySessionRepository())
+    service = build_session_service(
+        repository=InMemorySessionRepository(), node_deps=_a_mock_deps()
+    )
     app.dependency_overrides[get_session_service] = lambda: service
     real = TestClient(app)
     session_id = real.post("/api/sessions", json={"run_mode": "DEMO"}).json()["data"][
@@ -137,6 +156,4 @@ def test_real_provider_reports_missing_lodging_instead_of_failing(
     body = real.post(
         f"/api/sessions/{session_id}/messages", json={"text": "确认"}
     ).json()["data"]
-    assert body["stage"] == "INSUFFICIENT_DATA"
-    assert body["guide_id"] is None
-    assert any("住宿" in item for item in body["degraded_items"])
+    assert not any("住宿" in item for item in body["degraded_items"])
