@@ -264,9 +264,20 @@ def fetch_preparation_rules(
 
 
 def store_guide(extras, guide: TravelGuide) -> None:
-    """把攻略按版本存进会话（C7 的 GET ?version= 与版本谱系要用）。"""
+    """把攻略按**版本**存进会话。
 
-    kept = [item for item in extras.guides if item.guide_id != guide.guide_id]
+    同一个 `guide_id` 必须保留全部历史版本——否则 `GET /api/guides/{id}?version=N`
+    只是个死参数（旧的 `store_guide` 按 guide_id 覆盖，导致只能查到最新版）。
+    """
+
+    kept = [
+        item
+        for item in extras.guides
+        if not (
+            item.guide_id == guide.guide_id
+            and item.guide_version == guide.guide_version
+        )
+    ]
     extras.guides = [*kept, guide]
     extras.current_guide_id = guide.guide_id
     extras.current_guide_version = guide.guide_version
@@ -275,12 +286,13 @@ def store_guide(extras, guide: TravelGuide) -> None:
 def find_guide(
     extras, guide_id: str, version: int | None = None
 ) -> TravelGuide | None:
-    for item in extras.guides:
-        if item.guide_id != guide_id:
-            continue
-        if version is None or item.guide_version == version:
-            return item
-    return None
+    matches = [item for item in extras.guides if item.guide_id == guide_id]
+    if version is not None:
+        return next(
+            (item for item in matches if item.guide_version == version), None
+        )
+    # 不指定版本时给最新版
+    return max(matches, key=lambda item: item.guide_version, default=None)
 
 
 # --- 内部工具 ---------------------------------------------------------------

@@ -162,3 +162,41 @@ def test_unsupported_modification_is_reported_honestly(client: TestClient) -> No
     )
     assert response.status_code == 409
     assert response.json()["detail"]["error"]["code"] == "DATA_MISSING"
+
+
+def _assert_history_and_lineage(client: TestClient, guide_id: str, guide: dict) -> None:
+    """B 报的三处缺口：历史版本可查 / 会话返回 guide_id / 谱系带攻略版本。"""
+
+    # 1) 会话详情必须带 guide_id（刷新页面后前端要靠它找攻略）
+    session_id = guide["session_id"]
+    state = client.get(f"/api/sessions/{session_id}").json()["data"]
+    assert state["guide_id"] == guide_id
+
+    # 2) 触发一次突发事件，产生 v2
+    response = client.post(
+        f"/api/guides/{guide_id}/incident",
+        json={
+            "action": {
+                "action_id": "act_history",
+                "action_type": "REPORT_INCIDENT",
+                "session_id": session_id,
+                "guide_id": guide_id,
+                "expected_guide_version": guide["guide_version"],
+                "raw_text": "今天下雨了",
+            }
+        },
+    )
+    assert response.status_code == 200
+    lineage = response.json()["data"]["version_lineage"]
+    # 3) 谱系要带攻略版本号，前端才能显示"v2 → v3"
+    assert lineage["parent_guide_version"] == guide["guide_version"]
+    assert lineage["new_guide_version"] == guide["guide_version"] + 1
+
+    # 4) 历史版本可回查（`?version=` 不能是死参数）
+    old = client.get(
+        f"/api/guides/{guide_id}", params={"version": guide["guide_version"]}
+    )
+    assert old.status_code == 200
+    assert old.json()["data"]["travel_guide"]["guide_version"] == guide["guide_version"]
+    latest = client.get(f"/api/guides/{guide_id}").json()["data"]["travel_guide"]
+    assert latest["guide_version"] == guide["guide_version"] + 1

@@ -187,6 +187,8 @@ class SessionService:
             plan=extras.current_plan,
             plan_conflicts=extras.plan_conflicts,
             missing_inputs=extras.plan_missing_inputs,
+            # 刷新页面时也要能拿到攻略 ID，否则前端会从"有攻略"退回"没生成"
+            guide_id=extras.current_guide_id,
             name_lookup=self._name_lookup,
             data_is_mock=self._data_is_mock,
         )
@@ -338,8 +340,18 @@ class SessionService:
             guide_version=current.guide_version + 1,
             parent_guide_version=current.guide_version,
         )
+        # 版本谱系要带攻略版本号，否则前端显示不了"攻略 v2 → v3"
+        lineage = outcome.lineage
+        if lineage is not None:
+            lineage = lineage.model_copy(
+                update={
+                    "parent_guide_version": current.guide_version,
+                    "new_guide_version": guide.guide_version,
+                }
+            )
+            extras.version_lineage = lineage
         self._repository.save_extras(session_id, extras)
-        return guide, outcome.lineage, list(result.conflicts), list(outcome.notes)
+        return guide, lineage, list(result.conflicts), list(outcome.notes)
 
     # --- 攻略组装的素材准备 -------------------------------------------------
 

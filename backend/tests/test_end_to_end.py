@@ -116,7 +116,9 @@ def test_full_p0_flow_from_message_to_replanned_guide(client: TestClient) -> Non
     old = client.get(
         f"/api/guides/{guide_id}", params={"version": guide["guide_version"]}
     )
-    assert old.status_code == 404, "旧版本被新版本替换后不应再命中"
+    # 历史版本必须可回查（`?version=` 不是死参数；B 用实测报过这个缺口）
+    assert old.status_code == 200
+    assert old.json()["data"]["travel_guide"]["guide_version"] == guide["guide_version"]
 
 
 def test_real_provider_reports_missing_lodging_instead_of_failing(
