@@ -50,11 +50,13 @@ function nowLabel(): string {
 // localStorage 只存"找得回后端状态的钥匙"，**不复制后端状态**——
 // 恢复时用 GET /api/sessions/{id} 重新拉权威状态，前端不自己拼装。
 //
-// 关于 `guideId`：它也是一把"钥匙"（拿着它去 GET /api/guides/{id} 取权威正文），
-// 所以必须一起存。实测 `GET /api/sessions/{id}` **不返回** `guide_id`
-// （`session_service.get_state()` 没把 `extras.current_guide_id` 传给 `build_reply`），
-// 只靠刷新状态是找不回攻略的——刷新后页面会从"有攻略"退回"攻略还没有生成"。
-// 这条后端缺口已报给 C；前端先自行把钥匙存住，不等接口改。
+// 关于攻略 ID：**不用**单独存。`GET /api/sessions/{id}` 返回的 `PlanState`（§10.2）里
+// 本来就有 `current_guide_id`，拿着它就能取 `GET /api/guides/{id}` 的权威正文。
+//
+// 早期这里多存了一个 `guideId` 字段，是因为当时**找错了字段名**：去找 `guide_id`，
+// 而契约 §13.1 给这个接口的响应是 `PlanState`，字段名是 `current_guide_id`，
+// **压根没有 `guide_id`**（`guide_id` 只出现在 `POST .../messages` 的 `SendMessageData` 里）。
+// 名字对不上，就以为接口没给——于是绕道本地存了一把。现在删掉这层绕行。
 
 const STORAGE_KEY = 'travelsense.session.v1'
 
@@ -63,8 +65,6 @@ interface PersistedSession {
   runMode: RunMode
   messages: ChatMessage[]
   profileVersion: number | null
-  /** 当前攻略 ID；没有攻略时为 null。 */
-  guideId: string | null
 }
 
 function readSavedSession(): PersistedSession | null {
@@ -116,12 +116,13 @@ export const useSessionStore = defineStore('session', () => {
   /**
    * 产出上面那份谱系的**改动前**那一版攻略。
    *
-   * 为什么必须留着：谱系里的 `removed_node_ids` 与 `replacement_relations.old_node_id`
-   * 是**旧版**节点 ID，在新版正文里查不到。而 `GET /api/guides/{id}?version=N`
-   * 取不到历史版本——实测 v2 存在时 `?version=1` 返回 404 `DATA_MISSING`，
-   * 根因是 `guide_service.store_guide` 按 `guide_id` 覆盖（同 ID 只留最新版），
-   * 于是 `version` 参数实际是死的。好在改动前那一版就在页面上握着，
-   * 直接留作索引即可，不用再请求、也不用猜。已把 `?version=` 这条报给 C。
+   * 为什么留着：谱系里的 `removed_node_ids` 与 `replacement_relations.old_node_id`
+   * 是**旧版**节点 ID，在新版正文里查不到，要摊开给用户看就得回到旧版正文查名字。
+   * 而"改动前那一版"当次操作就在页面上握着，直接留作索引即可，**不用再请求一次**。
+   *
+   * （历史版本本身现在可以从后端取回来了：C 已把 `guide_service.store_guide`
+   * 改成按 `(guide_id, guide_version)` 保留全部版本，`?version=N` 返回 200，
+   * 不再是死参数。这里不用它只是为了省一次请求，不是因为取不到。）
    */
   const lineageBaseGuide = ref<TravelGuide | null>(null)
   /** 演示通道的说明（本地造出来的界面状态，必须显式告知，不能冒充后端行为） */
@@ -202,9 +203,6 @@ export const useSessionStore = defineStore('session', () => {
       runMode: runMode.value,
       messages: messages.value,
       profileVersion: tripProfile.value?.profile_version ?? null,
-      // 只有后端来的正文才是"可再取的钥匙"；fixture 演示的攻略 ID 存下来
-      // 只会在下次打开时 404，徒增一条误导性提示。
-      guideId: guideOrigin.value === 'api' ? (guide.value?.guide_id ?? null) : null,
     })
   }
 
@@ -239,9 +237,9 @@ export const useSessionStore = defineStore('session', () => {
         traceId.value = result.traceId
         absorbWarnings(result.warnings)
         loading.value = false
-        await refreshState()
-        // 攻略正文靠 `guideId` 这把钥匙单独取回（GET /sessions 不给 guide_id）。
-        await syncGuide(saved.guideId ?? null)
+        // 权威状态刚刚已经拿到，不必再 refreshState() 打一遍同一个接口。
+        // 攻略正文的钥匙就在 state 里（`current_guide_id`），直接用它。
+        await syncGuide(result.data.current_guide_id)
         return
       } catch {
         writeSavedSession(null)
@@ -524,6 +522,43 @@ export const useSessionStore = defineStore('session', () => {
     persist()
   }
 
+  /**
+   * 演示通道：把 `GUIDE_INCOMPLETE`（计划已验证通过、但攻略素材不足）单独亮出来。
+   *
+   * 为什么需要这条演示：这个阶段在真实数据上目前触发不到——A 补齐成都 Mock 覆盖后
+   * `tools/check_b_flow.py --deps real` 会直接跑到 READY，而它只在**攻略组装**
+   * 缺素材时出现（`graph/nodes.py`：组不出攻略就只回这个阶段，刻意不报 READY）。
+   * 没有这条通道，新加的阶段处理就是一段永远走不到的代码，也没法演示。
+   *
+   * `degraded_items` 的文案对齐后端 `session_service` 的拼法
+   * （`f"攻略暂时组装不了：{note}"`，note 来自 `guide_service.build_guide` 的
+   * `GuideDataError`），但**整条状态是前端造出来的，不经过后端**。
+   */
+  async function loadGuideIncompleteDemo(): Promise<void> {
+    stage.value = 'GUIDE_INCOMPLETE'
+    guide.value = null
+    guideOrigin.value = 'none'
+    guideNotice.value = null
+    versionLineage.value = null
+    lineageBaseGuide.value = null
+    conflicts.value = []
+    warnings.value = []
+    degradedItems.value = [
+      '攻略暂时组装不了：缺少 2026-10-02 的抵达交通方案，无法填出抵达衔接。',
+      '攻略暂时组装不了：缺少 2026-10-06 的返程交通方案，无法填出返程衔接。',
+    ]
+    demoNotice.value =
+      '这是本地的 GUIDE_INCOMPLETE 预览：阶段与 degraded_items 的拼法与后端一致，但整条状态是前端造出来的，不经过后端。真实情况下这个阶段由攻略组装缺素材触发（计划本身有效）。'
+    messages.value = []
+    pushMessage('user', '就按你推荐的成都安排吧，确认', 'AWAITING_DESTINATION_CONFIRMATION')
+    pushMessage(
+      'assistant',
+      '计划已经通过验证，但攻略还组装不出来：缺少攻略素材。补齐后我会直接出新版本。',
+      'GUIDE_INCOMPLETE',
+    )
+    persist()
+  }
+
   function dismissDemoNotice(): void {
     demoNotice.value = null
   }
@@ -592,6 +627,7 @@ export const useSessionStore = defineStore('session', () => {
     reportIncidentNow,
     loadFixtureDemo,
     loadFixtureClarificationDemo,
+    loadGuideIncompleteDemo,
     dismissDemoNotice,
     dismissGuideNotice,
     dismissWarning,

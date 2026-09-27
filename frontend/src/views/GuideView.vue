@@ -30,6 +30,21 @@ const guide = computed(() => store.guide)
 /** 突发描述。刻意不做模板/下拉：突发本来就是自由文本，交给后端识别。 */
 const incidentText = ref('')
 
+/** 计划已通过验证但攻略组不出来（`graph/stages.py` GUIDE_INCOMPLETE）。 */
+const guideIncomplete = computed(() => store.stage === 'GUIDE_INCOMPLETE')
+
+/**
+ * 没有攻略、但仍然有必须让用户看到的东西。
+ *
+ * 首次规划就卡在 `REPAIRING` 时（计划本身有问题、修不动），后端已经把
+ * `conflicts` 带回来了，但那时**还没有攻略**（`data.guide_id` 为空）。
+ * 若把冲突面板挂在"有没有攻略"下面，这些冲突会一条都显示不出来，
+ * 用户会以为这份行程是干净的——所以这里单独判一次。
+ */
+const hasChangeInfo = computed(
+  () => store.conflicts.length > 0 || Boolean(store.versionLineage),
+)
+
 /**
  * 哪个动作正在跑。
  *
@@ -79,14 +94,34 @@ async function onIncident(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="!guide" class="ts-empty">
-    <el-icon style="font-size: 28px"><MapLocation /></el-icon>
-    <p>攻略还没有生成。</p>
-    <p class="ts-faint">
-      攻略由 C 线的规划与验证链路产出，B 线负责把验证过的计划组装成这七个部分。<br />
-      在左侧把需求说清楚，等对话推进到「攻略已就绪」就会出现在这里。
-    </p>
-  </div>
+  <template v-if="!guide">
+    <!-- 有计划但没攻略时，conflicts 也必须露出来（见 `hasChangeInfo` 的说明）。 -->
+    <GuideChangePanel
+      v-if="hasChangeInfo"
+      :guide="null"
+      :previous-guide="null"
+      :lineage="store.versionLineage"
+      :conflicts="store.conflicts"
+    />
+
+    <div class="ts-empty">
+      <el-icon style="font-size: 28px"><MapLocation /></el-icon>
+      <template v-if="guideIncomplete">
+        <p>计划已经通过验证，但攻略还组装不出来。</p>
+        <p class="ts-faint">
+          这不是「再等等就好」：缺的是攻略素材，所以后端刻意不报「攻略已就绪」。<br />
+          缺哪些素材见顶部那条黄色提示（后端未给出清单时会明说）。
+        </p>
+      </template>
+      <template v-else>
+        <p>攻略还没有生成。</p>
+        <p class="ts-faint">
+          攻略由 C 线的规划与验证链路产出，B 线负责把验证过的计划组装成这七个部分。<br />
+          在左侧把需求说清楚，等对话推进到「攻略已就绪」就会出现在这里。
+        </p>
+      </template>
+    </div>
+  </template>
 
   <div v-else class="guide">
     <div class="guide__head">

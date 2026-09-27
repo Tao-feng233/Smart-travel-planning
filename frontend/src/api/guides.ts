@@ -12,7 +12,8 @@ import { apiCall, type ApiResult } from './client'
  * `CONTRACTS.md` §13.2 的四个攻略接口（C7 已实现，统一响应信封）。
  *
  * 错误一律按 `error.code` 判定，不要看 HTTP 状态码猜：
- * - 404 `DATA_MISSING`：攻略不存在（旧版本被新版本替换后也会命中这一条）
+ * - 404 `DATA_MISSING`：攻略不存在（该 `guide_id` 根本没生成过；
+ *   存在的历史版本现在能取回，不再落进这一条）
  * - 409 `VERSION_CONFLICT`：`expected_guide_version` 过期，先刷新再改
  * - 409 `DATA_MISSING`：素材缺失，`error.details` 里写明缺什么
  *   （例如 `LODGING_CANDIDATES`）——**后端不会给半个攻略，缺就是缺**。

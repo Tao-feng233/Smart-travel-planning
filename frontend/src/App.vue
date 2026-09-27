@@ -60,6 +60,12 @@ async function onClarifyDemo(): Promise<void> {
   await store.loadFixtureClarificationDemo()
   ElMessage.info('追问卡预览已载入（不经过后端）')
 }
+
+async function onIncompleteDemo(): Promise<void> {
+  await store.loadGuideIncompleteDemo()
+  await router.push('/')
+  ElMessage.warning('「攻略组装不出来」状态已载入（不经过后端）')
+}
 </script>
 
 <template>
@@ -93,6 +99,9 @@ async function onClarifyDemo(): Promise<void> {
         </el-button>
         <el-button v-if="store.fixtureEnabled" size="small" plain @click="onClarifyDemo">
           演示追问卡
+        </el-button>
+        <el-button v-if="store.fixtureEnabled" size="small" plain @click="onIncompleteDemo">
+          演示攻略不完整
         </el-button>
         <el-button size="small" plain @click="onReset">重新开始</el-button>
       </div>
