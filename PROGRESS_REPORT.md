@@ -9,7 +9,23 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**C线更新**：2026-09-27 · **C6 修复引擎完成：两条 P0 验收（闭馆替换 / 下雨重规划）都跑通了**
+**C线更新**：2026-09-27 · **C7 攻略接口完成：七部分攻略能组装、四个接口都能用**
+
+- **C7 已完成**：`CONTRACTS.md` §13.2 的四个接口全部实现
+  （`GET /api/guides/{id}?version=`、`/confirm`、`/modify`、`/incident`），
+  图上新增 `compose_guide` 节点：计划验证通过后自动组装七部分攻略。
+  B6 的 `compose_travel_guide` 由 C 这边喂素材（抵达/返程衔接、准备事项、目的地中文名、
+  数据快照、冲突清单）——这些别处没人提供，见 `guide_service.py`。
+- **抵达与返程衔接由 Provider 数据推导**：`ArrivalPlan` / `ReturnPlan` 的时长与费用
+  来自「车站 ↔ 住宿」的路线结果，拿不到就**明确报缺**（不拿 `door_to_door_minutes` 硬凑）。
+- **接口行为**：确认会锁定节点并生成新攻略版本；改动作与突发事件走 C6 引擎，
+  产出新计划 + 新攻略版本，响应带 `version_lineage` 与 `conflicts`；
+  版本过期 → 409 `VERSION_CONFLICT`；P0 不支持的改动（改日期等）→ 明确报错，不假装成功。
+- 全量测试：**285 passed, 1 skipped**（本轮新增 6 个攻略接口用例）。
+- **仍待 A 的数据**：真实 Mock 没有住宿、没有车站↔住宿路线、没有返程城际，
+  所以真实数据下「确认」后攻略组不出来（会明确报缺）；测试替身已把整条链路跑通。
+
+（以下为上一轮 C6 记录）
 
 - **C6 已完成**：`backend/app/services/repair_engine.py` 两个入口共用一套机制
   （`CONTRACTS.md` §10.3 要求"不同事件走同一套重规划"）：
@@ -339,7 +355,8 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 行程生成（C4） | C | `backend/app/services/itinerary_planner.py` | ✅ 代码 + 单测完成；端到端等 A 的住宿/路线数据 | 2026-09-27 |
 | 验证器（C5） | C | `backend/app/services/plan_validator.py` | ✅ 完成（10 类检查 + 修复选项，已串进图） | 2026-09-27 |
 | 修复与重规划（C6） | C | `backend/app/services/repair_engine.py` | ✅ 完成（闭馆替换 + 下雨重排 + VersionLineage） | 2026-09-27 |
-| REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-27 |
+| REST 集成（C7） | C | `backend/app/api/` | ✅ 会话三接口 + 攻略四接口全部就位 | 2026-09-27 |
+| 攻略组装素材（C7） | C | `backend/app/services/guide_service.py` | ✅ 抵达/返程衔接 + 准备事项 + 攻略存取 | 2026-09-27 |
 | A 线数据缺口自查脚本 | C | `tools/check_a_data.py` | ✅ 一条命令看清缺哪些数据 | 2026-09-27 |
 | MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始（P0 用 Mock 数据） | — |
 | Chroma 认知卡片（A2） | A | `data/` | ⬜ 未开始（P0 用 Mock 证据） | — |
@@ -371,7 +388,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 8 | 生成带时间、交通和预算的行程 | C | 🔄 | C4 已完成并单测通过；真实数据缺住宿/路线，端到端要等 A（`tools/check_a_data.py` 可自查） |
 | 9 | 验证并修复至少一种冲突（闭馆替换） | C | ✅ | C5 检测 + C6 套用修复产出 v2；`tests/test_repair_engine.py`、`tests/test_plan_validator.py` |
 | 10 | 用户修改后重新规划受影响部分（下雨） | C | ✅ | 聊天里说「今天下雨了」即触发只重排当天（锁定/已完成节点不动）；`tests/test_graph_planning.py` |
-| 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | B6 `compose_travel_guide()` 已并入 main；待 C4/C5 产物与 C7 出口 |
+| 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | 后端链路已通（C4→C5→C7 组装，`tests/test_guide_api.py` 7 节齐全）；真实数据演示待 A，前端展示待 B7 |
 
 ---
 
@@ -1225,6 +1242,58 @@ P0 口径说明：修复只自动跑**一轮**（`repair_attempts` 上限 1）�
 
 ---
 
+### 步骤 10：C7 攻略接口（组装 + 四个接口 + 版本谱系）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 四个接口完成（用测试替身端到端验证；真实演示待 A 的住宿/路线数据） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/guide_service.py     ★新增：build_guide（喂 B6 素材）+ ArrivalPlan/ReturnPlan
+                                          构造 + PreparationRule→PreparationItem 映射 + 攻略存取
+backend/app/services/repair_engine.py     新增 apply_user_action（REPLACE_NODE / REMOVE_NODE）
+backend/app/services/session_service.py   get_guide / confirm_guide / modify_guide（含 incident）
+backend/app/services/session_store.py     SessionExtras 存 guides[] + current_guide_id/version；加 session_ids()
+backend/app/api/routes.py                 GET /api/guides/{id}、/confirm、/modify、/incident + 错误映射
+backend/app/api/deps.py                   把 MCP Provider 注入 SessionService
+backend/app/graph/nodes.py                新增 compose_guide 节点（验证通过后组装攻略）
+backend/app/graph/workflow.py             验证通过 → 组装攻略 → END
+backend/app/services/reply_builder.py     回复带 guide_id 与"攻略组装不了"的原因
+backend/tests/test_guide_api.py           ★新增 6 个用例
+```
+
+**2）实现的业务流程**
+
+```text
+确认目的地 → 排程 → 验证 →（通过）组装七部分攻略 → READY + guide_id
+GET /api/guides/{id}            取攻略（可指定版本）
+POST /api/guides/{id}/confirm   锁定节点 + 新攻略版本 + lifecycle=CONFIRMED
+POST /api/guides/{id}/modify    用户显式修改（P0：换资源 / 删节点）→ 新计划 + 新攻略 + 版本谱系
+POST /api/guides/{id}/incident  突发事件（例如「今天下雨了」）→ 只重排当天 → 新版本
+```
+
+**3）使用的契约**：§13.2 四个接口与响应体（`GetGuideData` / `ConfirmGuideData` /
+`GuideChangeData`）、§13.1 信封与错误码、§10.1 `VersionLineage`、§9.3 `TravelGuide`
+七部分、§7.8 计划不变量。
+
+**4）运行的测试**：`cd backend && python -m pytest` → **285 passed, 1 skipped**。
+
+**5）仍是模拟实现**：数据仍来自 Provider（测试里是带住宿/路线/城际的替身）；
+组装与接口逻辑真实。
+
+**6）是否影响其他成员接口**
+
+**是（B 线等的就是这个）**：`/api/guides/...` 四个接口就位后，B 的 B6 组装与 B7 联调
+可以直接走 HTTP；`SendMessageData.guide_id` 现在会在组装成功时返回。
+**但真实数据下暂时组不出攻略**——B6 明确拒绝伪造 `arrival_plan` / `return_plan`，
+需要 A 补「车站↔住宿」路线与返程城际（已是 A 的必修 ⑥ 与 ③）。
+
+---
+
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
@@ -1308,8 +1377,8 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ✅ 代码 + 16 个单测通过；端到端等 A 数据 |
 | 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ✅ |
 | 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ✅（端到端待 A 数据） |
-| 9 | REST 接口集成（C7） | Vue 可端到端调用 | 🔄 会话三接口已完成；攻略三接口排在 C4/C5 之后（B 的硬阻塞） |
-| 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |
+| 9 | REST 接口集成（C7） | Vue 可端到端调用 | ✅ 会话三接口 + 攻略四接口（端到端演示待 A 数据） |
+| 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | 🔄 下一步 |
 
 ---
 

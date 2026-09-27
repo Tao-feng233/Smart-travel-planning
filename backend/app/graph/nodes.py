@@ -64,6 +64,10 @@ from app.services.availability_filter import TripFilterResult, filter_candidates
 from app.services.destination_recommender import DestinationRecommender
 from app.services.itinerary_planner import PlanBuildOutcome, build_itinerary
 from app.services.itinerary_planner import fetch_intercity_options
+from app.services.guide_service import (
+    build_guide,
+    fetch_preparation_rules,
+)
 from app.services.plan_validator import ValidationResult
 from app.services.missing_fields import find_missing_fields
 from app.services.plan_validator import attach_validation, validate_plan
@@ -89,6 +93,7 @@ VALIDATE_PLAN = "validate_plan"
 REPAIR_PLAN = "repair_plan"
 DETECT_INCIDENT = "detect_incident"
 REPLAN_PLAN = "replan_plan"
+COMPOSE_GUIDE = "compose_guide"
 
 #: 条件边的“本轮到此结束”出口（映射到 LangGraph 的 END）
 FINISH_TURN = "finish_turn"
@@ -568,6 +573,52 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             "repair_attempts": state.repair_attempts + 1,
         }
 
+    def compose_guide_node(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """C7：计划验证通过后组装七部分攻略（组装本身是 B6 的 composer）。
+
+        素材不够时**不改计划状态**：计划仍然有效（`READY`），只是攻略暂时组不出来，
+        缺什么写进 `degraded_items` 告诉用户与前端。
+        """
+
+        plan = runtime.context.validated_plan
+        profile = runtime.context.profile
+        if plan is None or profile is None:
+            return {"stage": PlanStage.INSUFFICIENT_DATA.value, "awaiting_user_input": True}
+        destination_id = _fixed_destination_id(profile) or plan.trip_segments[0].destination_id
+        outcome = build_guide(
+            plan=plan,
+            profile=profile,
+            candidates=runtime.context.resources,
+            intercity_options=runtime.context.intercity_options,
+            mcp=deps.mcp,
+            evidence=_evidence(deps, destination_id),
+            preparation_rules=fetch_preparation_rules(
+                profile, deps.mcp, activity_tags=profile.interests
+            ),
+            conflicts=runtime.context.plan_outcome.conflicts
+            if runtime.context.plan_outcome
+            else (),
+            data_snapshot=runtime.context.plan_outcome.data_snapshot
+            if runtime.context.plan_outcome
+            else None,
+            destination_names={
+                destination_id: _destination_name(deps, destination_id) or destination_id
+            },
+            run_mode=runtime.context.run_mode,
+            lifecycle_status="DRAFT",
+            guide_id=state.current_guide_id,
+            guide_version=(state.current_guide_version or 0) + 1,
+            parent_guide_version=state.current_guide_version,
+        )
+        runtime.context.guide_outcome = outcome
+        update: NodeReturn = {"stage": PlanStage.READY.value, "awaiting_user_input": True}
+        if outcome.guide is not None:
+            update["current_guide_id"] = outcome.guide.guide_id
+            update["current_guide_version"] = outcome.guide.guide_version
+        return update
+
     return {
         PARSE_REQUEST: parse_request,
         CHECK_MISSING_FIELDS: check_missing_fields,
@@ -583,6 +634,7 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         DETECT_INCIDENT: detect_incident_node,
         REPLAN_PLAN: replan_plan_node,
         REPAIR_PLAN: repair_plan_node,
+        COMPOSE_GUIDE: compose_guide_node,
     }
 
 
@@ -634,7 +686,8 @@ def route_after_validation(state: PlanState) -> str:
     """验证通过就结束；不通过则自动修一轮（只修一次，剩下的交给用户）。"""
 
     if state.stage == PlanStage.READY.value:
-        return FINISH_TURN
+        # 计划有效 → 组装攻略（组不出来也不影响计划本身）
+        return COMPOSE_GUIDE
     if state.repair_attempts >= 1:
         return FINISH_TURN
     return REPAIR_PLAN
@@ -680,6 +733,29 @@ def _fixed_destination_id(profile: TripProfile | None) -> str | None:
     if not fixed and profile.destination_mode == "SINGLE" and len(profile.destination_requests) == 1:
         return profile.destination_requests[0].destination_id
     return None
+
+
+def _destination_name(deps: NodeDeps, destination_id: str) -> str | None:
+    for name, value in deps.known_destinations.items():
+        if value == destination_id:
+            return name
+    return None
+
+
+def _evidence(deps: NodeDeps, destination_id: str):
+    """给攻略组装用的证据（检索失败就空着，不编）。"""
+
+    try:
+        output = deps.mcp.search_travel_knowledge(
+            SearchTravelKnowledgeRequest(
+                query="目的地认知与体验特点",
+                destination_ids=[destination_id],
+                top_k=10,
+            )
+        )
+    except Exception:
+        return []
+    return list(output.evidence)
 
 
 def _is_destination_confirmed(deps: NodeDeps, runtime: Runtime[TurnContext]) -> bool:

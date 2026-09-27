@@ -17,6 +17,7 @@ from .nodes import (
     ASK_CLARIFICATION,
     CHECK_DESTINATION_CONFIRMATION,
     CHECK_MISSING_FIELDS,
+    COMPOSE_GUIDE,
     DETECT_INCIDENT,
     FETCH_RESOURCES,
     FILTER_AVAILABILITY,
@@ -104,9 +105,11 @@ def build_graph(deps: NodeDeps):
         route_after_validation,
         {
             REPAIR_PLAN: REPAIR_PLAN,
+            COMPOSE_GUIDE: COMPOSE_GUIDE,
             FINISH_TURN: END,
         },
     )
+    graph.add_edge(COMPOSE_GUIDE, END)
     graph.add_edge(REPAIR_PLAN, VALIDATE_PLAN)
     graph.add_edge(REPORT_INSUFFICIENT_DATA, END)
 

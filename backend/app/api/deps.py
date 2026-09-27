@@ -57,6 +57,7 @@ def build_session_service(
         build_graph(deps),
         known_destinations=deps.known_destinations,
         data_is_mock=bool(getattr(mcp, "is_mock_only", False)),
+        mcp=mcp,
     )
 
 

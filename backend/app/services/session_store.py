@@ -38,6 +38,7 @@ from app.schemas import (
     RunMode,
     TripProfile,
     TripProfileDraft,
+    TravelGuide,
     VersionLineage,
 )
 
@@ -68,6 +69,10 @@ class SessionExtras(BaseModel):
     plan_conflicts: list[Conflict] = Field(default_factory=list)
     plan_missing_inputs: list[str] = Field(default_factory=list)
     version_lineage: VersionLineage | None = None
+    #: C7 组出来的攻略（按版本追加，`GET /api/guides/{id}?version=` 用）
+    guides: list[TravelGuide] = Field(default_factory=list)
+    current_guide_id: str | None = None
+    current_guide_version: int | None = None
 
 
 class SessionRepository(Protocol):
@@ -82,6 +87,8 @@ class SessionRepository(Protocol):
     def get_extras(self, session_id: str) -> SessionExtras: ...
 
     def save_extras(self, session_id: str, extras: SessionExtras) -> None: ...
+
+    def session_ids(self) -> list[str]: ...
 
 
 class InMemorySessionRepository:
@@ -117,6 +124,12 @@ class InMemorySessionRepository:
     def exists(self, session_id: str) -> bool:
         with self._lock:
             return session_id in self._states
+
+    def session_ids(self) -> list[str]:
+        """列出全部会话 ID（C7 用攻略 ID 反查会话时用）。"""
+
+        with self._lock:
+            return sorted(self._states)
 
     def get_extras(self, session_id: str) -> SessionExtras:
         with self._lock:
