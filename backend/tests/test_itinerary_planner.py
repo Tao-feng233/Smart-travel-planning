@@ -282,6 +282,23 @@ def test_nodes_within_a_day_do_not_overlap() -> None:
 # --- C3 握手：禁排日期必须被尊重 -------------------------------------------
 
 
+def test_travel_time_is_on_the_timeline() -> None:
+    """交通必须占用时间轴：下一个活动不得早于上一段交通的抵达时间。
+
+    （A 线联调报过这个缺口：改动前交通段是"事后补"的，下一活动仍按原时间开始。）
+    """
+
+    plan = _build().plan
+    assert plan is not None
+    assert plan.travel_legs, "应该生成交通段"
+    nodes = {node.node_id: node for node in plan.nodes}
+    for leg in plan.travel_legs:
+        source = nodes[leg.from_node_id]
+        target = nodes[leg.to_node_id]
+        assert leg.depart_at >= source.end_at
+        assert leg.arrive_at <= target.start_at, f"{leg.leg_id} 没有占用时间轴"
+
+
 def test_blocked_date_from_step_c3_is_never_scheduled() -> None:
     """C3 说某天闭馆，C4 就不能把该资源排在那天。"""
 

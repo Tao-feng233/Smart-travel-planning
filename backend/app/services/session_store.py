@@ -73,6 +73,8 @@ class SessionExtras(BaseModel):
     guides: list[TravelGuide] = Field(default_factory=list)
     current_guide_id: str | None = None
     current_guide_version: int | None = None
+    #: 幂等键 → 该次操作产出的攻略版本（重复提交不再重复升版本）
+    handled_idempotency_keys: dict[str, int] = Field(default_factory=dict)
 
 
 class SessionRepository(Protocol):

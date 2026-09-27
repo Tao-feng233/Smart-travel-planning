@@ -93,6 +93,7 @@ def validate_plan(
     )
     conflicts.extend(_check_opening_hours(plan, nodes, resource_by_id))
     conflicts.extend(_check_overlaps(plan, nodes))
+    conflicts.extend(_check_travel_legs(plan, nodes))
     conflicts.extend(_check_day_window(plan, nodes, profile))
     conflicts.extend(_check_budget(plan, profile))
     conflicts.extend(_check_intensity(plan, nodes, profile))
@@ -310,6 +311,73 @@ def _check_overlaps(
                         status="OPEN",
                     )
                 )
+    return conflicts
+
+
+def _check_travel_legs(
+    plan: ItineraryPlan, nodes: dict[str, PlanNode]
+) -> list[Conflict]:
+    """交通必须真正占用时间轴（A 线联调时报过这个缺口）。
+
+    两条检查：
+
+    ```text
+    leg.depart_at >= 上一节点.end_at   不能"人还没结束就先出发"
+    leg.arrive_at <= 下一节点.start_at 不能"还在路上就已经开始下一个活动"
+    ```
+    """
+
+    conflicts: list[Conflict] = []
+    for leg in plan.travel_legs:
+        source = nodes.get(leg.from_node_id)
+        target = nodes.get(leg.to_node_id)
+        if source is not None and leg.depart_at < source.end_at:
+            conflicts.append(
+                Conflict(
+                    conflict_id=f"conflict_leg_early_{leg.leg_id}",
+                    type="TIME_WINDOW",
+                    severity="ERROR",
+                    scope="DAY",
+                    message=(
+                        f"{leg.leg_id} 在 {source.node_id} 结束前就出发了"
+                        f"（{leg.depart_at.time()} < {source.end_at.time()}）。"
+                    ),
+                    affected_node_ids=[source.node_id],
+                    repair_options=[
+                        RepairOption(
+                            repair_option_id=f"repair_leg_{leg.leg_id}",
+                            action="MOVE_NODE",
+                            description="调整节点时间，让交通在上一节点结束后再出发。",
+                            affected_node_ids=[source.node_id],
+                        )
+                    ],
+                    status="OPEN",
+                )
+            )
+        if target is not None and leg.arrive_at > target.start_at:
+            conflicts.append(
+                Conflict(
+                    conflict_id=f"conflict_leg_late_{leg.leg_id}",
+                    type="TIME_WINDOW",
+                    severity="ERROR",
+                    scope="DAY",
+                    message=(
+                        f"{leg.leg_id} 抵达时间 {leg.arrive_at.time()} 晚于 "
+                        f"{target.node_id} 的开始时间 {target.start_at.time()}："
+                        "交通没有占用时间轴。"
+                    ),
+                    affected_node_ids=[target.node_id],
+                    repair_options=[
+                        RepairOption(
+                            repair_option_id=f"repair_leg_move_{leg.leg_id}",
+                            action="MOVE_NODE",
+                            description="把下一个活动后推，给这段交通留出时间。",
+                            affected_node_ids=[target.node_id],
+                        )
+                    ],
+                    status="OPEN",
+                )
+            )
     return conflicts
 
 

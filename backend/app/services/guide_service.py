@@ -236,15 +236,23 @@ def preparation_items_from_rules(
 
 
 def fetch_preparation_rules(
-    profile: TripProfile, mcp, *, activity_tags: Sequence[str] = ()
+    profile: TripProfile,
+    mcp,
+    *,
+    activity_tags: Sequence[str] = (),
+    destination_id: str | None = None,
 ) -> list[PreparationRule]:
-    """取准备规则；天气拿不到就不传（不编天气）。"""
+    """取准备规则；天气拿不到就不传（不编天气）。
+
+    `destination_id` 必须传：否则天气查的是"没有地点"的天气，准备提醒会空掉
+    （A 线联调报过这个问题）。
+    """
 
     weather_facts = []
     try:
         response = mcp.get_weather(
             GetWeatherRequest(
-                date_range=_range(profile), destination_id=None
+                date_range=_range(profile), destination_id=destination_id
             )
         )
         weather_facts = list(response.weather_facts)

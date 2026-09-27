@@ -215,6 +215,7 @@ class SessionService:
         *,
         expected_guide_version: int,
         lock_node_ids: Sequence[str] = (),
+        idempotency_key: str | None = None,
     ) -> TravelGuide:
         """确认攻略：锁定指定节点（此后自动修复不得修改），并生成新攻略版本。"""
 
@@ -223,6 +224,13 @@ class SessionService:
         current = find_guide(extras, guide_id)
         if current is None:
             raise GuideNotFoundError(guide_id)
+        if idempotency_key and idempotency_key in extras.handled_idempotency_keys:
+            # 同一个幂等键重复提交：返回上次结果，不再升版本
+            replay = find_guide(
+                extras, guide_id, extras.handled_idempotency_keys[idempotency_key]
+            )
+            if replay is not None:
+                return replay
         if expected_guide_version != current.guide_version:
             raise GuideVersionConflictError(expected_guide_version, current.guide_version)
 
@@ -248,6 +256,8 @@ class SessionService:
             guide_version=current.guide_version + 1,
             parent_guide_version=current.guide_version,
         )
+        if idempotency_key:
+            extras.handled_idempotency_keys[idempotency_key] = guide.guide_version
         self._repository.save_extras(session_id, extras)
         return guide
 
@@ -261,6 +271,15 @@ class SessionService:
         current = find_guide(extras, guide_id)
         if current is None:
             raise GuideNotFoundError(guide_id)
+        key = action.idempotency_key
+        if key and key in extras.handled_idempotency_keys:
+            replay = find_guide(
+                extras, guide_id, extras.handled_idempotency_keys[key]
+            )
+            if replay is not None:
+                return replay, extras.version_lineage, list(extras.plan_conflicts), [
+                    "该请求此前已处理（幂等键命中），返回同一结果。"
+                ]
         if (
             action.expected_guide_version is not None
             and action.expected_guide_version != current.guide_version
@@ -350,6 +369,8 @@ class SessionService:
                 }
             )
             extras.version_lineage = lineage
+        if key:
+            extras.handled_idempotency_keys[key] = guide.guide_version
         self._repository.save_extras(session_id, extras)
         return guide, lineage, list(result.conflicts), list(outcome.notes)
 
@@ -382,7 +403,10 @@ class SessionService:
             mcp=self._mcp,
             evidence=evidence,
             preparation_rules=fetch_preparation_rules(
-                profile, self._mcp, activity_tags=profile.interests
+                profile,
+                self._mcp,
+                activity_tags=profile.interests,
+                destination_id=destination_id,
             ),
             conflicts=extras.plan_conflicts,
             data_snapshot=extras.data_snapshot,

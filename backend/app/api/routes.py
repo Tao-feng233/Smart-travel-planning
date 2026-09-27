@@ -226,6 +226,7 @@ def confirm_guide(
             guide_id,
             expected_guide_version=payload.expected_guide_version,
             lock_node_ids=payload.lock_node_ids,
+            idempotency_key=payload.idempotency_key,
         )
     except (GuideNotFoundError, GuideVersionConflictError, GuideNotReadyError) as exc:
         raise _guide_error(exc, trace_id) from None

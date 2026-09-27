@@ -599,7 +599,10 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             mcp=deps.mcp,
             evidence=_evidence(deps, destination_id),
             preparation_rules=fetch_preparation_rules(
-                profile, deps.mcp, activity_tags=profile.interests
+                profile,
+                deps.mcp,
+                activity_tags=profile.interests,
+                destination_id=destination_id,
             ),
             conflicts=runtime.context.plan_outcome.conflicts
             if runtime.context.plan_outcome

@@ -80,7 +80,26 @@
 
 （以下为上一轮 C7 / 端到端联调记录）
 
-**C线更新**：2026-09-27 · **端到端联调测试完成：C1–C7 全部交付，只剩 A 的数据**
+**C线更新**：2026-09-27 · **A 数据合入 + A 报的三个 P0 全修完：真实链路 exit 0**
+
+- **A 的成都 Mock 覆盖已合入**：`check_a_data.py` → **7/7**；
+  `check_b_flow.py --deps real` → **exit 0**（会话→追问→推荐→确认→七部分攻略→确认攻略→突发事件→新版本）。
+- **修完 A 报的三个 P0**：
+
+```text
+1) 返程查询方向错误   → 返程改为查「目的地→出发地」（原来去返程同向，永远命中不到数据）
+2) TravelLeg 不占时间轴 → 排程与重规划都改成「先算交通、再定下一个活动」；
+                          C5 新增检查 leg.depart_at>=上一节点.end_at 与 leg.arrive_at<=下一节点.start_at
+3) 攻略失败仍报 READY  → 新增 stage=GUIDE_INCOMPLETE，计划有效但攻略缺素材时不再谎报
+```
+
+- **A 提的三条后续也一并处理**：准备提醒的天气查询带上 `destination_id`；
+  confirm/modify 的 `idempotency_key` 真正生效（重复提交不重复升版本）；
+  事件影响范围收窄（下雨只换室外、累了只动最后一个景点、闭馆必须指明地点）。
+- **测试**：`cd backend && python -m pytest` → **302 passed, 1 skipped**（本轮新增 4 个针对性用例）。
+- **两份总表已更新**：`handoff/A_待办总表.md`、`handoff/B_待办总表.md`。
+
+（以下为上一轮记录）
 
 - **端到端测试就位**：`backend/tests/test_end_to_end.py` 用同一套数据替身跑完整条 P0 链路
   （建会话 → 追问 → 画像 → 推荐 → 确认 → 排程 → 验证 → 七部分攻略 → 确认攻略锁节点
@@ -1402,6 +1421,30 @@ POST /api/guides/{id}/incident  突发事件（例如「今天下雨了」）→
 可以直接走 HTTP；`SendMessageData.guide_id` 现在会在组装成功时返回。
 **但真实数据下暂时组不出攻略**——B6 明确拒绝伪造 `arrival_plan` / `return_plan`，
 需要 A 补「车站↔住宿」路线与返程城际（已是 A 的必修 ⑥ 与 ③）。
+
+---
+
+### 步骤 12：A 数据合入 + 三个 P0 修复（真实链路打通）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C（复核并修复 A 报的问题） |
+| 状态 | ✅ 完成：真实链路 exit 0，302 passed / 1 skipped |
+
+**改动文件**：`services/itinerary_planner.py`（返程方向 + 交通占时间轴 + 餐食同样计入交通）、
+`services/repair_engine.py`（重建时顺推时间轴 + 事件影响范围收窄）、
+`services/plan_validator.py`（新增 `_check_travel_legs`）、
+`services/guide_service.py`（准备提醒带 `destination_id`、历史版本按版本保存）、
+`services/session_service.py`（会话返回 `guide_id`、幂等键、谱系补攻略版本）、
+`graph/stages.py`（新增 `GUIDE_INCOMPLETE`）、`graph/nodes.py`、`api/routes.py`、
+`tools/check_a_data.py`（新增车站-住宿路线检查）、测试 4 个文件、两份交接总表。
+
+**契约与边界**：使用 §7.8 计划完整性、§14 不变量 2/4/6、§10.1 `VersionLineage`、
+§13.2 攻略接口与错误码；未修改共享 Schema。
+
+**验收**：`check_a_data.py` 7/7；`check_b_flow.py --deps real` exit 0；
+`pytest` 302 passed / 1 skipped；契约 fixtures 全过。
 
 ---
 

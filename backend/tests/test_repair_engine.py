@@ -154,6 +154,25 @@ def test_rain_without_indoor_alternative_is_reported_not_faked() -> None:
     assert any("没有合适的替代安排" in item.message for item in outcome.unresolved)
 
 
+def test_closure_incident_needs_a_specific_place() -> None:
+    """闭馆这类事件必须指明地点：不能自动替换当天全部安排（A 线联调提过）。"""
+
+    candidates = [_visit("poi_1"), _visit("poi_2"), _visit("poi_3"), _lodging()]
+    plan = _build(candidates=candidates, mcp=_provider()).plan
+    assert plan is not None
+    outcome = replan_for_incident(
+        plan,
+        incident_type="CLOSURE",
+        profile=_profile(),
+        candidates=candidates,
+        mcp=_provider(),
+        affected_date=DAY_ONE,
+    )
+    assert outcome.plan is None
+    assert outcome.unresolved
+    assert "具体地点" in outcome.unresolved[0].message
+
+
 def test_completed_nodes_are_not_touched_by_replanning() -> None:
     """§14 不变量 6：已完成 / 锁定节点不得被静默修改。"""
 

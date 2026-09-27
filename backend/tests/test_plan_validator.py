@@ -266,6 +266,20 @@ def test_long_travel_with_mobility_constraint_is_error() -> None:
     assert [option.action for option in conflict.repair_options] == ["CHANGE_TRAVEL_MODE"]
 
 
+def test_leg_arriving_after_next_node_is_error() -> None:
+    """交通没占时间轴时必须报错（A 线联调报的缺口）。"""
+
+    plan = _plan()
+    leg = plan.travel_legs[0]
+    broken = leg.model_copy(update={"arrive_at": leg.arrive_at + timedelta(hours=1)})
+    legs = [broken if item.leg_id == leg.leg_id else item for item in plan.travel_legs]
+    result = validate_plan(
+        plan.model_copy(update={"travel_legs": legs}), profile=_profile()
+    )
+    assert result.status == PlanValidationStatus.INVALID
+    assert any("时间轴" in item.message for item in result.errors)
+
+
 def test_heavy_day_is_warning() -> None:
     plan = _plan()
     nodes = [

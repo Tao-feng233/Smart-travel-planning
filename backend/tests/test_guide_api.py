@@ -63,6 +63,25 @@ def test_guide_endpoint_returns_seven_sections(client: TestClient) -> None:
     assert guide["plan_validation_status"] == "VALID"
 
 
+def test_confirm_is_idempotent_with_same_key(client: TestClient) -> None:
+    """同一个幂等键重复提交：返回上次结果，不再升版本（A 线联调提过）。"""
+
+    guide_id, _ = _reach_guide(client)
+    guide = client.get(f"/api/guides/{guide_id}").json()["data"]["travel_guide"]
+    payload = {
+        "expected_guide_version": guide["guide_version"],
+        "lock_node_ids": [],
+        "idempotency_key": "same-key-1",
+    }
+    first = client.post(f"/api/guides/{guide_id}/confirm", json=payload).json()["data"][
+        "travel_guide"
+    ]
+    second = client.post(f"/api/guides/{guide_id}/confirm", json=payload).json()["data"][
+        "travel_guide"
+    ]
+    assert second["guide_version"] == first["guide_version"]
+
+
 def test_unknown_guide_returns_404(client: TestClient) -> None:
     response = client.get("/api/guides/guide_does_not_exist")
     assert response.status_code == 404

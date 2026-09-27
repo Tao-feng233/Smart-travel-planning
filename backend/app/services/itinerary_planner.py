@@ -190,8 +190,17 @@ def build_itinerary(
 
         placed = 0
         for place in schedule.get(day, []):
+            # 先把上一段交通耗时加进时间轴，再放下一个活动（交通必须占时间）
+            previous = day_nodes[-1] if day_nodes else None
+            base_slot = slot
+            slot, route, conflict = _advance_for_travel(
+                previous, place.resource_id, slot, mcp
+            )
+            if conflict is not None:
+                conflicts.append(conflict)
             fitted = _fit_visit(place, day, slot, tz)
             if fitted is None:
+                slot = base_slot  # 没排上，时间轴回退
                 notes.append(
                     f"{day.isoformat()} 的开放时间排不下 {place.name}，已跳过该地点。"
                 )
@@ -199,29 +208,36 @@ def build_itinerary(
             node, slot = fitted
             nodes.append(node)
             day_nodes.append(node)
+            if previous is not None and route is not None:
+                leg, cost = _leg_from_route(
+                    previous, node, route, len(legs) + 1, len(leg_costs) + 1
+                )
+                legs.append(leg)
+                day_legs.append(leg)
+                if cost is not None:
+                    leg_costs.append(cost)
             placed += 1
             if placed == 1 and restaurants and slot.hour < 15:
-                meal, slot, used = _append_meal(
-                    day, slot, restaurants, tz, nodes
+                meal_end = _append_meal_after_travel(
+                    day=day,
+                    slot=slot,
+                    restaurants=restaurants,
+                    tz=tz,
+                    nodes=nodes,
+                    day_nodes=day_nodes,
+                    mcp=mcp,
+                    previous_node=node,
+                    legs=legs,
+                    day_legs=day_legs,
+                    leg_costs=leg_costs,
+                    conflicts=conflicts,
                 )
-                if meal is not None:
-                    day_nodes.append(meal)
-                    meals_used += used
+                if meal_end is not None:
+                    slot = meal_end
+                    meals_used += 1
 
         if placed == 0 and index != 0:
             notes.append(f"{day.isoformat()} 没有排到游玩地点。")
-
-        for previous, following in zip(day_nodes, day_nodes[1:]):
-            leg, conflict, cost = _build_leg(
-                previous, following, mcp, len(legs) + 1, len(leg_costs) + 1
-            )
-            if leg is not None:
-                legs.append(leg)
-                day_legs.append(leg)
-            if cost is not None:
-                leg_costs.append(cost)
-            if conflict is not None:
-                conflicts.append(conflict)
 
         day_plans.append(
             DayPlan(
@@ -425,6 +441,144 @@ def _append_meal(
         nodes.append(node)
         return node, node.end_at, 1
     return None, slot, 0
+
+
+#: 交通数据缺失时的冲突构造（C4 与 C6 语义一致：只报缺，不编时间）
+def _route_missing_conflict(
+    previous: PlanNode, next_resource_id: str, what: str
+) -> Conflict:
+    return Conflict(
+        conflict_id=f"conflict_route_missing_{previous.node_id}_{next_resource_id}",
+        type="DATA_UNKNOWN",
+        severity="WARNING",
+        scope="TRAVEL_LEG",
+        message=(
+            f"缺少 {previous.resource_id} → {next_resource_id} 的{what}数据，"
+            "这段移动时间未知。"
+        ),
+        affected_node_ids=[previous.node_id],
+        status="OPEN",
+    )
+
+
+def _advance_for_travel(
+    previous: PlanNode | None,
+    next_resource_id: str | None,
+    slot: datetime,
+    mcp: PlanningProvider,
+) -> tuple[datetime, object | None, Conflict | None]:
+    """把上一段交通耗时加进时间轴（交通必须占用时间）。
+
+    返回「下一个可用时间点、路线、冲突」；拿不到路线/距离数据时时间不变，
+    只记一条 `DATA_UNKNOWN` 冲突——不编时间。
+    """
+
+    if previous is None or previous.resource_id is None or not next_resource_id:
+        return slot, None, None
+    response = mcp.get_route(
+        GetRouteRequest(
+            origin=previous.resource_id,
+            destination=next_resource_id,
+            depart_at=previous.end_at,
+        )
+    )
+    if not response.routes:
+        return slot, None, _route_missing_conflict(previous, next_resource_id, "路线")
+    route = response.routes[0]
+    if route.distance_km is None:
+        return slot, None, _route_missing_conflict(previous, next_resource_id, "距离")
+    return slot + timedelta(minutes=route.duration_minutes), route, None
+
+
+def _leg_from_route(
+    previous: PlanNode,
+    following: PlanNode,
+    route,
+    leg_sequence: int,
+    cost_sequence: int,
+) -> tuple[TravelLeg, CostItem | None]:
+    """路线已在排程时取过，这里只按最终时间点组装 `TravelLeg`。"""
+
+    depart = previous.end_at
+    leg = TravelLeg(
+        leg_id=f"leg_{leg_sequence:03d}",
+        from_node_id=previous.node_id,
+        to_node_id=following.node_id,
+        recommended_mode=route.mode,
+        depart_at=depart,
+        arrive_at=depart + timedelta(minutes=route.duration_minutes),
+        duration_minutes=route.duration_minutes,
+        distance_km=route.distance_km,
+        reason=f"使用 Provider 返回的 {route.mode} 方案（来源 {route.source}）。",
+        source="FAKE" if route.source == "MOCK" else "MAP_PROVIDER",
+        is_estimated=route.is_estimated,
+        transfer_count=route.transfer_count or 0,
+    )
+    cost = None
+    if route.estimated_cost is not None:
+        cost = CostItem(
+            cost_item_id=f"cost_{cost_sequence:03d}",
+            category="LOCAL_TRANSPORT",
+            item_ref=leg.leg_id,
+            unit_price=route.estimated_cost,
+            quantity=1,
+            pricing_scope="PER_GROUP",
+            status="ESTIMATED",
+        )
+    return leg, cost
+
+
+def _append_meal_after_travel(
+    *,
+    day: date,
+    slot: datetime,
+    restaurants: Sequence[RestaurantCandidate],
+    tz,
+    nodes: list[PlanNode],
+    day_nodes: list[PlanNode],
+    mcp: PlanningProvider,
+    previous_node: PlanNode,
+    legs: list[TravelLeg],
+    day_legs: list[TravelLeg],
+    leg_costs: list[CostItem],
+    conflicts: list[Conflict],
+) -> datetime | None:
+    """午餐同样要占交通时间：先算到餐厅的路，再看开放时间排不排得下。"""
+
+    for restaurant in restaurants:
+        reach, route, conflict = _advance_for_travel(
+            previous_node, restaurant.resource_id, slot, mcp
+        )
+        if conflict is not None:
+            conflicts.append(conflict)
+        start = reach
+        if restaurant.opening_windows:
+            window = restaurant.opening_windows[0]
+            opens = datetime.combine(day, window.start_at.time(), tzinfo=tz)
+            closes = datetime.combine(day, window.end_at.time(), tzinfo=tz)
+            start = max(start, opens)
+            if start + timedelta(minutes=_MEAL_MINUTES) > closes:
+                continue
+        node = _make_node(
+            node_type="MEAL",
+            resource_id=restaurant.resource_id,
+            start=start,
+            end=start + timedelta(minutes=_MEAL_MINUTES),
+            reason=f"午餐安排在 {restaurant.name}（{restaurant.cuisine}）。",
+            evidence_ids=restaurant.evidence_ids,
+        )
+        nodes.append(node)
+        day_nodes.append(node)
+        if route is not None:
+            leg, cost = _leg_from_route(
+                previous_node, node, route, len(legs) + 1, len(leg_costs) + 1
+            )
+            legs.append(leg)
+            day_legs.append(leg)
+            if cost is not None:
+                leg_costs.append(cost)
+        return node.end_at
+    return None
 
 
 def _build_leg(

@@ -326,6 +326,34 @@ def replan_for_incident(
     stay = plan.stay_segments[0] if plan.stay_segments else None
     lodging = _lodging_of(plan, candidates)
 
+    # 只处理"确实受影响"的节点：闭馆/人流/出发晚这类必须指明具体地点，
+    # 系统不自动整片替换（否则会改到与事件无关的安排）。
+    if incident_type not in ("RAIN", "USER_TIRED"):
+        return RepairOutcome(
+            plan=None,
+            unresolved=[
+                Conflict(
+                    conflict_id=f"conflict_incident_{incident_type.lower()}",
+                    type="DATA_UNKNOWN",
+                    severity="WARNING",
+                    scope="DAY",
+                    message=(
+                        f"{day.isoformat()} 的「{_trigger_label(incident_type)}」需要指明"
+                        "具体地点或节点，系统不会自动替换当天全部安排。"
+                    ),
+                    status="OPEN",
+                )
+            ],
+            notes=["事件影响范围不明确，需要用户指出具体地点。"],
+        )
+    attractions_today = [
+        node_id
+        for node_id in day_plan.node_ids
+        if nodes.get(node_id) is not None
+        and nodes[node_id].node_type == "ATTRACTION"
+    ]
+    last_attraction_id = attractions_today[-1] if attractions_today else None
+
     relations: list[ReplacementRelation] = []
     removed: list[str] = []
     changed: list[str] = []
@@ -338,9 +366,12 @@ def replan_for_incident(
         if node_id in protected:
             # 已完成 / 已锁定：不静默修改（§14 不变量 6）
             continue
-        if incident_type == "RAIN" and not _is_outdoor(node, candidates):
-            continue
-        if incident_type == "USER_TIRED" and node.node_type != "ATTRACTION":
+        if not _is_incident_target(
+            node,
+            incident_type=incident_type,
+            last_attraction_id=last_attraction_id,
+            candidates=candidates,
+        ):
             continue
         replacement = _pick_replacement(
             node,
@@ -607,6 +638,28 @@ def _rebuild(
         )
         day_legs: list[TravelLeg] = []
         if day in touched_days:
+            # ① 先把交通时间纳入时间轴（A 线联调报过：改了节点却没顺推后续活动）
+            for index in range(len(ordered) - 1):
+                probe, conflict, _ = build_travel_leg(
+                    ordered[index], ordered[index + 1], mcp, 0, 0
+                )
+                if conflict is not None:
+                    extra_conflicts.append(conflict)
+                if probe is None:
+                    continue
+                delta = probe.arrive_at - ordered[index + 1].start_at
+                if delta.total_seconds() > 0:
+                    for position in range(index + 1, len(ordered)):
+                        node = ordered[position]
+                        shifted = node.model_copy(
+                            update={
+                                "start_at": node.start_at + delta,
+                                "end_at": node.end_at + delta,
+                            }
+                        )
+                        ordered[position] = shifted
+                        node_map[shifted.node_id] = shifted
+            # ② 用最终时间点重建交通段（duration 必须与时间戳一致）
             for previous, following in zip(ordered, ordered[1:]):
                 leg, conflict, cost = build_travel_leg(
                     previous, following, mcp, len(new_legs) + 1, len(leg_costs) + 1
@@ -629,7 +682,8 @@ def _rebuild(
         )
 
     restaurants = [item for item in candidates if isinstance(item, RestaurantCandidate)]
-    meals = len([item for item in nodes if item.node_type == "MEAL"])
+    all_nodes = list(node_map.values())
+    meals = len([item for item in all_nodes if item.node_type == "MEAL"])
     cost_items = collect_costs(
         profile=profile,
         leg_costs=leg_costs,
@@ -658,7 +712,7 @@ def _rebuild(
         {
             "plan_version": new_version,
             "parent_plan_version": plan.plan_version,
-            "nodes": [node.model_dump() for node in nodes],
+            "nodes": [node.model_dump() for node in all_nodes],
             "days": [days[day].model_dump() for day in sorted(days)],
             "travel_legs": [
                 leg.model_dump() for leg in all_legs
@@ -738,6 +792,31 @@ def _is_outdoor(node: PlanNode, candidates: Sequence[ResourceCandidateBase]) -> 
     if indoor is None:
         return False
     return (not indoor) or sensitivity in ("MEDIUM", "HIGH")
+
+
+def _is_incident_target(
+    node: PlanNode,
+    *,
+    incident_type: str,
+    last_attraction_id: str | None,
+    candidates: Sequence[ResourceCandidateBase],
+) -> bool:
+    """C6 只动"确实受这个事件影响"的节点，不扩影响范围。
+
+    ```text
+    RAIN        当天室外的景点/用餐（室内安排不受影响）
+    USER_TIRED  当天最后一个景点（"累了"通常意味着砍掉最后一站）
+    其他事件    需要用户指明具体地点，已在入口处直接返回，不会走到这里
+    ```
+    """
+
+    if incident_type == "RAIN":
+        return node.node_type in ("ATTRACTION", "MEAL") and _is_outdoor(
+            node, candidates
+        )
+    if incident_type == "USER_TIRED":
+        return node.node_id == last_attraction_id
+    return False
 
 
 def _pick_replacement(
