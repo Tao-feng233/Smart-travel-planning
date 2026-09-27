@@ -10,15 +10,18 @@ from .context import TurnContext
 from .nodes import (
     ASK_CLARIFICATION,
     CHECK_MISSING_FIELDS,
+    CHECK_DESTINATION_CONFIRMATION,
     FETCH_RESOURCES,
     FILTER_AVAILABILITY,
     FINISH_TURN,
     PARSE_REQUEST,
+    PLAN_ITINERARY,
     RECOMMEND_DESTINATIONS,
     REPORT_INSUFFICIENT_DATA,
     RETRIEVE_DESTINATIONS,
     NodeDeps,
     build_nodes,
+    route_after_filter,
     route_after_fetch,
     route_after_missing_check,
     route_after_retrieve,
@@ -65,7 +68,16 @@ def build_graph(deps: NodeDeps):
             FINISH_TURN: END,
         },
     )
-    graph.add_edge(FILTER_AVAILABILITY, END)
+    graph.add_edge(FILTER_AVAILABILITY, CHECK_DESTINATION_CONFIRMATION)
+    graph.add_conditional_edges(
+        CHECK_DESTINATION_CONFIRMATION,
+        route_after_filter,
+        {
+            PLAN_ITINERARY: PLAN_ITINERARY,
+            FINISH_TURN: END,
+        },
+    )
+    graph.add_edge(PLAN_ITINERARY, END)
     graph.add_edge(REPORT_INSUFFICIENT_DATA, END)
 
     return graph.compile()
@@ -93,6 +105,7 @@ def run_turn(
         draft=draft,
         profile=profile,
         run_mode=run_mode,
+        previous_stage=state.stage,
     )
     raw = graph.invoke(state.model_copy(deep=True), context=context)
     return PlanState.model_validate(raw), context

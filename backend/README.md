@@ -3,31 +3,33 @@
 > 三条开发线的共享进度台账见仓库根目录的 `PROGRESS_REPORT.md`；
 > 契约待确认项见 `docs/contract-open-questions.md`。
 
-## 当前状态（步骤 5 完成）
+## 当前状态（步骤 7 完成）
 
 已实现共享契约对象（v0.4，旧 v0.3 已删除）、LangGraph 追问/推荐回路、
-**C3 前置过滤（服务层 + 接入图）**和会话 REST 接口（统一响应信封）。
-尚未实现行程生成、验证与修复、通用重规划（C4–C6）。
+**C3 前置过滤（服务层 + 接入图）**、**C4 行程生成（确认目的地 → 排行程 + 费用预算）**
+和会话 REST 接口（统一响应信封）。
+尚未实现验证器、修复与通用重规划、攻略接口（C5–C7）。
 
 ```text
 backend/
 ├── app/
 │   ├── api/           REST 路由与依赖注入（会话接口已完成）
 │   ├── core/          运行期配置
-│   ├── graph/         LangGraph 阶段、状态节点与工作流（C2 + C3）
+│   ├── graph/         LangGraph 阶段、状态节点与工作流（C2 + C3 + C4）
 │   ├── schemas/       共享契约对象 v0.4（唯一来源）
 │   │   └── v04/       基线模型 / MCP 工具 / REST / 状态
 │   ├── providers/     A线统一Provider协议与工厂
 │   ├── mcp_server/    A线九工具强类型MCP Server
 │   ├── main.py        FastAPI 应用入口
-│   └── services/      缺失字段判定、提取、推荐、前置过滤、Mock Provider、会话存储
+│   └── services/      缺失字段判定、提取、推荐、前置过滤、行程生成、Mock Provider、会话存储
 ├── tests/
-│   └── ...            223 个用例（安装完整 requirements）
+│   └── ...            246 个用例（安装完整 requirements；未装 MCP SDK 时 245 passed, 1 skipped）
 └── requirements.txt
 ```
 
 契约测试数据在**仓库根目录**的 `fixtures/`（三条线共用），
 自检脚本是 `python contracts/validate_fixtures.py`。
+A 线数据缺口自查：`python tools/check_a_data.py`（退出码 1 = 还有必修数据没到位）。
 
 ## 环境
 

@@ -3,7 +3,7 @@
 P0 按进度报告确定的技术选型：**内存状态 + JSON 快照**，通过 `SessionRepository`
 协议抽象；A 线的 MySQL 落库（P1）只需新增一个实现，不改动 LangGraph 节点与 API。
 
-`PlanState`（`CONTRACTS.md` §10.2）只保存契约规定的引用，因此会话还需要持有三样
+`PlanState`（`CONTRACTS.md` §10.2）只保存契约规定的引用，因此会话还需要持有这些
 **不属于 `PlanState`** 的数据，统一放在 `SessionExtras` 里一起持久化：
 
 ```text
@@ -11,6 +11,10 @@ draft                不完整画像（§2.4）
 profile              正式画像（§2.3），PlanState 只留 trip_profile_version
 run_mode             DEMO / VERIFIED（影响 UNKNOWN 资源能否进规划，§14 不变量 3）
 excluded_resources   被前置过滤排除的资源与原因（不得静默丢弃）
+current_plan         C4 产出的 ItineraryPlan（C5/C7 继续用）
+data_snapshot        该计划引用的数据版本（§4.4）
+intercity_options    C4 取到的城际候选（C7 组攻略要用）
+plan_conflicts       C4 记录的冲突（数据缺口等，C5 会接着处理）
 ```
 """
 
@@ -25,7 +29,16 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from app.graph.stages import PlanStage
-from app.schemas import PlanState, RunMode, TripProfile, TripProfileDraft
+from app.schemas import (
+    Conflict,
+    DataSnapshot,
+    IntercityOption,
+    ItineraryPlan,
+    PlanState,
+    RunMode,
+    TripProfile,
+    TripProfileDraft,
+)
 
 
 class SessionNotFoundError(KeyError):
@@ -48,6 +61,11 @@ class SessionExtras(BaseModel):
     profile: TripProfile | None = None
     run_mode: RunMode = RunMode.DEMO
     excluded_resources: list[ExcludedResourceRecord] = Field(default_factory=list)
+    current_plan: ItineraryPlan | None = None
+    data_snapshot: DataSnapshot | None = None
+    intercity_options: list[IntercityOption] = Field(default_factory=list)
+    plan_conflicts: list[Conflict] = Field(default_factory=list)
+    plan_missing_inputs: list[str] = Field(default_factory=list)
 
 
 class SessionRepository(Protocol):
@@ -147,3 +165,22 @@ class InMemorySessionRepository:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(payload, encoding="utf-8")
         tmp.replace(path)
+import json
+import threading
+from datetime import date
+from pathlib import Path
+from typing import Protocol
+
+from pydantic import BaseModel, Field
+
+from app.graph.stages import PlanStage
+from app.schemas import (
+    Conflict,
+    DataSnapshot,
+    IntercityOption,
+    ItineraryPlan,
+    PlanState,
+    RunMode,
+    TripProfile,
+    TripProfileDraft,
+)

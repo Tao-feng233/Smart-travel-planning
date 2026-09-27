@@ -29,6 +29,7 @@ from app.schemas import (
     TripProfileDraft,
 )
 from app.services.availability_filter import TripFilterResult
+from app.services.itinerary_planner import PlanBuildOutcome
 
 
 @dataclass
@@ -51,3 +52,7 @@ class TurnContext:
     resources: list[ResourceCandidateBase] = field(default_factory=list)
     #: C3 前置过滤结果（含被排除资源与禁排日期，供 C4/C5 使用）
     filter_result: TripFilterResult | None = None
+    #: 进入本轮之前会话所处的阶段（C4 用它判断"用户是不是在回答确认"）
+    previous_stage: str | None = None
+    #: C4 排程结果（含计划、冲突与降级说明）
+    plan_outcome: PlanBuildOutcome | None = None

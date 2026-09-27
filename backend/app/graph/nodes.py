@@ -40,11 +40,14 @@ from langgraph.runtime import Runtime
 from app.graph.context import TurnContext
 from app.graph.stages import PlanStage
 from app.schemas import (
+    Conflict,
     DateRange,
     DestinationRecommendation,
     GetResourceAvailabilityRequest,
     GetResourceAvailabilityResponse,
     IncompleteProfileError,
+    IntercityOption,
+    ItineraryPlan,
     PlanState,
     PlanningReadinessEvaluation,
     ResourceCandidateBase,
@@ -58,6 +61,7 @@ from app.schemas import (
 )
 from app.services.availability_filter import TripFilterResult, filter_candidates_for_trip
 from app.services.destination_recommender import DestinationRecommender
+from app.services.itinerary_planner import PlanBuildOutcome, build_itinerary
 from app.services.missing_fields import find_missing_fields
 from app.services.request_parser import TripProfileParser
 
@@ -70,12 +74,20 @@ RECOMMEND_DESTINATIONS = "recommend_destinations"
 REPORT_INSUFFICIENT_DATA = "report_insufficient_data"
 FETCH_RESOURCES = "fetch_resource_candidates"
 FILTER_AVAILABILITY = "filter_availability"
+CHECK_DESTINATION_CONFIRMATION = "check_destination_confirmation"
+PLAN_ITINERARY = "plan_itinerary"
 
 #: 条件边的“本轮到此结束”出口（映射到 LangGraph 的 END）
 FINISH_TURN = "finish_turn"
 
-#: 规划前需要抓取的资源类型。住宿属于 C4/P1，暂不抓取。
-_RESOURCE_TYPES = ("VISIT_PLACE", "RESTAURANT")
+#: 规划前需要抓取的资源类型（C4 排程要用到住宿）。
+_RESOURCE_TYPES = ("VISIT_PLACE", "RESTAURANT", "LODGING", "LODGING_AREA")
+
+#: 用户表达"就这个目的地，开始排"的常见说法（C4 的确认信号之一）
+_CONFIRM_WORDS = (
+    "确认", "就这个", "就它", "就选", "可以", "好的", "好呀", "行",
+    "没问题", "定了", "选好", "开始排", "开始规划", "出发吧", "安排",
+)
 
 
 class MCPProvider(Protocol):
@@ -336,6 +348,60 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             "awaiting_user_input": True,
         }
 
+    def check_destination_confirmation(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """目的地确认闸门：用户确认后才允许进入规划（`CONTRACTS.md` §14 状态链）。
+
+        确认信号有两种：① 上一轮处于"等待确认目的地"，本轮出现确认用语；
+        ② 本轮再次点名同一个目的地。都不满足就继续等，不擅自排行程。
+        """
+
+        if _is_destination_confirmed(deps, runtime):
+            return {"stage": PlanStage.PLANNING.value}
+        return {
+            "stage": PlanStage.AWAITING_DESTINATION_CONFIRMATION.value,
+            "awaiting_user_input": True,
+        }
+
+    def plan_itinerary(state: PlanState, runtime: Runtime[TurnContext]) -> NodeReturn:
+        """C4：把 C3 筛出来的资源排成 `ItineraryPlan`（计划验证属于 C5）。"""
+
+        profile = runtime.context.profile
+        destination_id = _fixed_destination_id(profile)
+        if profile is None or destination_id is None or not runtime.context.resources:
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+
+        outcome = build_itinerary(
+            profile=profile,
+            destination_id=destination_id,
+            candidates=runtime.context.resources,
+            filter_result=runtime.context.filter_result,
+            mcp=deps.mcp,
+            run_mode=runtime.context.run_mode,
+            plan_version=(state.current_plan_version or 0) + 1,
+            parent_plan_version=state.current_plan_version,
+        )
+        runtime.context.plan_outcome = outcome
+        plan: ItineraryPlan | None = outcome.plan
+        if plan is None:
+            # 缺关键输入（例如没有住宿候选）：明确报资料不足，不产残缺计划
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+        return {
+            "stage": PlanStage.PLANNING.value,
+            "awaiting_user_input": True,
+            "current_plan_id": plan.plan_id,
+            "current_plan_version": plan.plan_version,
+            "conflict_ids": [item.conflict_id for item in outcome.conflicts],
+            "data_snapshot_id": plan.data_snapshot_id,
+        }
+
     return {
         PARSE_REQUEST: parse_request,
         CHECK_MISSING_FIELDS: check_missing_fields,
@@ -345,6 +411,8 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         REPORT_INSUFFICIENT_DATA: report_insufficient_data,
         FETCH_RESOURCES: fetch_resource_candidates,
         FILTER_AVAILABILITY: filter_availability,
+        CHECK_DESTINATION_CONFIRMATION: check_destination_confirmation,
+        PLAN_ITINERARY: plan_itinerary,
     }
 
 
@@ -376,6 +444,14 @@ def route_after_fetch(state: PlanState) -> str:
     return FINISH_TURN
 
 
+def route_after_filter(state: PlanState) -> str:
+    """过滤通过且用户已确认目的地才排行程，否则本轮结束等确认。"""
+
+    if state.stage == PlanStage.PLANNING.value:
+        return PLAN_ITINERARY
+    return FINISH_TURN
+
+
 # --- 辅助 ------------------------------------------------------------------
 
 
@@ -397,6 +473,31 @@ def _fixed_destination_id(profile: TripProfile | None) -> str | None:
     if not fixed and profile.destination_mode == "SINGLE" and len(profile.destination_requests) == 1:
         return profile.destination_requests[0].destination_id
     return None
+
+
+def _is_destination_confirmed(deps: NodeDeps, runtime: Runtime[TurnContext]) -> bool:
+    """用户是否明确确认了当前目的地。
+
+    必须同时满足：① 上一轮已经在"等待确认目的地"；② 本轮出现确认用语，
+    或者再次点名同一个目的地。这样"一条消息里就说了想去哪儿"不会跳过确认环节
+    （`CONTRACTS.md` §14 的状态链要求 RECOMMENDING → WAITING_CONFIRMATION → PLANNING）。
+    """
+
+    previous = runtime.context.previous_stage
+    if previous != PlanStage.AWAITING_DESTINATION_CONFIRMATION.value:
+        return False
+    destination_id = _fixed_destination_id(runtime.context.profile)
+    if destination_id is None:
+        return False
+    text = (runtime.context.user_message or "").strip()
+    if not text:
+        return False
+    if any(word in text for word in _CONFIRM_WORDS):
+        return True
+    return any(
+        name in text and value == destination_id
+        for name, value in deps.known_destinations.items()
+    )
 
 
 def _travel_dates(profile: TripProfile) -> list[date]:
