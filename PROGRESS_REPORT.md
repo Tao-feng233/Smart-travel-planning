@@ -9,6 +9,46 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**C线更新**：2026-09-27 · **A 线也已并入 main：三条线代码第一次全部在 main 上**
+
+- **A 线已合并**（合并提交 `92be4b1`）：Mock Provider 修复 + 强类型 MCP Server
+  （`backend/app/mcp_server/`）+ `backend/app/providers/` 抽象。
+  A 把 MCP 冒烟测试改成 `pytest.importorskip("mcp")`，
+  所以**没装 MCP SDK 的环境也能跑全量测试**（C 实测：222 passed, 1 skipped；
+  装齐 requirements 时 223 passed）。
+- **main 现状 `92be4b1`**：A、B 两条线的分支都已并入，`git merge origin/main` 即可同步。
+- **全量测试**：`cd backend && python -m pytest` → **222 passed, 1 skipped**；
+  `python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过。
+- **C 线还剩 5 步**（详见第 7 节）：C4 行程生成 → C5 验证器 → C6 通用重规划 →
+  C7 攻略三接口 → 端到端联调。其中 C7 是 B 线联调的硬阻塞。
+
+**需要 A 行动**
+
+- [x] `mcp` 依赖处理 —— 已完成（缺 SDK 自动 skip，README 写清了两种结果）
+- [ ] 剩下的都在数据侧（P0 可继续用 Mock）：真实 Provider 替换 `V04MockMCPProvider`、
+      MySQL/Chroma、`hotel_id`/`lodging_id` → `resource_id` 归一化
+- [ ] 你改的 `v04_mock_provider.py` 我会只读复核内部实现（类名与 9 个方法签名都没动，图不用改）
+
+**需要 B 行动**
+
+- [ ] `git merge origin/main`（main 现在含 A + B 两条线；你的分支目前只到 `d09371c`）
+- [ ] 消息里「request_parser 原有 196 个用例」改成实际的 **18**
+- [ ] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 重复，可合并成一处
+
+**需要三人共同确认**
+
+- [ ] Q5：v0.4 模型是否恢复 `extra="forbid"`（防"偷偷新增字段"，v0.3 有、v0.4 没有）
+- [ ] Q6：追问要不要给结构化字段（B 的前端现在解析 C 写的「1. 2. 3.」文本，改文案就会打断他）
+- [ ] Q7：会话不存在时 `ErrorCode` 里没有对应取值（C 暂用 `DATA_MISSING` + HTTP 404）
+- [ ] Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 的候选卡片现在只能显示 `dest_chengdu`）
+
+**已完成，不需要行动**
+
+- C3 前置过滤（服务层 + 接入图）、解析器边界收尾、模拟数据提示去重
+- A、B 两条线的交付都已并入 main
+
+---
+
 **A线更新**：2026-09-24 · **Mock Provider 修复 + 强类型 MCP Server 接入**
 
 - 保留 C 的 `V04MockMCPProvider` 类名和九个方法签名，内部全部使用
@@ -27,49 +67,6 @@
 
 **未修改其他成员接口**：C 的图节点继续调用同一个 `V04MockMCPProvider` 接口；
 B 的 REST/前端接口无变化。
-
----
-
-**C线更新**：2026-09-25 · **B 线交付已合入 main + 解析器两个边界收尾 + 提示去重**
-
-- **main 已合并 B 线首次交付**（合并提交 `b13101c`，普通 merge，**未覆盖任何人的分支**）：
-  LLM 决策（B2/B4/B5）+ 七部分攻略组装（B6）+ Vue 前端（B1/B7）。
-  合并后全量测试：`cd backend && python -m pytest` → **217 passed**。
-- **复核 B 对 `request_parser.py` 的修复**：两处修复（返回日期被当成出发日期、中文数字金额）
-  确认正确；另外发现并修掉两个边界——① 同一句话里只要出现一个带标签的日期，
-  无标签日期会被整段丢掉（「10月2号出发，10月6号回来」丢出发日）；
-  ② 改出发日期被静默忽略（「改到10月8号出发」不生效，还会留下 `end < start`）。
-  新增 6 个用例。
-- **模拟数据提示去重**：同一句话原来同时出现在信封 `warnings` 和 `degraded_items`，
-  前端会显示两三遍。现在只保留在 `warnings`（`MOCK_DATA_IN_DEMO`，带 code），
-  `degraded_items` 只放本轮额外降级项（例如关键事实未知的资源）。
-- **A 线还没合进 main**：A 的分支新增了 `mcp[cli]>=2.0,<3.0`，没装它时全量测试会
-  **收集失败**（`ModuleNotFoundError: No module named 'mcp'`）。等 A 选定处理方式后我再合并，
-  免得 main 长时间是红的。
-
-**需要 A 行动**
-
-- [ ] 决定 `mcp` 依赖怎么处理（二选一）：写进必做步骤，或让 `test_a_mcp_server.py` 缺依赖自动 skip。
-      回一句我就把 A 线合进 main
-- [ ] 你改的 `v04_mock_provider.py` 我会读一遍内部实现；类名与 9 个方法签名没动，图不用改
-
-**需要 B 行动**
-
-- [ ] `git merge origin/main`（main 已包含你的提交，正常不会有冲突）
-- [ ] 消息里「request_parser 原有 196 个用例」改成实际的 **18**
-- [ ] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 内容重复，可合并成一处
-
-**需要三人共同确认**
-
-- [ ] Q5：v0.4 模型是否恢复 `extra="forbid"`（防"偷偷新增字段"，v0.3 有、v0.4 没有）
-- [ ] Q6：追问要不要给结构化字段（B 的前端现在解析 C 写的「1. 2. 3.」文本，改文案就会打断他）
-- [ ] Q7：会话不存在时 `ErrorCode` 里没有对应取值（C 暂用 `DATA_MISSING` + HTTP 404）
-- [ ] Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 的候选卡片现在只能显示 `dest_chengdu`）
-
-**已完成，不需要行动**
-
-- C3 前置过滤：服务层 + 接入 LangGraph 全部完成
-- 契约校验：`python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过
 
 ---
 
@@ -285,25 +282,25 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | FastAPI + LangGraph（C2） | C | `backend/app/api/`、`backend/app/graph/` | ✅ 完成 | 2026-09-24 |
 | 会话存储（内存 + JSON 快照） | C | `backend/app/services/session_store.py` | ✅ 完成 | 2026-09-24 |
 | 缺失字段判定与追问策略 | C | `backend/app/services/missing_fields.py` | ✅ 完成 | 2026-09-24 |
-| 模拟 MCP Provider（A 线替换点） | C | `backend/app/services/v04_mock_provider.py` | ✅ v0.4 契约版（9 工具） | 2026-09-24 |
-| TripProfile 提取（STUB，待 B 替换） | C→B | `backend/app/services/request_parser.py` | ⚠️ 临时实现 | 2026-09-24 |
-| 目的地推荐（STUB，待 B 替换） | C→B | `backend/app/services/destination_recommender.py` | ⚠️ 临时实现 | 2026-09-24 |
+| Mock Provider（9 个 MCP 工具） | C→A | `backend/app/services/v04_mock_provider.py` | 🔄 A 线已重写内部实现（类名/签名不变）；真实数据待接 | 2026-09-27 |
+| TripProfile 提取（B2 已接，C 的规则式留作降级） | B | `backend/app/llm/request_parser.py`（降级：`backend/app/services/request_parser.py`） | ✅ 已并入 main | 2026-09-27 |
+| 目的地推荐（B4 已接，C 的规则式留作降级） | B | `backend/app/llm/destination_recommender.py`（降级：`backend/app/services/destination_recommender.py`） | ✅ 已并入 main | 2026-09-27 |
 | 前置过滤（C3） | C | `backend/app/services/availability_filter.py` | ✅ 服务层 + 已接入 LangGraph | 2026-09-24 |
 | 行程生成（C4） | C | `backend/app/services/` | ⬜ 未开始 | — |
 | 验证器（C5） | C | `backend/app/services/` | ⬜ 未开始 | — |
 | 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始 | — |
 | REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-24 |
-| MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始 | — |
-| Chroma 认知卡片（A2） | A | `data/` | ⬜ 未开始 | — |
-| RAG 检索（A3） | A | `backend/app/services/`（A 区） | ⬜ 未开始 | — |
-| MCP Server（A4） | A | `backend/app/mcp_server/` | ⬜ 未开始 | — |
-| 地图/天气 Provider（A5） | A | `backend/app/providers/` | ⬜ 未开始 | — |
+| MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始（P0 用 Mock 数据） | — |
+| Chroma 认知卡片（A2） | A | `data/` | ⬜ 未开始（P0 用 Mock 证据） | — |
+| RAG 检索（A3） | A | `backend/app/services/`（A 区） | 🔄 Mock 版已就位；Chroma 未接 | 2026-09-27 |
+| MCP Server（A4） | A | `backend/app/mcp_server/` | 🔄 9 工具已可由官方 SDK 内存客户端列举/调用（返回 Mock 数据） | 2026-09-27 |
+| 地图/天气 Provider（A5） | A | `backend/app/providers/` | 🔄 Mock 版已就位；真实地图/天气 API 未接 | 2026-09-27 |
 | 数据源可行性表（A6） | A | `docs/DATA_SOURCE_ASSESSMENT_TEMPLATE.md` | ⬜ 未开始 | — |
 | 测试 Fixture（A7） | A | 待定 | ⬜ 未开始 | — |
 | LLM 决策模块（B2/B4/B5） | B | `backend/app/llm/` | ✅ 完成（未配置 Key 时自动降级到 C 的 STUB） | 2026-09-24 |
 | 七部分攻略组装（B6） | B | `backend/app/guide/` | 🔄 代码就绪；待 C7 攻略接口 | 2026-09-24 |
 | Vue 前端（B1–B7） | B | `frontend/` | 🔄 代码就绪；端到端止于「目的地确认」 | 2026-09-24 |
-| main 集成状态 | C | `main`（合并提交 `b13101c`） | ✅ 已并入 B 线交付；A 线待 `mcp` 依赖确认 | 2026-09-25 |
+| main 集成状态 | C | `main`（合并提交 `92be4b1`） | ✅ A、B 两条线都已并入 | 2026-09-27 |
 
 ---
 
@@ -313,17 +310,17 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 
 | # | P0 要求 | 负责 | 状态 | 证据 |
 |---|---|---|---|---|
-| 1 | Vue 对话输入和行程展示 | B | ⬜ | — |
-| 2 | LLM 输出结构化 `TripProfile` | B | ⬜ | — |
-| 3 | 至少一次主动追问 | B/C | 🔄 C 侧已通 | `tests/test_graph_clarification.py`（B 侧前端待接） |
-| 4 | RAG 检索并返回 `evidence_id` | A | ⬜ | — |
-| 5 | LLM 只在 `planning_ready` 候选中推荐 | B | ⬜ | — |
-| 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 C 侧已通 | `retrieve_destinations` 实际调用 `search_planning_ready_destinations`（当前为模拟实现） |
+| 1 | Vue 对话输入和行程展示 | B | 🔄 | 前端 30 个文件已并入 main；端到端止于「目的地确认」（`docs/B_TEST_REPORT.md`） |
+| 2 | LLM 输出结构化 `TripProfile` | B | 🔄 | `backend/app/llm/request_parser.py` 已并入 main；未配置 Key 时降级到规则式 |
+| 3 | 至少一次主动追问 | B/C | 🔄 | C 侧链路已通 + B 的追问卡已并入 main（追问仍是文本，见 Q6） |
+| 4 | RAG 检索并返回 `evidence_id` | A | 🔄 | Mock 版已就位（`search_travel_knowledge` 返回带 `evidence_id` 的证据）；Chroma 未接 |
+| 5 | LLM 只在 `planning_ready` 候选中推荐 | B | 🔄 | `backend/app/llm/destination_recommender.py` + 越界 ID 护栏已并入 main |
+| 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 | C 的 `retrieve_destinations` 实际调用；A 的 MCP Server 已可由官方 SDK 调用（返回 Mock 数据） |
 | 7 | 根据日期过滤闭馆或不可用景点 | C | ✅ | `filter_candidates_for_trip` + 图上的 `filter_availability` 节点；`tests/test_availability_filter.py`、`tests/test_graph_clarification.py` |
 | 8 | 生成带时间、交通和预算的行程 | C | ⬜ | — |
 | 9 | 验证并修复至少一种冲突（闭馆替换） | C | ⬜ | — |
 | 10 | 用户修改后重新规划受影响部分（下雨） | C | ⬜ | — |
-| 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | ⬜ | — |
+| 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | B6 `compose_travel_guide()` 已并入 main；待 C4/C5 产物与 C7 出口 |
 
 ---
 
@@ -983,6 +980,17 @@ B2/B4 未配置 LLM Key 时降级到 C 的规则式实现。
 （改由信封 `warnings` 的 `MOCK_DATA_IN_DEMO` 单独承载），
 纯模拟场景下 B 的前端「降级项」面板会变空——同一句话不再重复显示两三遍。
 
+**7）A 线合并（2026-09-27 追加）**
+
+A 把 main 合进了自己分支，并把 MCP 冒烟测试改为 `pytest.importorskip("mcp")`：
+未安装 MCP SDK 时 `222 passed, 1 skipped`，不再在收集阶段中断。
+C 复核后合并进 main（合并提交 `92be4b1`）。
+
+```text
+main 现状 92be4b1：A、B 两条线全部并入
+全量测试 222 passed, 1 skipped（装齐 requirements 时 223 passed）
+```
+
 ---
 
 ## 4. 契约冻结状态
@@ -1080,7 +1088,8 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 契约枚举不全，规划规则无法确定化 | ⚠️ 已发生 | 见上文遗留问题 1，优先补 |
 | 三条线各自新增临时字段 | 已用 `extra="forbid"` 自动拦截 | 由 12 个严格性测试守护 |
 | ⚠️ 回归：v0.4 模型不再拦截多余字段 | **已发生** | v0.3 的 `extra="forbid"` 没有迁移到 v0.4；已登记 Q5，等三人拍板后加回 |
-| A 线新增 `mcp` 依赖，未安装时全量测试收集失败 | **已发生** | 等 A 二选一：写进必做步骤 / 测试缺依赖自动 skip；在此之前 C 不把 A 线合进 main |
+| A 线新增 `mcp` 依赖，未安装时全量测试收集失败 | ✅ 已解决（2026-09-27） | A 改为 `pytest.importorskip("mcp")`；未装 SDK 时 `222 passed, 1 skipped`，装齐时 223 passed |
+| 三条线都在 main 上，C 的排程/验证还没做，端到端跑不到攻略 | ⚠️ 进行中 | C4 → C5 → C6 → C7 按顺序推；在此之前 B 的联调只能到「目的地确认」 |
 | 三条线各自的 feature 分支都有提交后，C 不能再覆盖 | **已生效** | 所有同步改为「C 合进 main → A/B 各自 merge origin/main」 |
 | 模拟数据被当成真实数据 | 已强制标记 `MOCK` + `MOCK_ONLY` | 由测试守护 |
 | 外部 API 拿不到 | 未发生 | 统一 Provider 接口 + fake 实现 |
