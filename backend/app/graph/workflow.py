@@ -19,6 +19,7 @@ from .nodes import (
     RECOMMEND_DESTINATIONS,
     REPORT_INSUFFICIENT_DATA,
     RETRIEVE_DESTINATIONS,
+    VALIDATE_PLAN,
     NodeDeps,
     build_nodes,
     route_after_filter,
@@ -77,7 +78,8 @@ def build_graph(deps: NodeDeps):
             FINISH_TURN: END,
         },
     )
-    graph.add_edge(PLAN_ITINERARY, END)
+    graph.add_edge(PLAN_ITINERARY, VALIDATE_PLAN)
+    graph.add_edge(VALIDATE_PLAN, END)
     graph.add_edge(REPORT_INSUFFICIENT_DATA, END)
 
     return graph.compile()

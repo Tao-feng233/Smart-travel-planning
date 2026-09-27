@@ -9,21 +9,23 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**C线更新**：2026-09-27 · **C4 行程生成完成（代码 + 测试）；端到端卡在 A 的住宿/路线数据**
+**C线更新**：2026-09-27 · **C5 验证器完成（C4 → C5 已串起来）；端到端仍卡在 A 的数据**
 
-- **C4 已完成**：`backend/app/services/itinerary_planner.py` 把 C3 筛出的资源排成
-  `ItineraryPlan`（TripSegment / StaySegment / PlanNode / TravelLeg / DayPlan /
-  CostItem / BudgetSummary），接入图上的 `plan_itinerary` 节点：
-  **用户确认目的地后才排行程**（`CONFIRM` 或再次点名同一个目的地）。
-  全量测试：`cd backend && python -m pytest` → **246 passed, 1 skipped**。
-- **三条红线都守住了**：① 不编数据（缺路线/票价就记 `DATA_UNKNOWN` 冲突，
-  不估数字）；② 尊重 C3 的禁排日期（有专门用例）；③ 预算只由 `CostItem[]` 复算
-  （契约校验器会再核对一遍）。
-- **⚠️ 端到端跑不通的原因不在代码，在数据**：`DayPlan.stay_segment_id` 与
-  `ItineraryPlan.stay_segments` 都是**必填**，而 A 的 Mock Provider 目前
-  **没有任何住宿候选**（`LODGING` / `LODGING_AREA` 都返回 0）。所以现在对真实数据
-  「确认」之后只会得到一句明确的降级：**「住宿候选数据还没有到位」**——
-  这是刻意设计的诚实出口，不是 bug。
+- **C5 已完成**：`backend/app/services/plan_validator.py` 检查 10 类问题并给出修复选项，
+  图上新增 `validate_plan` 节点（C4 排完自动验证）：
+  **验证通过 → `READY`；不通过 → `REPAIRING`**（`CONTRACTS.md` §14 不变量 4：
+  INVALID 不得进入 READY）。全量测试：**263 passed, 1 skipped**。
+- **C5 第一次跑起来就抓到了 C4 的一个真 bug**：C4 当时拿到的是**未过滤**的原始候选，
+  把行程期内一直闭馆的 `poi_1002` 排进了计划。根因已在 `plan_itinerary` 修掉
+  （只用 C3 判定"可规划"的 `state.resource_candidate_ids`），并补了回归用例；
+  验证器保留为第二道防线。
+- **三条红线照旧**：不编数据（缺路线/票价记 `DATA_UNKNOWN`）、尊重 C3 禁排日期、
+  预算只由 `CostItem[]` 复算；固定预算（`budget_flexibility = FIXED`）超限时
+  只给 `REQUEST_USER_CHOICE`，**不给自动放宽选项**。
+- **⚠️ 端到端仍跑不通，原因在数据不在代码**：`DayPlan.stay_segment_id` 与
+  `ItineraryPlan.stay_segments` 都是必填，而 A 的 Mock Provider **没有任何住宿候选**
+  （`LODGING` / `LODGING_AREA` 都返回 0）。对真实数据「确认」后只会得到明确降级：
+  **「住宿候选数据还没有到位」**——刻意设计的诚实出口。
 - **一键检查 A 的数据缺口**（A 每次更新后跑一遍）：
 
 ```powershell
@@ -53,6 +55,10 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
       这条影响的是 B6 的「准备提醒」一节（不影响 C4 排程本身）。
 - [ ] **⑤（口头口径）**：`get_weather` 缺日期时抛自定义 `DataMissingError` 而不是契约对象，
       建议写进 README/报告，免得别人接你的 Provider 踩坑。
+- [ ] **⑥ 车站 → 住宿的路线数据（新增，C7 用）**：组攻略时 `ArrivalPlan` / `ReturnPlan`
+      的 `duration_minutes` 与 `estimated_cost` 都是必填，现在 `get_route` 对
+      「车站 → 住宿」这类组合返回 0 条。没有它我没法诚实地填出「抵达与返程」那一节，
+      只能等（不会拿 `door_to_door_minutes` 硬凑）。
 - [ ] 原有的：真实 Provider 替换 `V04MockMCPProvider`、MySQL/Chroma、
       `hotel_id`/`lodging_id` → `resource_id` 归一化
 - [ ] 你改的 `v04_mock_provider.py` 我会只读复核内部实现（类名与 9 个方法签名都没动，图不用改）
@@ -81,6 +87,7 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
 
 - C3 前置过滤（服务层 + 接入图）、解析器边界收尾、模拟数据提示去重
 - **C4 行程生成**（含「确认目的地 → 排行程」的闸门、费用与预算复算、三条降级路径）
+- **C5 验证器**（10 类检查 + 修复选项 + C4→C5 自动串联；顺带修掉 C4 的一个真缺陷）
 - A、B 两条线的交付都已并入 main
 
 ---
@@ -323,8 +330,8 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 目的地推荐（B4 已接，C 的规则式留作降级） | B | `backend/app/llm/destination_recommender.py`（降级：`backend/app/services/destination_recommender.py`） | ✅ 已并入 main | 2026-09-27 |
 | 前置过滤（C3） | C | `backend/app/services/availability_filter.py` | ✅ 服务层 + 已接入 LangGraph | 2026-09-24 |
 | 行程生成（C4） | C | `backend/app/services/itinerary_planner.py` | ✅ 代码 + 单测完成；端到端等 A 的住宿/路线数据 | 2026-09-27 |
-| 验证器（C5） | C | `backend/app/services/` | ⬜ 未开始（下一步） | — |
-| 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始 | — |
+| 验证器（C5） | C | `backend/app/services/plan_validator.py` | ✅ 完成（10 类检查 + 修复选项，已串进图） | 2026-09-27 |
+| 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始（下一步） | — |
 | REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-27 |
 | A 线数据缺口自查脚本 | C | `tools/check_a_data.py` | ✅ 一条命令看清缺哪些数据 | 2026-09-27 |
 | MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始（P0 用 Mock 数据） | — |
@@ -355,7 +362,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 | C 的 `retrieve_destinations` 实际调用；A 的 MCP Server 已可由官方 SDK 调用（返回 Mock 数据） |
 | 7 | 根据日期过滤闭馆或不可用景点 | C | ✅ | `filter_candidates_for_trip` + 图上的 `filter_availability` 节点；`tests/test_availability_filter.py`、`tests/test_graph_clarification.py` |
 | 8 | 生成带时间、交通和预算的行程 | C | 🔄 | C4 已完成并单测通过；真实数据缺住宿/路线，端到端要等 A（`tools/check_a_data.py` 可自查） |
-| 9 | 验证并修复至少一种冲突（闭馆替换） | C | ⬜ | — |
+| 9 | 验证并修复至少一种冲突（闭馆替换） | C | 🔄 | C5 已能查出闭馆并给出 `REPLACE_RESOURCE` 方案；**套用修复产出 v2 属于 C6** |
 | 10 | 用户修改后重新规划受影响部分（下雨） | C | ⬜ | — |
 | 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | B6 `compose_travel_guide()` 已并入 main；待 C4/C5 产物与 C7 出口 |
 
@@ -1096,6 +1103,61 @@ P0 的简化（已写进模块 docstring，不是隐藏行为）：单目的地�
 
 ---
 
+### 步骤 8：C5 计划验证器（10 类检查 + 修复选项 + 串进图）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 完成（验证通过 → READY；不通过 → REPAIRING） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/plan_validator.py   ★新增：validate_plan / attach_validation
+backend/app/graph/nodes.py               新增 validate_plan 节点；修掉 C4 的候选过滤缺陷
+backend/app/graph/workflow.py            plan_itinerary → validate_plan → END
+backend/app/graph/context.py             TurnContext 带 validation_result / validated_plan
+backend/app/services/session_service.py  存"已验证的计划"与合并后的冲突清单
+backend/app/services/reply_builder.py    READY / REPAIRING 文案（含验证结论）
+backend/tests/test_plan_validator.py     ★新增 16 个用例
+backend/tests/test_graph_planning.py     改为断言 READY + VALID，并加"闭馆资源不得进计划"回归用例
+```
+
+**2）检查了什么**
+
+```text
+ERROR（→ INVALID）：
+  UNAVAILABLE / 当天闭馆资源进计划（附 REPLACE_RESOURCE 替代方案）
+  节点不在开放时间内（跨午夜也算不合法）
+  同一天节点重叠
+  早于用户要求的 earliest_day_start / 晚于 latest_day_end
+  最低估算超预算（FIXED 预算只给"请用户决定"，不给自动放宽）
+  行动不便 + 当天移动时间过长
+  VERIFIED 模式下的未知关键事实（§14 不变量 3）
+WARNING（计划仍可用）：
+  门票等数据缺口、接近预算上限、单日活动超过 8 小时
+```
+
+**3）使用的契约**：§8.1 `RepairOption`、§8.2 `Conflict`、§7.7 BudgetSummary、
+§10.2 PlanState、§14 不变量 2/3/4。
+
+**4）运行的测试**：`cd backend && python -m pytest` → **263 passed, 1 skipped**。
+
+**5）仍是模拟实现**：验证逻辑真实；输入的计划来自测试替身（A 的数据到位后换真实 Provider）。
+
+**6）是否影响其他成员接口**
+
+**是（新增 stage，不破坏旧行为）**：确认目的地后，回复的 `stage` 现在是
+`READY`（验证通过）或 `REPAIRING`（有问题），`conflicts[]` 里带严重度与修复选项。
+B 的前端可以按这两个 stage 分别展示"行程已就绪"和"需要处理的问题"。
+
+**附带修掉的 C4 缺陷**：`plan_itinerary` 之前把**未过滤**的原始候选喂给排程器，
+导致闭馆资源 `poi_1002` 被排进计划（C5 第一次运行即抓到）。现在只用
+`state.resource_candidate_ids`（C3 判定可规划的集合）。
+
+---
+
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
@@ -1177,7 +1239,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 4.5 | **C1c/C2c：代码整体迁到 v0.4 + C3 接入图** | C 线代码只用 v0.4 对象，legacy 删除 | ✅ |
 | 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层 + 已接入图 |
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ✅ 代码 + 16 个单测通过；端到端等 A 数据 |
-| 7 | 验证器（C5） | 能发现时间窗或预算冲突 | 🔄 下一步 |
+| 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ✅ |
 | 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |
 | 9 | REST 接口集成（C7） | Vue 可端到端调用 | 🔄 会话三接口已完成；攻略三接口排在 C4/C5 之后（B 的硬阻塞） |
 | 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |

@@ -164,10 +164,14 @@ def test_confirmation_turn_builds_the_itinerary() -> None:
     assert repository.get_extras("sess_plan").current_plan is None
 
     second, context = _run(repository, "sess_plan", "确认")
-    assert second.stage == PlanStage.PLANNING.value
+    # C5 验证紧跟 C4 排程：验证通过 → READY
+    assert second.stage == PlanStage.READY.value
     assert second.current_plan_id is not None
     assert second.current_plan_version == 1
     assert second.data_snapshot_id is not None
+    assert context.validated_plan is not None
+    assert context.validated_plan.plan_validation_status == "VALID"
+    assert context.validation_result is not None
 
     plan = context.plan_outcome.plan
     assert plan is not None
@@ -207,5 +211,28 @@ def test_naming_destination_again_counts_as_confirmation() -> None:
     _session(repository, "sess_name")
     _run(repository, "sess_name", TRIP_TEXT)
     state, _ = _run(repository, "sess_name", "就成都")
-    assert state.stage == PlanStage.PLANNING.value
+    assert state.stage == PlanStage.READY.value
     assert state.current_plan_id is not None
+
+
+def test_closed_resource_from_step_c3_never_enters_the_plan() -> None:
+    """回归：C3 排除的闭馆资源（poi_1002）绝不能出现在 C4 的计划里。
+
+    这个缺陷是 C5 验证器第一次跑起来时抓到的：C4 当时拿到的是**未过滤**的原始候选，
+    于是把行程期内一直闭馆的 poi_1002 排进了计划。根因修复在 `plan_itinerary`，
+    验证器是这道防线的兜底。
+    """
+
+    repository = InMemorySessionRepository()
+    _session(repository, "sess_closed")
+    _run(repository, "sess_closed", TRIP_TEXT)
+    _, context = _run(repository, "sess_closed", "确认")
+
+    plan = context.validated_plan
+    assert plan is not None
+    used = {node.resource_id for node in plan.nodes if node.resource_id}
+    assert "poi_1002" not in used, "闭馆资源不得进入计划（§14 不变量 2）"
+    assert "poi_1001" in used
+    assert context.validation_result is not None
+    assert context.validation_result.status == "VALID"
+    assert not [item for item in context.validation_result.conflicts if item.severity == "ERROR"]

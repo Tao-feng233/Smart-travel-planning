@@ -23,6 +23,7 @@ from app.schemas import (
     Conflict,
     DestinationRecommendation,
     ItineraryPlan,
+    PlanValidationStatus,
     PlanState,
     SendMessageData,
     TripProfile,
@@ -115,7 +116,11 @@ def build_reply(
             degraded_items=degraded,
         )
 
-    if stage == PlanStage.PLANNING.value and plan is not None:
+    if stage in (
+        PlanStage.PLANNING.value,
+        PlanStage.READY.value,
+        PlanStage.REPAIRING.value,
+    ) and plan is not None:
         return SendMessageData(
             stage=stage,
             assistant_message=_plan_text(plan, plan_conflicts),
@@ -258,12 +263,25 @@ def _plan_text(plan: ItineraryPlan, conflicts: Sequence[Conflict]) -> str:
         f"¥{summary.estimated_max_total:.0f}（上限 ¥{summary.total_limit:.0f}，"
         f"剩余 ¥{summary.remaining_min:.0f} 起）"
     )
-    if conflicts:
-        lines.append(f"- 有 {len(conflicts)} 项数据缺口需要留意：")
-        lines.extend(f"  · {item.message}" for item in conflicts[:3])
-        if len(conflicts) > 3:
-            lines.append(f"  · 其余 {len(conflicts) - 3} 项见进度报告")
-    lines.append("计划可行性验证属于 C5，稍后会给出 VALID / INVALID 结论。")
+    errors = [item for item in conflicts if item.severity == "ERROR"]
+    warnings = [item for item in conflicts if item.severity != "ERROR"]
+    if plan.plan_validation_status == PlanValidationStatus.VALID:
+        lines.append(
+            f"- 验证结论：**通过**（{len(warnings)} 项提醒）"
+            if warnings
+            else "- 验证结论：**通过**。"
+        )
+    elif plan.plan_validation_status == PlanValidationStatus.INVALID:
+        lines.append(f"- 验证结论：**未通过**，有 {len(errors)} 项必须处理：")
+        lines.extend(f"  · {item.message}" for item in errors[:3])
+        lines.append("  自动修复（闭馆替换等）在 C6 接入后重跑验证。")
+    else:
+        lines.append("- 验证还没跑（`plan_validation_status = PENDING`）。")
+    if warnings and plan.plan_validation_status != PlanValidationStatus.VALID:
+        lines.append(f"- 另有 {len(warnings)} 项提醒：")
+        lines.extend(f"  · {item.message}" for item in warnings[:3])
+    elif warnings:
+        lines.extend(f"  · {item.message}" for item in warnings[:3])
     return "\n".join(lines)
 
 

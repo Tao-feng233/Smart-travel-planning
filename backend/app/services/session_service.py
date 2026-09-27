@@ -86,10 +86,14 @@ class SessionService:
         extras.excluded_resources = _excluded_records(context)
         outcome = context.plan_outcome
         if outcome is not None:
-            extras.current_plan = outcome.plan
+            extras.current_plan = context.validated_plan or outcome.plan
             extras.data_snapshot = outcome.data_snapshot
             extras.intercity_options = list(outcome.intercity_options)
-            extras.plan_conflicts = list(outcome.conflicts)
+            extras.plan_conflicts = list(
+                context.validation_result.conflicts
+                if context.validation_result is not None
+                else outcome.conflicts
+            )
             extras.plan_missing_inputs = list(outcome.missing_inputs)
 
         self._repository.save(new_state)

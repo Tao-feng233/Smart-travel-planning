@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 from app.schemas import (
     DestinationRecommendation,
+    ItineraryPlan,
     PlanningReadinessEvaluation,
     ResourceCandidateBase,
     RunMode,
@@ -30,6 +31,7 @@ from app.schemas import (
 )
 from app.services.availability_filter import TripFilterResult
 from app.services.itinerary_planner import PlanBuildOutcome
+from app.services.plan_validator import ValidationResult
 
 
 @dataclass
@@ -56,3 +58,7 @@ class TurnContext:
     previous_stage: str | None = None
     #: C4 排程结果（含计划、冲突与降级说明）
     plan_outcome: PlanBuildOutcome | None = None
+    #: C5 验证结果
+    validation_result: ValidationResult | None = None
+    #: 写回验证结论后的计划（`plan_validation_status` / `conflict_ids` 已更新）
+    validated_plan: ItineraryPlan | None = None

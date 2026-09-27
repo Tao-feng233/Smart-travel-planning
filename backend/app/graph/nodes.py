@@ -49,6 +49,7 @@ from app.schemas import (
     IntercityOption,
     ItineraryPlan,
     PlanState,
+    PlanValidationStatus,
     PlanningReadinessEvaluation,
     ResourceCandidateBase,
     RunMode,
@@ -63,6 +64,7 @@ from app.services.availability_filter import TripFilterResult, filter_candidates
 from app.services.destination_recommender import DestinationRecommender
 from app.services.itinerary_planner import PlanBuildOutcome, build_itinerary
 from app.services.missing_fields import find_missing_fields
+from app.services.plan_validator import attach_validation, validate_plan
 from app.services.request_parser import TripProfileParser
 
 #: 节点名（与 LangGraph 图上的名称一致，便于测试与日志定位）
@@ -76,6 +78,7 @@ FETCH_RESOURCES = "fetch_resource_candidates"
 FILTER_AVAILABILITY = "filter_availability"
 CHECK_DESTINATION_CONFIRMATION = "check_destination_confirmation"
 PLAN_ITINERARY = "plan_itinerary"
+VALIDATE_PLAN = "validate_plan"
 
 #: 条件边的“本轮到此结束”出口（映射到 LangGraph 的 END）
 FINISH_TURN = "finish_turn"
@@ -375,10 +378,21 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
                 "awaiting_user_input": True,
             }
 
+        # 只用 C3 判定"可规划"的候选：`state.resource_candidate_ids` 由
+        # `filter_availability` 写入，排除了闭馆资源。直接把原始候选喂给排程器
+        # 会把 UNAVAILABLE 资源排进计划（C5 的验证器会抓到，但根因在这里）。
+        allowed = set(state.resource_candidate_ids)
+        candidates = [item for item in runtime.context.resources if item.resource_id in allowed]
+        if not candidates:
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+
         outcome = build_itinerary(
             profile=profile,
             destination_id=destination_id,
-            candidates=runtime.context.resources,
+            candidates=candidates,
             filter_result=runtime.context.filter_result,
             mcp=deps.mcp,
             run_mode=runtime.context.run_mode,
@@ -402,6 +416,39 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             "data_snapshot_id": plan.data_snapshot_id,
         }
 
+    def validate_plan_node(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """C5：验证 C4 产出的计划，并把结论写回计划状态（PENDING → VALID/INVALID）。"""
+
+        outcome = runtime.context.plan_outcome
+        if outcome is None or outcome.plan is None or runtime.context.profile is None:
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+        result = validate_plan(
+            outcome.plan,
+            profile=runtime.context.profile,
+            candidates=runtime.context.resources,
+            filter_result=runtime.context.filter_result,
+            prior_conflicts=outcome.conflicts,
+            run_mode=runtime.context.run_mode,
+        )
+        runtime.context.validation_result = result
+        runtime.context.validated_plan = attach_validation(outcome.plan, result)
+        # §14 不变量 4：INVALID 不得进入 READY（攻略组装属于 C7）
+        stage = (
+            PlanStage.READY.value
+            if result.status == PlanValidationStatus.VALID
+            else PlanStage.REPAIRING.value
+        )
+        return {
+            "stage": stage,
+            "awaiting_user_input": True,
+            "conflict_ids": [item.conflict_id for item in result.conflicts],
+        }
+
     return {
         PARSE_REQUEST: parse_request,
         CHECK_MISSING_FIELDS: check_missing_fields,
@@ -413,6 +460,7 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         FILTER_AVAILABILITY: filter_availability,
         CHECK_DESTINATION_CONFIRMATION: check_destination_confirmation,
         PLAN_ITINERARY: plan_itinerary,
+        VALIDATE_PLAN: validate_plan_node,
     }
 
 
