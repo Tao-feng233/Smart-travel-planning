@@ -235,7 +235,7 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
       第一步即「覆盖不足」。修复在 `backend/app/llm/request_parser.py`，新增 4 个专项用例
 - [x] B 线自有测试文件用例数（29/25/24/13/8）与 8 项依赖版本，逐项实测**无误**
 
-**覆盖门槛（原 B 提出，已由 C 登记为 Q9，等三人拍板）**
+**覆盖门槛（历史记录；已在步骤 13/14 完成）**
 
 - B 的原疑点：`duration_days × 2 + 1` 偏陡 —— 成都 12 个游玩地点只够撑 5 天，6 天即判不可规划
 - C 复核后指出**更该先修的东西**：`DESTINATIONS[...]["visit_place_count"]` 是硬编码常量
@@ -243,15 +243,15 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
   门槛由一个**没人能核对、也不随数据更新**的常量决定
 - C 的建议：① 地点数改从真实候选集推导（不许硬编码）；② 门槛先别动
   （「每天 2 个 + 1 个替代」合理，偏陡的观感来自数据太少）；③ 想放宽用 `ceil(天数 × 1.5) + 1`
-- 详见 `docs/contract-open-questions.md` Q9
+- 最终结论与实现见 `CONTRACTS.md` §3.3、下方步骤 13/14；本段旧数字仅保留为问题发现记录。
 
 **需要三人共同确认**
 
 - [ ] Q5：v0.4 模型是否恢复 `extra="forbid"`（防"偷偷新增字段"，v0.3 有、v0.4 没有）
-- [ ] Q6：追问要不要给结构化字段（B 的前端现在解析 C 写的「1. 2. 3.」文本，改文案就会打断他）
+- [x] Q6：已确认前端使用 `MISSING_PROFILE_FIELDS.details`，不解析编号文本，不新增字段
 - [ ] Q7：会话不存在时 `ErrorCode` 里没有对应取值（C 暂用 `DATA_MISSING` + HTTP 404）
-- [ ] Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 的候选卡片现在只能显示 `dest_chengdu`）
-- [ ] Q9：**数据覆盖门槛**是否保持「每天 2 个游玩地点 + 1 个替代」（`duration_days × 2 + 1`）？
+- [x] Q8：`DestinationRecommendation.name` 已作为可选字段上线
+- [x] Q9：已采用 `ceil(duration_days × 1.5) + 1`，候选数量由 Provider 的实际可用资源推导。以下两行是拍板前的问题背景，已不代表当前实现：
       B 反馈成都的 12 个地点只够 5 天、6 天即判不可规划；C 复核发现那 12 是**硬编码常量**，
       与真实候选集（成都实际只有 3 个）不一致，见 `docs/contract-open-questions.md` Q9
 
@@ -1474,7 +1474,7 @@ POST /api/guides/{id}/incident  突发事件（例如「今天下雨了」）→
 |---|---|
 | 日期 | 2026-09-27 |
 | 执行线 | C（按三人结论改共享 Schema 与文档） |
-| 状态 | ✅ Q8 字段上线；Q9 公式写入契约（Provider 侧由 A 实现）；Q6 不新增字段并更正描述 |
+| 状态 | ✅ Q8 字段上线；Q9 公式写入契约并已由 A 在步骤 14 实现；Q6 不新增字段并更正描述 |
 
 **改动文件**：`schemas/v04/recommendation.py`（新增 `name`）、`services/reply_builder.py`
 （统一填 `name`；新增 `GUIDE_MATERIAL_MISSING` 警告）、`services/session_service.py` +
@@ -1487,6 +1487,24 @@ POST /api/guides/{id}/incident  突发事件（例如「今天下雨了」）→
 
 **验证**：`pytest` 305 passed / 1 skipped；`contracts/validate_fixtures.py` 全过；
 `check_b_flow.py --deps real` 仍为 exit 0。
+
+---
+
+### 步骤 14：A 线落实 Q9 Provider 规则
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行者 | A |
+| 状态 | ✅ 完成：Provider、测试和真实 Mock 业务链均通过 |
+
+**改动内容**：`V04MockMCPProvider` 使用 `ceil(duration_days × 1.5) + 1` 和
+`rules-2026-09-27-v2`；删除目的地元数据中重复维护的 `visit_place_count`，
+规划就绪判断从 `search_resources` 的同一景点候选集合中统计当前日期范围内可用资源；测试覆盖成都、乐山、
+都江堰全部目的地。同步修复 5 天请求却显示“建议 3 天”的候选卡天数问题。
+
+**验证**：A 数据检查 7/7；全量 pytest 通过；
+`python tools/check_b_flow.py --deps real` exit 0。
 
 ---
 
@@ -1519,7 +1537,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 确认项 | 状态 | 结论 |
 |---|---|---|
 | 知识库数据目录和版本 | ⚠️ 待定 | 先用模拟数据，具体信息后续确认 |
-| `KnowledgeCoverage` 最低规划门槛 | ⚠️ 待定（见 Q9） | 当前实现是「`duration_days × 2 + 1` 个游玩地点 + 开放规则/路线/住宿不低于 LIMITED」；B 反馈偏陡，C 发现门槛用的地点数是硬编码常量（12）而非真实候选集（3），见 `docs/contract-open-questions.md` Q9 |
+| `KnowledgeCoverage` 最低规划门槛 | ✅ 已确认并实现 | `ceil(duration_days × 1.5) + 1` 个当前日期范围内可用游玩地点，且开放规则/路线/住宿不低于 LIMITED；版本 `rules-2026-09-27-v2` |
 | 数据源调研任务和 Fake Provider 方案 | ⬜ | 待 A 线执行 |
 | 首批住宿候选和基础餐厅范围 | ⬜ | 待 A 线执行 |
 | 主 LLM Provider 已通过 POC | ⬜ | 待三人确认 |
