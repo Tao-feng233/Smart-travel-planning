@@ -60,3 +60,22 @@ cd backend && python -m pytest               # 基线：302 passed, 1 skipped
 - `backend/app/schemas/`、`contracts/`、`fixtures/`：改字段先三人确认
 - C 的文件（`services/` 规划/验证/修复/攻略、`api/routes.py`、`graph/`）
 - `tools/check_a_data.py` / `tools/check_b_flow.py`：联调自查脚本，别删
+
+## 八、2026-09-27 追加：你报的两条 + Q8 已上线
+
+**Q8 已上线**：`DestinationRecommendation` 加了可选 `name`（契约 §6 已更新），
+后端在 `reply_builder` 统一用目的地中文名填充，候选卡片可以直接显示中文，
+缺失时回退 `destination_id`。你按"优先 name"接即可，A 零工作量。
+
+**你的两条新发现，处理结果**：
+
+1. 刷新后缺项清单会丢 → **不新增契约字段**：`GUIDE_INCOMPLETE` 时的缺项改为通过
+   `GET /api/sessions/{id}` 信封的 `warnings` 回带，`code = GUIDE_MATERIAL_MISSING`，
+   `message` 就是缺什么。前端刷新后读 warnings 即可还原提示。
+2. `GUIDE_INCOMPLETE` 零覆盖 → 已补自动化用例
+   （`test_guide_incomplete_stage_and_warning`：stage + guide_id 为空 + 缺项警告）。
+
+**关于 `current_guide_id`**：你说得对——`GET /api/sessions/{id}` 按 §13.1 返回 PlanState，
+字段名是 `current_guide_id`（没有 `guide_id`）。我此前那条"补传 guide_id"对该接口是空操作，
+而且配套测试是死代码。现在测试改成断言 `current_guide_id` 并真正接入，
+你不需要为这个接口做任何改动。

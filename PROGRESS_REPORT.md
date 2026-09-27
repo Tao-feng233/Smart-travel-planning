@@ -80,7 +80,27 @@
 
 （以下为上一轮 C7 / 端到端联调记录）
 
-**C线更新**：2026-09-27 · **A 数据合入 + A 报的三个 P0 全修完：真实链路 exit 0**
+**C线更新**：2026-09-27 · **Q6/Q8/Q9 三人结论落地：Q8 字段已上线、Q9 公式写入契约、Q6 描述已更正**
+
+- **Q8 落地（A/B/C 一致）**：`DestinationRecommendation` 新增可选 `name: str | None = None`，
+  `reply_builder` 用已有 `name_lookup` 统一填充（LLM 与规则式推荐都生效）；
+  `CONTRACTS.md` §6 示例与说明已更新。前端按"优先 name、缺失回退 ID"处理。
+- **Q9 落地（写入契约）**：`CONTRACTS.md` 新增 **§3.3 规划就绪门槛**：
+  `required_visit_places = ceil(duration_days × 1.5) + 1`，
+  `ruleset_version = rules-2026-09-27-v2`；并明确 `visit_place_count`
+  **必须由 Provider 从真实候选集推导、禁止硬编码**（由 A 实现，测试扩到所有目的地）。
+- **Q6 更正**：此前台账写"B 的前端解析追问编号文本"是**错的**——
+  前端读的是信封 `warnings[MISSING_PROFILE_FIELDS].details`；
+  结论为**不新增 `questions` 字段**，`assistant_message` 只做展示。
+- **B 的两条新发现已处理**：① 刷新后缺项清单不再丢——`GUIDE_INCOMPLETE` 的缺项
+  通过 `GET /api/sessions/{id}` 的信封 `warnings`（`GUIDE_MATERIAL_MISSING`）带回，
+  **不新增契约字段**；② `GUIDE_INCOMPLETE` 补齐自动化用例。
+- **C 自己的差错更正**：我此前那条"会话返回 guide_id"的修复对 `GET /api/sessions/{id}`
+  是空操作（该接口按 §13.1 返回 PlanState，字段是 `current_guide_id`），
+  且对应测试是**死代码**（定义了没被调用）——已改为契约正确断言并真正接上。
+- 测试：**305 passed, 1 skipped**；契约 fixtures 全过。
+
+（以下为上一轮记录）
 
 - **A 的成都 Mock 覆盖已合入**：`check_a_data.py` → **7/7**；
   `check_b_flow.py --deps real` → **exit 0**（会话→追问→推荐→确认→七部分攻略→确认攻略→突发事件→新版本）。
@@ -1445,6 +1465,28 @@ POST /api/guides/{id}/incident  突发事件（例如「今天下雨了」）→
 
 **验收**：`check_a_data.py` 7/7；`check_b_flow.py --deps real` exit 0；
 `pytest` 302 passed / 1 skipped；契约 fixtures 全过。
+
+---
+
+### 步骤 13：Q6 / Q8 / Q9 三人结论落地
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C（按三人结论改共享 Schema 与文档） |
+| 状态 | ✅ Q8 字段上线；Q9 公式写入契约（Provider 侧由 A 实现）；Q6 不新增字段并更正描述 |
+
+**改动文件**：`schemas/v04/recommendation.py`（新增 `name`）、`services/reply_builder.py`
+（统一填 `name`；新增 `GUIDE_MATERIAL_MISSING` 警告）、`services/session_service.py` +
+`services/session_store.py`（缺项清单持久化，刷新可回带）、`CONTRACTS.md`（§6 `name`、新增 §3.3）、
+`docs/contract-open-questions.md`（5.5 三人结论）、`backend/tests/test_guide_api.py`（+5 用例，
+并修掉一条死代码断言）、两份交接总表。
+
+**契约依据**：§16.1（新增可选字段需更新示例与模型）、§3.2/§3.3、§13.1（会话接口返回 PlanState）、
+§13.2（攻略接口）。
+
+**验证**：`pytest` 305 passed / 1 skipped；`contracts/validate_fixtures.py` 全过；
+`check_b_flow.py --deps real` 仍为 exit 0。
 
 ---
 

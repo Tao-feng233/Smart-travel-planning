@@ -152,6 +152,9 @@ class SessionService:
                 guide_notes = [
                     f"攻略暂时组装不了：{note}" for note in context.guide_outcome.notes
                 ]
+        # 缺项清单要持久化：`GET /api/sessions/{id}` 只返回 PlanState，
+        # 刷新页面时只能靠信封 warnings 把"缺什么"带给前端。
+        extras.guide_missing_notes = guide_notes
 
         self._repository.save(new_state)
         self._repository.save_extras(session_id, extras)
@@ -171,7 +174,10 @@ class SessionService:
             data_is_mock=self._data_is_mock,
         )
         warnings = build_warnings(
-            new_state, draft=extras.draft, data_is_mock=self._data_is_mock
+            new_state,
+            draft=extras.draft,
+            data_is_mock=self._data_is_mock,
+            guide_missing=extras.guide_missing_notes,
         )
         return new_state, reply, warnings
 
@@ -193,7 +199,10 @@ class SessionService:
             data_is_mock=self._data_is_mock,
         )
         warnings = build_warnings(
-            state, draft=extras.draft, data_is_mock=self._data_is_mock
+            state,
+            draft=extras.draft,
+            data_is_mock=self._data_is_mock,
+            guide_missing=extras.guide_missing_notes,
         )
         return state, reply, warnings
 

@@ -13,6 +13,9 @@ class DestinationRecommendation(BaseModel):
     """
 
     destination_id: str
+    #: 目的地中文名（展示用，Q8 三人确认 2026-09-27 新增的可选字段）。
+    #: 必须来自目的地数据表/Provider，不得由模型编造；前端优先显示它，缺失时回退 destination_id。
+    name: str | None = None
     readiness_id: str
     suggested_days: int
     suitable: bool = True

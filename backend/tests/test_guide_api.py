@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 from app.api.deps import build_session_service, get_session_service
 from app.main import create_app
 from app.services.session_store import InMemorySessionRepository
-from test_graph_planning import TRIP_TEXT, _deps
+from app.schemas import GetIntercityOptionsResponse, GetRouteResponse
+from test_graph_planning import TRIP_TEXT, LodgingAwareMockProvider, _deps
 
 SECTIONS = (
     "trip_summary",
@@ -80,6 +81,77 @@ def test_confirm_is_idempotent_with_same_key(client: TestClient) -> None:
         "travel_guide"
     ]
     assert second["guide_version"] == first["guide_version"]
+
+
+class _NoStationRouteProvider(LodgingAwareMockProvider):
+    """没有城际交通数据：攻略的"抵达与返程"组不出来，但计划本身仍然有效。"""
+
+    def get_intercity_options(self, request):
+        return GetIntercityOptionsResponse(options=[])
+
+
+@pytest.fixture()
+def incomplete_client() -> TestClient:
+    app = create_app()
+    deps = _deps()
+    deps.mcp = _NoStationRouteProvider()
+    service = build_session_service(
+        repository=InMemorySessionRepository(), node_deps=deps
+    )
+    app.dependency_overrides[get_session_service] = lambda: service
+    return TestClient(app)
+
+
+def test_guide_incomplete_stage_and_warning(incomplete_client: TestClient) -> None:
+    """B 指出 GUIDE_INCOMPLETE 零覆盖：这里补上，并验证缺项能带回前端。
+
+    计划有效但攻略缺素材时：
+    - `stage = GUIDE_INCOMPLETE`、`guide_id` 为空（不谎报 READY）；
+    - `GET /api/sessions/{id}` 通过信封 `warnings` 带回缺项清单
+      （该接口按契约只返回 PlanState，不新增字段）。
+    """
+
+    session_id = incomplete_client.post(
+        "/api/sessions", json={"run_mode": "DEMO"}
+    ).json()["data"]["session_id"]
+    incomplete_client.post(
+        f"/api/sessions/{session_id}/messages", json={"text": TRIP_TEXT}
+    )
+    body = incomplete_client.post(
+        f"/api/sessions/{session_id}/messages", json={"text": "确认"}
+    ).json()
+    assert body["data"]["stage"] == "GUIDE_INCOMPLETE"
+    assert body["data"]["guide_id"] is None
+
+    refreshed = incomplete_client.get(f"/api/sessions/{session_id}").json()
+    codes = [item["code"] for item in refreshed["warnings"]]
+    assert "GUIDE_MATERIAL_MISSING" in codes
+    assert refreshed["data"]["current_guide_id"] is None
+
+
+def test_history_lineage_and_name_channel(client: TestClient) -> None:
+    """B 报的三处缺口合起来验收（含"会话缺项靠信封 warnings"）。"""
+
+    guide_id, reply = _reach_guide(client)
+    # Q8：候选卡片标题用目的地中文名
+    session_id = reply["trip_profile"]["session_id"]
+    guide = client.get(f"/api/guides/{guide_id}").json()["data"]["travel_guide"]
+    _assert_history_and_lineage(client, guide_id, guide)
+    assert session_id  # 会话 ID 可用（供下面的详情接口使用）
+
+
+def test_candidate_card_carries_destination_name(client: TestClient) -> None:
+    """Q8：DestinationRecommendation.name 由后端统一填充（前端优先显示它）。"""
+
+    session_id = client.post("/api/sessions", json={"run_mode": "DEMO"}).json()["data"][
+        "session_id"
+    ]
+    client.post(f"/api/sessions/{session_id}/messages", json={"text": TRIP_TEXT})
+    body = client.post(
+        f"/api/sessions/{session_id}/messages", json={"text": "我想出去玩"}
+    ).json()["data"]
+    candidates = body["destination_candidates"]
+    assert candidates and candidates[0]["name"] == "成都"
 
 
 def test_unknown_guide_returns_404(client: TestClient) -> None:
@@ -189,7 +261,8 @@ def _assert_history_and_lineage(client: TestClient, guide_id: str, guide: dict) 
     # 1) 会话详情必须带 guide_id（刷新页面后前端要靠它找攻略）
     session_id = guide["session_id"]
     state = client.get(f"/api/sessions/{session_id}").json()["data"]
-    assert state["guide_id"] == guide_id
+    # 契约 §13.1：该接口返回 PlanState，字段名是 current_guide_id（不是 guide_id）
+    assert state["current_guide_id"] == guide_id
 
     # 2) 触发一次突发事件，产生 v2
     response = client.post(

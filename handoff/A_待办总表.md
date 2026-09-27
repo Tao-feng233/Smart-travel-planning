@@ -44,3 +44,17 @@ cd backend && python -m pytest                → 302 passed, 1 skipped
 - `V04MockMCPProvider` 的类名与 9 个方法签名请保持不变（C 的图直接调它）。
 - `mcp[cli]` 已处理成「缺 SDK 自动 skip」，不要再改回强制导入。
 - 自查：`python tools/check_a_data.py`（退出码 0 = 全齐）。
+
+## 六、2026-09-27 追加：Q9 落地要求（请你实现）
+
+契约已按三人结论更新（`CONTRACTS.md` §3.3），请同步 Provider：
+
+```text
+1. required_visit_places = ceil(duration_days × 1.5) + 1
+   ruleset_version = "rules-2026-09-27-v2"（原 rules-2026-09-24-v1 作废）
+2. visit_place_count 必须从真实候选集推导，禁止硬编码常量
+3. 测试从"成都相等"扩到"所有目的地恒等"（乐山/都江堰 0=0 也要锁住）
+```
+
+效果：5 天需 9 个、6 天需 10 个；成都现有 11 个候选，余量从 0 变成 2，
+不会再因为 ±1 天的解析误差翻转 readiness。

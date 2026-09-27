@@ -75,6 +75,8 @@ class SessionExtras(BaseModel):
     current_guide_version: int | None = None
     #: 幂等键 → 该次操作产出的攻略版本（重复提交不再重复升版本）
     handled_idempotency_keys: dict[str, int] = Field(default_factory=dict)
+    #: 攻略组装缺什么（持久化后由信封 warnings 带给前端）
+    guide_missing_notes: list[str] = Field(default_factory=list)
 
 
 class SessionRepository(Protocol):
