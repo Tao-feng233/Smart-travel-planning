@@ -20,9 +20,10 @@ C 线的 `StubTripProfileParser` **原样保留**，作为本实现失败时的�
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError
@@ -71,6 +72,15 @@ _ASSIST_LIST_FIELDS = ("interests", "avoidances")
 
 #: `duration_days` 由 `finalize_trip_profile` 从起止日期推导，模型填了也不用
 _DERIVED_FIELDS = ("duration_days",)
+
+#: 用户**明说的**行程天数：「玩5天」「三天两晚」「共 7 天」。
+#: `(?<!第)` 排除「第一天 / 第二天」这类日程叙述；只认「天」不认「日」，
+#: 否则「10月2日」会被误读成「2 天」。
+_EXPLICIT_DAYS_RE = re.compile(r"(?<!第)(\d{1,2}|[一二两三四五六七八九十]{1,2})\s*天")
+#: 裸日期（「10月6号」「2026-10-06」）：出现两个即认为用户明说了往返日期
+_BARE_DATE_RE = re.compile(r"(?:(\d{4})[-/年])?(\d{1,2})[-/月](\d{1,2})[日号]?")
+#: 带标签的返回日期：「返回日期：10月6号」
+_LABELED_END_RE = re.compile(r"(?:返回|回程)(?:日期|时间)?[是：:\s]")
 
 
 @dataclass(frozen=True)
@@ -290,6 +300,41 @@ class LLMTripProfileParser:
             if len(merged_list) != len(existing):
                 result[name] = merged_list
                 diagnostics.append(f"规则式解析为 {name} 补充了标签")
+
+        # 「玩 N 天」这类**用户明说的时长**必须压过模型的自由推算。
+        # 实测同一句「玩 5 天」，模型 5 次里既有 10-06 也有 10-07 —— 它把
+        # 「从出发日算 5 天」和「含首尾共 5 天」混在了一起。而数据层按
+        # `duration_days` 递增算覆盖门槛（`2 * 天数 + 1` 个游玩地点），
+        # 多算一天就足以把本来可规划的目的地判成不可规划（成都 12 < 门槛 13），
+        # 用户会在第一步就收到「覆盖不足」，后面的推荐、攻略全都走不到。
+        # 时长属于「用户说过的信息」而非旅游事实，因此以文本为准不违反红线。
+        if "end_date" in blocked:
+            return result, diagnostics
+        explicit_days = _explicit_day_count(text)
+        if explicit_days:
+            start = result.get("start_date")
+            end = result.get("end_date")
+            # 用户自己写明了往返两个日期（或「返回日期：X」）时以日期为准：
+            # 日期比「N 天」更具体，冲突时不该由规则替用户改口。
+            stated_end = (
+                len(_BARE_DATE_RE.findall(text)) >= 2
+                or _LABELED_END_RE.search(text) is not None
+            )
+            if isinstance(start, date) and not stated_end:
+                expected_end = start + timedelta(days=explicit_days - 1)
+                if end is None:
+                    result["end_date"] = expected_end
+                    diagnostics.append(
+                        f"文本写明「{explicit_days} 天」，已据此补出返回日期"
+                        f"（{expected_end.isoformat()}）"
+                    )
+                elif isinstance(end, date) and end != expected_end:
+                    diagnostics.append(
+                        f"文本写明「{explicit_days} 天」，模型给出的返回日期"
+                        f"（{end.isoformat()}）与之不符，已修正为"
+                        f" {expected_end.isoformat()}"
+                    )
+                    result["end_date"] = expected_end
 
         return result, diagnostics
 
@@ -518,6 +563,22 @@ def _derive_destination_mode(requests: Sequence[Mapping[str, Any]]) -> str:
     if len(requests) == 1:
         return "SINGLE"
     return "UNKNOWN"
+
+
+def _explicit_day_count(text: str) -> int | None:
+    """取用户**明说**的行程天数（「玩 5 天」「三天两晚」「共 7 天」）。
+
+    取不到、或数值明显超出一次旅行合理范围（1–30 天）时返回 `None`。
+    复用规则式解析器的中文数字转换，两套实现共用同一份数字口径。
+    """
+
+    match = _EXPLICIT_DAYS_RE.search(text or "")
+    if match is None:
+        return None
+    count = StubTripProfileParser._to_int(match.group(1))
+    if count is None or not 1 <= count <= 30:
+        return None
+    return count
 
 
 def _guard_date_order(

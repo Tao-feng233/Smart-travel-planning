@@ -31,9 +31,25 @@
 
 **需要 B 行动**
 
-- [ ] `git merge origin/main`（main 现在含 A + B 两条线；你的分支目前只到 `d09371c`）
-- [ ] 消息里「request_parser 原有 196 个用例」改成实际的 **18**
-- [ ] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 重复，可合并成一处
+- [x] `git merge origin/main`（已完成：fast-forward `d09371c` → `1927694`，无冲突）
+- [x] 消息里「request_parser 原有 196 个用例」改成实际的 **18**（已完成，共 4 处：进度报告 3 处 + 测试报告 1 处）
+- [x] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 重复，可合并成一处（已合并：保留状态条常驻标签「含模拟数据」，过滤同义的 warning）
+
+**B 线复核更新（2026-09-27 追加）**
+
+按组长要求逐项复核，并把 B 写过的**每一个可核验数字**重新实测了一遍。
+
+- [x] 全量测试：merge 后 **226 passed, 1 skipped**（演进：211 → merge 后 222 → 本次新增 4 个用例后 226）
+- [x] **订正**：前端文件数 **30 → 31**（原清单漏列 `src/App.vue`；本文件 2 处 + 测试报告 1 处，均已订正）
+- [x] **复核发现并修复第 7 个缺陷（主流程阻断级）**：「玩 N 天」的返回日期在模型侧摇摆
+      （实测同一句话 6 次里 4 次多算一天）→ `duration_days` 6 → 超过数据层覆盖门槛 →
+      第一步即「覆盖不足」。修复在 `backend/app/llm/request_parser.py`，新增 4 个专项用例
+- [x] B 线自有测试文件用例数（29/25/24/13/8）与 8 项依赖版本，逐项实测**无误**
+
+**需要 C / A 定夺（本次复核新增）**
+
+- [ ] 覆盖门槛 `duration_days × 2 + 1` 是否过陡：成都 12 个游玩地点**只够撑 5 天**，
+      6 天即判「覆盖不足」。与第 5 节 `KnowledgeCoverage` 那条「待定」直接相关
 
 **需要三人共同确认**
 
@@ -77,7 +93,7 @@ B 的 REST/前端接口无变化。
   未配置 Key 时自动降级到 C 的规则式 STUB，原因写入 `diagnostics`，绝不静默。
 - 新增 `backend/app/guide/`：`compose_travel_guide()` 把验证后的计划组装成七部分 `TravelGuide`，
   并按 ADR-0006 合成 `GuideReadiness`；内部 `PlanNode/DayPlan` 与展示 `GuideNode/GuideDay` 严格分离。
-- 新增 Vue3 前端 30 个文件（Vite 6 + Element Plus + TypeScript）：对话、追问卡、可关闭的状态横幅、
+- 新增 Vue3 前端 31 个文件（Vite 6 + Element Plus + TypeScript）：对话、追问卡、可关闭的状态横幅、
   攻略七部分面板；唯一发请求的位置是 `src/stores/session.ts`。
 - 测试：`cd backend && python -m pytest` → **211 passed**（B 线 99 + C/A 线 112）；
   `npx vue-tsc --noEmit` → 0 错误；`npx vite build` → 通过；HTTP 端到端 → **7 / 7 PASS**。
@@ -87,7 +103,7 @@ B 的 REST/前端接口无变化。
 
 **是否修改其他成员接口**：**是，两处**——① `backend/app/api/deps.py`（B 线唯一允许修改的共享文件，仅换装配）；
 ② `backend/app/services/request_parser.py`（**C 线文件**，修正「返回日期被当成出发日期、追问关不上」
-与中文数字预算解析两处缺陷，改动最小化，该文件原有 196 个用例全过，**请 C 复核**）。
+与中文数字预算解析两处缺陷，改动最小化，该文件原有 18 个用例全过，**请 C 复核**）。
 
 > **C 复核（2026-09-25）**：两处修复确认正确，已合入 main。
 > 该文件的实际用例数是 **18**（不是 196）；两个新边界由 C 收尾并补 6 个用例，
@@ -310,7 +326,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 
 | # | P0 要求 | 负责 | 状态 | 证据 |
 |---|---|---|---|---|
-| 1 | Vue 对话输入和行程展示 | B | 🔄 | 前端 30 个文件已并入 main；端到端止于「目的地确认」（`docs/B_TEST_REPORT.md`） |
+| 1 | Vue 对话输入和行程展示 | B | 🔄 | 前端 31 个文件已并入 main；端到端止于「目的地确认」（`docs/B_TEST_REPORT.md`） |
 | 2 | LLM 输出结构化 `TripProfile` | B | 🔄 | `backend/app/llm/request_parser.py` 已并入 main；未配置 Key 时降级到规则式 |
 | 3 | 至少一次主动追问 | B/C | 🔄 | C 侧链路已通 + B 的追问卡已并入 main（追问仍是文本，见 Q6） |
 | 4 | RAG 检索并返回 `evidence_id` | A | 🔄 | Mock 版已就位（`search_travel_knowledge` 返回带 `evidence_id` 的证据）；Chroma 未接 |
@@ -886,7 +902,7 @@ python contracts/validate_fixtures.py             → 7 合法 + 7 非法 + 3 �
   `prompts.py`、`contract_hint.py`、`request_parser.py`（B2）、`destination_recommender.py`（B4）、
   `action_interpreter.py`（B5）、`__init__.py`
 - 新增 `backend/app/guide/`：`composer.py`（B6 七部分组装 + `GuideReadiness` 合成）、`__init__.py`
-- 新增前端 30 个文件（`frontend/`，Vue3 + Vite 6 + Element Plus + TypeScript）
+- 新增前端 31 个文件（`frontend/`，Vue3 + Vite 6 + Element Plus + TypeScript）
 - 新增测试 6 个文件：`b_line_fakes.py`、`test_llm_provider.py`、`test_llm_request_parser.py`、
   `test_llm_destination_recommender.py`、`test_action_interpreter.py`、`test_guide_composer.py`
 - 新增 `docs/B_TEST_REPORT.md`（交付证明 + 给 A/C 的对接说明）
@@ -931,7 +947,7 @@ HTTP 端到端（真实 LLM Key）             → 7 / 7 PASS
 - `backend/app/services/request_parser.py` —— **C 线文件，本次修正两处解析缺陷**：
   ① 「返回日期：2026-10-06」被当成出发日期，导致 `end` 永远缺失、追问关不上；
   ② 「预算一万」这类中文数字金额解析不到。
-  改动最小化（标签识别 + 中文数字分支），该文件原有 196 个用例全过，**请 C 复核**。
+  改动最小化（标签识别 + 中文数字分支），该文件原有 18 个用例全过，**请 C 复核**。
 
 ---
 
@@ -1117,7 +1133,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 可以独立运行的结果：cd backend && python -m pytest → 211 passed；cd frontend && npx vue-tsc --noEmit → 0 错误；npx vite build → 通过；HTTP 端到端（真实 LLM Key）→ 7 / 7 PASS
 正在阻塞的问题：B6 攻略组装与 B5 动作解析无 HTTP 出口——GET /api/guides/{id}、POST /api/guides/{id}/modify、POST /api/guides/{id}/incident（CONTRACTS.md §13.2）尚未实现；C3–C6 未完成，端到端止于「目的地确认」
 需要其他成员提供：C——上述攻略接口（C7）、C3–C6 链路、复核 composer 组装规则、DestinationRecommendation 补 name 字段；A——真实 Provider 替换 V04MockMCPProvider、hotel_id / lodging_id 归一化为 resource_id
-是否修改共享接口：是（两处：backend/app/api/deps.py 为 B 线唯一允许修改的共享文件；以及 C 线文件 backend/app/services/request_parser.py，修正返回日期误判与中文数字预算解析，改动最小化、原有 196 个用例全过）
+是否修改共享接口：是（两处：backend/app/api/deps.py 为 B 线唯一允许修改的共享文件；以及 C 线文件 backend/app/services/request_parser.py，修正返回日期误判与中文数字预算解析，改动最小化、原有 18 个用例全过）
 下一步：待 C7 攻略接口就位后完成 B6/B7 端到端联调；本轮已完成 B 线首次提交
 ```
 

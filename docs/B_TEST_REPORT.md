@@ -2,9 +2,31 @@
 
 - 报告人：成员 B
 - 分支：`feature/llm-vue`
-- 测试日期：2026-09-24
+- 测试日期：2026-09-24（**2026-09-27 复核更新，见下方复核提示**）
 - 契约基线：`schema-v0.4`（`CONTRACTS.md` / `backend/app/schemas/v04/`）
-- 一句话结论：**B 线交付物全部就位，211 个自动化用例全过、7 组 HTTP 端到端全过、前端类型检查与生产构建全过；过程中发现并修复 6 个缺陷，其中 2 个是阻断主流程的严重缺陷。**
+- 一句话结论：**B 线交付物全部就位，B 线自身 103 个自动化用例全过、7 组 HTTP 端到端全过、前端类型检查与生产构建全过；过程中发现并修复 7 个缺陷，其中 3 个是阻断主流程的严重缺陷。**
+
+> **复核提示（2026-09-27，merge `origin/main` 之后）**
+>
+> 本报告写于 merge 之前。复核时对**每一个可核验数字**重新实测，差异如下。
+> **正文数字一律不改**，保留为当日快照，便于对照 —— 只有原清单漏列的
+> `src/App.vue` 属于当时就写错，已修正。
+>
+> | 项 | 本报告（09-24 快照） | 复核实测（09-27） |
+> | --- | --- | --- |
+> | 全量用例 | 211 passed | **226 passed, 1 skipped** |
+> | B 线自身用例 | 99 | **103**（本次新增 4 个「N 天」时长用例） |
+> | C/A 线用例 | 112 | 123（A、C 两条线各自推进所致） |
+> | `test_request_parser.py` | 18 | 24（C 收尾时补 6 个） |
+> | `test_v04_mock_provider.py` | 11 | 16（A 线推进所致） |
+> | 前端文件数 | 30 | **31**（原清单漏列 `src/App.vue`） |
+> | 报告中的依赖版本 | 8 项 | 逐项实测**完全一致** |
+> | B 线四个测试文件用例数 | 29/25/24/13/8 | 逐项实测**完全一致** |
+> | HTTP 端到端 | 7 / 7 | 重新实测 **7 / 7 仍然成立** |
+>
+> 另：复核发现第 7 个缺陷（见第四节），它会让「玩 5 天」这类最自然的口语
+> 说法在链路第一步就收到「覆盖不足」—— 属主流程阻断级，已修复并补测。
+
 
 ---
 
@@ -99,8 +121,13 @@
 | 4 | 「预算一万」中文数字金额解析不到 | 用户用中文说金额 | 预算字段缺失，多问一轮 | 规则式解析器补 `[中文数字][万/千/百]` 分支 | HTTP C1/C2 实测 |
 | 5 | `interests` 中英标签混用（`["美食","FOOD"]`） | 模型返回中文兴趣词 | 下游按标签匹配资源会漏（两套词表并存，语义重复） | `guards.py` 增加标签归一（中文→规范标签，词表外的值原样保留以免丢信息）；提示词同步给出规范词表 | `test_llm_request_parser.py` 新增 3 用例 |
 | 6 | B5 "10月3号"这类无年份日期完全丢失 | 用户改行程时不写年份 | 修改意图拿不到目标日期，下游无法定位到具体哪天 | `_extract_date` 支持月日短格式，并按参考日期补年份；`interpret()` 增加可选 `reference_date`（默认今天，向后兼容） | `test_action_interpreter.py` 新增 4 用例 |
+| 7 | **「玩 N 天」的返回日期在模型侧摇摆**（2026-09-27 复核发现） | 用户用口语说时长，如「玩5天」 | **主流程阻断**：实测同一句话 6 次里 4 次给出 `出发日+5`（把「含首尾共 5 天」算成 6 天）→ `duration_days=6` → 超过数据层覆盖门槛（成都 12 个游玩地点 < `2×6+1`）→ 第一步即返回「覆盖不足」，推荐与攻略都走不到 | `backend/app/llm/request_parser.py` 在规则辅助中加**显式时长校正**：文本明说「N 天」且用户没写往返两个日期时，以 `start + N - 1` 为准，并记入 `diagnostics` | `test_llm_request_parser.py` 新增 4 用例（含「第一天」不被误读、两个明确日期不被改口） |
 
-> 补充说明：缺陷 1、4 改动了 `backend/app/services/request_parser.py`（C 线文件）。改动均为**增量修复**，未改动任何函数签名与对外行为，改动后全量 211 用例通过。如需 C 线自行处理，可直接回退该文件的这几处改动。
+> 补充说明 1：缺陷 1、4 改动了 `backend/app/services/request_parser.py`（C 线文件）。改动均为**增量修复**，未改动任何函数签名与对外行为，改动后全量用例通过。如需 C 线自行处理，可直接回退该文件的这几处改动。
+>
+> 补充说明 2：缺陷 6、7 的**规则式解析器侧本来就有正确实现**（`request_parser.py` 的「N 天」分支），问题出在 B 的 LLM 层：`_apply_rule_assist` 的策略是「模型已有值不动、只补空字段」，于是模型多算一天的结果被直接放行。本次修复把「用户明说的时长」提到与规则式同一口径。
+>
+> 补充说明 3：该缺陷同时暴露一个**跨线口径问题**（建议 C / A 关注）：数据层覆盖门槛 `required = duration_days × 2 + 1` 与 mock 数据规模相互卡得很紧 —— 成都 12 个游玩地点只够撑 5 天行程，6 天即判不可规划。**门槛本身是否该这么陡，建议在 C 侧确认**（见 `PROGRESS_REPORT.md` 第 5 节 `KnowledgeCoverage` 那条「待定」）。
 
 ---
 
@@ -152,7 +179,9 @@
 | C3–C6 规划链路 | 端到端止于「目的地确认」，跑不到攻略生成 | 组装输入依赖 C 线的 `ItineraryPlan` 产物 |
 | 复核 `compose_travel_guide()` 的富化与求和规则 | 该规则由官方 fixture 反推，非当面确认口径 | 若与 C4/C5 口径不符，改动集中在 `backend/app/guide/composer.py` 单文件 |
 | `DestinationRecommendation` 补 `name` 字段 | 前端候选卡片只能显示 `dest_chengdu` 这类 ID | 前端已就绪，后端加字段后前端无需改动 |
-| 复核 B 对 `request_parser.py` 的修正 | 修的是「返回日期被当成出发日期，导致追问关不上」 | 改动最小化，该文件原有 196 个用例全过 |
+| 复核 B 对 `request_parser.py` 的修正 | 修的是「返回日期被当成出发日期，导致追问关不上」 | 改动最小化，该文件原有 18 个用例全过 |
+| **确认覆盖门槛 `duration_days × 2 + 1` 是否过陡**（2026-09-27 新增） | 成都 12 个游玩地点**只够撑 5 天**：门槛 11 勉强过、13 就不过。口语说「玩 5 天」一旦被算成 6 天，链路第一步就断 | B 已在解析层修掉「多算一天」（缺陷 7），但**门槛与 mock 数据规模的匹配关系需要 C / A 定夺** |
+| 复核 B 本次新增的「显式时长校正」（2026-09-27 新增） | 该规则**会覆盖模型给出的返回日期**（仅在用户没写往返两个日期时生效） | 改动集中在 `backend/app/llm/request_parser.py` 单文件，4 个专项用例覆盖（含不介入的边界） |
 
 ### 7.2 需要 A 提供
 
@@ -202,12 +231,15 @@ npx vite             # http://localhost:5173
 **测试新增**
 - `backend/tests/b_line_fakes.py`、`test_llm_request_parser.py`、`test_llm_destination_recommender.py`、`test_action_interpreter.py`、`test_guide_composer.py`、`test_llm_provider.py`
 
-**前端新增（30 个文件）**
-- 工程配置：`package.json`、`vite.config.ts`、`tsconfig.json`、`env.d.ts`、`index.html`、`.env.example`
-- 数据层：`src/types/contract.ts`、`src/api/client.ts`、`src/api/sessions.ts`、`src/stores/session.ts`
-- 工具层：`src/utils/{format,labels,clarification,fixtureLoader}.ts`
-- 组件：`src/components/{StatusBanner,ChatPanel,ClarificationCard}.vue` + `src/components/guide/` 七个分节
-- 页面：`src/views/{GuideView,StateView}.vue`、`src/router/index.ts`、`src/main.ts`、`src/styles/main.css`
+**前端新增（31 个文件）**
+- 工程配置（7）：`package.json`、`package-lock.json`、`vite.config.ts`、`tsconfig.json`、`env.d.ts`、`index.html`、`.env.example`
+- 入口与页面（5）：`src/main.ts`、`src/App.vue`、`src/router/index.ts`、`src/views/{GuideView,StateView}.vue`、`src/styles/main.css`
+- 数据层（4）：`src/types/contract.ts`、`src/api/client.ts`、`src/api/sessions.ts`、`src/stores/session.ts`
+- 工具层（4）：`src/utils/{format,labels,clarification,fixtureLoader}.ts`
+- 组件（11）：`src/components/{StatusBanner,ChatPanel,ClarificationCard}.vue` + `src/components/guide/` 七个分节
+
+> 复核订正（2026-09-27）：原文写 30 个且清单漏列 `src/App.vue`，
+> 按 `git ls-files frontend` 实测为 **31 个**（含 `package-lock.json`）。
 
 **文档**
 

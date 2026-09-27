@@ -137,7 +137,13 @@ export const useSessionStore = defineStore('session', () => {
   const degradedKey = computed(() => `DEGRADED|${[...degradedItems.value].sort().join(',')}`)
 
   const visibleWarnings = computed(() =>
-    warnings.value.filter((item) => !dismissedKeys.value.has(warningKeyOf(item))),
+    warnings.value.filter(
+      (item) =>
+        // 「正在使用模拟数据」是持续状态，已由状态条上的常驻标签传达（且不可关闭）。
+        // 这里过滤掉同义的 warning，避免同一件事在顶栏说两遍；用户仍能从标签看到当前数据来源。
+        item.code !== 'MOCK_DATA_IN_DEMO' &&
+        !dismissedKeys.value.has(warningKeyOf(item)),
+    ),
   )
   const visibleDegradedItems = computed(() =>
     dismissedKeys.value.has(degradedKey.value) ? [] : degradedItems.value,

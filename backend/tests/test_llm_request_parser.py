@@ -149,6 +149,58 @@ def test_rule_assist_cannot_resurrect_a_rejected_field() -> None:
     assert outcome.draft.end_date is None
 
 
+# --- 「N 天」时长与起止日期的口径 -------------------------------------------
+
+
+def test_explicit_day_count_corrects_the_models_end_date() -> None:
+    """用户明说的「玩 5 天」必须压过模型摇摆的推算。
+
+    实测同一句话，模型会在 10-06（含首尾共 5 天）与 10-07（从出发日算 5 天）
+    之间反复。多算一天会把 `duration_days` 从 5 抬到 6，而数据层按
+    `2 * 天数 + 1` 算游玩地点覆盖门槛，足以把本来可规划的目的地判成不可规划。
+    """
+
+    payload = dict(_COMPLETE, end_date="2026-10-07")
+    outcome = _outcome([payload], text="10月2号从上海出发去成都玩5天，2个人，预算5000元")
+
+    assert outcome.draft.end_date == date(2026, 10, 6)
+    assert finalize_trip_profile(outcome.draft).duration_days == 5
+    assert any("5 天" in note and "修正" in note for note in outcome.diagnostics)
+
+
+def test_explicit_days_fill_an_end_date_the_model_left_out() -> None:
+    """模型没给返回日期、但文本写了「玩 5 天」时，返回日期要能补出来。"""
+
+    payload = {key: value for key, value in _COMPLETE.items() if key != "end_date"}
+    outcome = _outcome([payload], text="10月2号从上海出发去成都玩5天，2个人，预算5000元")
+
+    assert outcome.draft.end_date == date(2026, 10, 6)
+    assert finalize_trip_profile(outcome.draft).duration_days == 5
+
+
+def test_two_stated_dates_win_over_a_day_count() -> None:
+    """同时写了往返日期和「N 天」时以更具体的日期为准，规则不得替用户改口。"""
+
+    payload = dict(_COMPLETE, end_date="2026-10-06")
+    outcome = _outcome(
+        [payload], text="10月2号到10月6号从上海出发去成都玩6天，2个人，预算5000元"
+    )
+
+    # 文本自相矛盾（2 号到 6 号含首尾共 5 天，却说玩 6 天）：日期更具体
+    assert outcome.draft.end_date == date(2026, 10, 6)
+
+
+def test_ordinal_day_word_is_not_read_as_a_duration() -> None:
+    """「第一天」是日程叙述，不能被当成「1 天」的时长。"""
+
+    payload = dict(_COMPLETE, end_date="2026-10-09")
+    outcome = _outcome(
+        [payload], text="10月2号从上海出发去成都，第一天想去宽窄巷子，预算5000元"
+    )
+
+    assert outcome.draft.end_date == date(2026, 10, 9)
+
+
 # --- 数据不足 / 降级场景 ----------------------------------------------------
 
 
