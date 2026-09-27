@@ -30,6 +30,17 @@
 python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
 ```
 
+**B 线 `1e7fa05` 复核结论（2026-09-27）**
+
+- B 只改了自己的 5 个文件（`llm/request_parser.py`、`tests/test_llm_request_parser.py`、
+  `frontend/src/stores/session.ts`、`PROGRESS_REPORT.md`、`docs/B_TEST_REPORT.md`），
+  **没有碰 C 的文件**；C 在他分支上实测 `226 passed, 1 skipped`，与他报的一致。
+- 他修的「玩 N 天多算一天」在**他自己的 LLM 解析层**用确定性规则兜住（日期/标签冲突时以
+  用户明写的日期为准），逻辑没问题，`diagnostics` 也会说明修正过程。
+- **但分支落后一个提交**：`1e7fa05` 基于 `1927694`，不含 C4 提交 `7973210`。
+  直接合并会把 C4 的 5 个文件删掉（见上方「需要 B 行动」），因此**暂不合并**，
+  等 B 同步 main 后再合。
+
 **需要 A 行动（C4/C7 的硬前置，按优先级）**
 
 - [ ] **① 住宿候选（必修）**：`search_resources` 的 `LODGING` / `LODGING_AREA` 现在都是 0；
@@ -48,9 +59,13 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
 
 **需要 B 行动**
 
-- [ ] `git merge origin/main`（main 现在含 A + B 两条线；你的分支目前只到 `d09371c`）
-- [ ] 消息里「request_parser 原有 196 个用例」改成实际的 **18**
-- [ ] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 重复，可合并成一处
+- [ ] **⚠️ 先 `git merge origin/main` 再推一次**：你的 `1e7fa05` 停在 `1927694`，
+      比 main（`7973210`）**少一个提交**。现在直接合你的分支会**删掉 C4 的 5 个文件**
+      （`services/itinerary_planner.py`、`tests/test_itinerary_planner.py`、
+      `tests/test_graph_planning.py`、`tests/test_reply_builder.py`、`tools/check_a_data.py`），
+      所以我不合，等你同步完再合
+- [x] 台账「196 个用例」订正为 18 —— 已完成（4 处）
+- [x] 顶栏提示去重 —— 已完成（信封 `MOCK_DATA_IN_DEMO` 在前端过滤）
 
 **需要三人共同确认**
 
@@ -58,6 +73,9 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
 - [ ] Q6：追问要不要给结构化字段（B 的前端现在解析 C 写的「1. 2. 3.」文本，改文案就会打断他）
 - [ ] Q7：会话不存在时 `ErrorCode` 里没有对应取值（C 暂用 `DATA_MISSING` + HTTP 404）
 - [ ] Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 的候选卡片现在只能显示 `dest_chengdu`）
+- [ ] Q9：**数据覆盖门槛**是否保持「每天 2 个游玩地点 + 1 个替代」（`duration_days × 2 + 1`）？
+      B 反馈成都的 12 个地点只够 5 天、6 天即判不可规划；C 复核发现那 12 是**硬编码常量**，
+      与真实候选集（成都实际只有 3 个）不一致，见 `docs/contract-open-questions.md` Q9
 
 **已完成，不需要行动**
 
@@ -1107,7 +1125,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 确认项 | 状态 | 结论 |
 |---|---|---|
 | 知识库数据目录和版本 | ⚠️ 待定 | 先用模拟数据，具体信息后续确认 |
-| `KnowledgeCoverage` 最低规划门槛 | ⚠️ 待定 | 建议：≥8 个游玩地点、核心事实覆盖 ≥0.8、开放规则 ≥0.8、有路线数据、有住宿候选、能给出抵达方式 |
+| `KnowledgeCoverage` 最低规划门槛 | ⚠️ 待定（见 Q9） | 当前实现是「`duration_days × 2 + 1` 个游玩地点 + 开放规则/路线/住宿不低于 LIMITED」；B 反馈偏陡，C 发现门槛用的地点数是硬编码常量（12）而非真实候选集（3），见 `docs/contract-open-questions.md` Q9 |
 | 数据源调研任务和 Fake Provider 方案 | ⬜ | 待 A 线执行 |
 | 首批住宿候选和基础餐厅范围 | ⬜ | 待 A 线执行 |
 | 主 LLM Provider 已通过 POC | ⬜ | 待三人确认 |
