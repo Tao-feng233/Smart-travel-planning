@@ -688,6 +688,10 @@ def route_after_validation(state: PlanState) -> str:
     if state.stage == PlanStage.READY.value:
         # 计划有效 → 组装攻略（组不出来也不影响计划本身）
         return COMPOSE_GUIDE
+    if state.stage != PlanStage.REPAIRING.value:
+        # 根本没生成计划（例如缺住宿数据 → INSUFFICIENT_DATA）：
+        # 这时候去"修复"没有任何对象可修，必须结束本轮，否则会无限循环。
+        return FINISH_TURN
     if state.repair_attempts >= 1:
         return FINISH_TURN
     return REPAIR_PLAN
