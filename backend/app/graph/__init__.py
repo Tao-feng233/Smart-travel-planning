@@ -4,6 +4,8 @@ from .context import TurnContext
 from .nodes import (
     NodeDeps,
     build_nodes,
+    route_after_incident_detection,
+    route_after_validation,
     route_after_fetch,
     route_after_missing_check,
     route_after_retrieve,
@@ -17,6 +19,8 @@ __all__ = [
     "TurnContext",
     "build_graph",
     "build_nodes",
+    "route_after_incident_detection",
+    "route_after_validation",
     "route_after_fetch",
     "route_after_missing_check",
     "route_after_retrieve",
