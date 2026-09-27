@@ -20,7 +20,10 @@ from typing import Callable, Mapping, Sequence
 
 from app.graph.stages import PlanStage
 from app.schemas import (
+    Conflict,
     DestinationRecommendation,
+    ItineraryPlan,
+    PlanValidationStatus,
     PlanState,
     SendMessageData,
     TripProfile,
@@ -41,6 +44,12 @@ _CREATED_TEXT = "会话已创建，请描述你的旅行需求，例如出发地
 #: 模拟数据必须显式告知，不得静默当成真实数据（`CONTRACTS.md` §14 不变量 5）
 _MOCK_NOTICE = "当前数据源为模拟数据（MOCK_ONLY），仅用于流程验证，不代表真实旅游事实。"
 
+#: C4 排程缺输入时，把内部代码翻成用户能看懂的原因
+_MISSING_INPUT_TEXT = {
+    "LODGING_CANDIDATES": "住宿候选数据还没有到位，暂时生成不了含过夜的完整行程。",
+    "MULTI_DESTINATION_P1": "多目的地规划属于 P1，当前只支持单目的地。",
+}
+
 
 def build_reply(
     state: PlanState,
@@ -49,6 +58,9 @@ def build_reply(
     profile: TripProfile | None = None,
     recommendations: Sequence[DestinationRecommendation] = (),
     filter_result: TripFilterResult | None = None,
+    plan: ItineraryPlan | None = None,
+    plan_conflicts: Sequence[Conflict] = (),
+    missing_inputs: Sequence[str] = (),
     name_lookup: Callable[[str], str | None] | None = None,
     data_is_mock: bool = False,
 ) -> SendMessageData:
@@ -90,8 +102,12 @@ def build_reply(
                 lines.append(f"- {name}（{detail}）")
         if filter_result is not None:
             lines.extend(_filter_lines(state, filter_result, name_lookup))
+        if lines and state.stage == PlanStage.AWAITING_DESTINATION_CONFIRMATION.value:
+            lines.append("确认后我就按这些资源排行程（回复「确认」即可）。")
         if not lines:
-            lines.append("请选择你想去的目的地，我再继续为你安排行程。")
+            lines.append(
+                "请选择你想去的目的地；确定后回复「确认」，我再继续为你安排行程。"
+            )
         return SendMessageData(
             stage=stage,
             assistant_message="\n".join(lines),
@@ -100,10 +116,29 @@ def build_reply(
             degraded_items=degraded,
         )
 
-    if stage == PlanStage.INSUFFICIENT_DATA.value:
+    if stage in (
+        PlanStage.PLANNING.value,
+        PlanStage.READY.value,
+        PlanStage.REPAIRING.value,
+    ) and plan is not None:
         return SendMessageData(
             stage=stage,
-            assistant_message=_INSUFFICIENT_DATA_TEXT,
+            assistant_message=_plan_text(plan, plan_conflicts),
+            trip_profile=profile,
+            conflicts=list(plan_conflicts),
+            degraded_items=degraded,
+        )
+
+    if stage == PlanStage.INSUFFICIENT_DATA.value:
+        # C4 排程缺关键输入时要说清缺什么，不能只丢一句"资料不足"
+        reasons = [_MISSING_INPUT_TEXT[item] for item in missing_inputs if item in _MISSING_INPUT_TEXT]
+        degraded.extend(reasons)
+        text = _INSUFFICIENT_DATA_TEXT
+        if reasons:
+            text = text + "\n" + "\n".join(f"- {item}" for item in reasons)
+        return SendMessageData(
+            stage=stage,
+            assistant_message=text,
             trip_profile=profile,
             degraded_items=degraded,
         )
@@ -202,6 +237,52 @@ def _unknown_notes(
         return []
     ids = "、".join(item.resource_id for item in result.unknown)
     return [f"以下资源的关键事实未知，不能作为主方案：{ids}"]
+
+
+def _plan_text(plan: ItineraryPlan, conflicts: Sequence[Conflict]) -> str:
+    """把 C4 的计划翻成用户能看懂的一段话（不暴露内部 ID 细节）。"""
+
+    summary = plan.budget_summary
+    attractions = len([item for item in plan.nodes if item.node_type == "ATTRACTION"])
+    meals = len([item for item in plan.nodes if item.node_type == "MEAL"])
+    lines = [
+        f"行程已排好（第 {plan.plan_version} 版，共 {len(plan.days)} 天）：",
+        f"- 日期：{plan.start_date.isoformat()} ~ {plan.end_date.isoformat()}",
+    ]
+    if plan.stay_segments:
+        stay = plan.stay_segments[0]
+        lines.append(
+            f"- 住宿：{stay.lodging_area}"
+            f"（{stay.check_in_date.isoformat()} 入住，{stay.check_out_date.isoformat()} 退房）"
+        )
+    lines.append(
+        f"- 安排：{attractions} 个游玩地点、{meals} 次用餐、{len(plan.travel_legs)} 段交通"
+    )
+    lines.append(
+        f"- 预算：预计 ¥{summary.estimated_min_total:.0f} ~ "
+        f"¥{summary.estimated_max_total:.0f}（上限 ¥{summary.total_limit:.0f}，"
+        f"剩余 ¥{summary.remaining_min:.0f} 起）"
+    )
+    errors = [item for item in conflicts if item.severity == "ERROR"]
+    warnings = [item for item in conflicts if item.severity != "ERROR"]
+    if plan.plan_validation_status == PlanValidationStatus.VALID:
+        lines.append(
+            f"- 验证结论：**通过**（{len(warnings)} 项提醒）"
+            if warnings
+            else "- 验证结论：**通过**。"
+        )
+    elif plan.plan_validation_status == PlanValidationStatus.INVALID:
+        lines.append(f"- 验证结论：**未通过**，有 {len(errors)} 项必须处理：")
+        lines.extend(f"  · {item.message}" for item in errors[:3])
+        lines.append("  自动修复（闭馆替换等）在 C6 接入后重跑验证。")
+    else:
+        lines.append("- 验证还没跑（`plan_validation_status = PENDING`）。")
+    if warnings and plan.plan_validation_status != PlanValidationStatus.VALID:
+        lines.append(f"- 另有 {len(warnings)} 项提醒：")
+        lines.extend(f"  · {item.message}" for item in warnings[:3])
+    elif warnings:
+        lines.extend(f"  · {item.message}" for item in warnings[:3])
+    return "\n".join(lines)
 
 
 def _resolve_name(

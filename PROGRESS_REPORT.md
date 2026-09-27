@@ -9,24 +9,64 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**C线更新**：2026-09-27 · **A 线也已并入 main：三条线代码第一次全部在 main 上**
+**C线更新**：2026-09-27 · **C6 修复引擎完成：两条 P0 验收（闭馆替换 / 下雨重规划）都跑通了**
 
-- **A 线已合并**（合并提交 `92be4b1`）：Mock Provider 修复 + 强类型 MCP Server
-  （`backend/app/mcp_server/`）+ `backend/app/providers/` 抽象。
-  A 把 MCP 冒烟测试改成 `pytest.importorskip("mcp")`，
-  所以**没装 MCP SDK 的环境也能跑全量测试**（C 实测：222 passed, 1 skipped；
-  装齐 requirements 时 223 passed）。
-- **main 现状 `92be4b1`**：A、B 两条线的分支都已并入，`git merge origin/main` 即可同步。
-- **全量测试**：`cd backend && python -m pytest` → **222 passed, 1 skipped**；
-  `python contracts/validate_fixtures.py` → 7 合法 + 7 非法 + 3 业务用例全过。
-- **C 线还剩 5 步**（详见第 7 节）：C4 行程生成 → C5 验证器 → C6 通用重规划 →
-  C7 攻略三接口 → 端到端联调。其中 C7 是 B 线联调的硬阻塞。
+- **C6 已完成**：`backend/app/services/repair_engine.py` 两个入口共用一套机制
+  （`CONTRACTS.md` §10.3 要求"不同事件走同一套重规划"）：
 
-**需要 A 行动**
+```text
+repair_plan()          自动修复：C5 的 ERROR → 能修的修掉（闭馆换资源、超预算换住宿、
+                       时段冲突顺推），产出 v2 + VersionLineage
+replan_for_incident()  突发重规划：下雨 → 只重排当天，把室外景点换成室内的
+```
 
-- [x] `mcp` 依赖处理 —— 已完成（缺 SDK 自动 skip，README 写清了两种结果）
-- [ ] 剩下的都在数据侧（P0 可继续用 Mock）：真实 Provider 替换 `V04MockMCPProvider`、
-      MySQL/Chroma、`hotel_id`/`lodging_id` → `resource_id` 归一化
+- **图上已经串成闭环**：`parse_request → detect_incident →(突发事件) replan_plan →
+  validate_plan →(还有 ERROR) repair_plan → validate_plan → READY`。
+  **聊天里直接说「今天下雨了」就会触发只重排当天的重规划**，不需要等 C7 接口。
+- **守住的边界**：锁定节点（`locked_node_ids`）与已完成节点（`completed_node_ids`）
+  一律不动，相关冲突交回用户；固定预算不自动放宽；修不动的不硬改（返回 `REPAIRING`）。
+  每次成功修复都产出新计划版本并记录 `VersionLineage`（保留/变更/移除节点 + 替换关系）。
+- 全量测试：**279 passed, 1 skipped**（本轮新增 16 个：修复引擎 14 + 图级 2）。
+- **C5 已经证明自己的价值**：它第一次运行就抓到 C4 把闭馆资源排进计划的真 bug
+  （现已在 `plan_itinerary` 修掉并加回归用例）。
+- **⚠️ 端到端仍卡在 A 的数据**：`DayPlan.stay_segment_id` 与 `ItineraryPlan.stay_segments`
+  都是必填，而 A 的 Mock Provider **没有任何住宿候选**，所以对真实数据「确认」后
+  只会得到明确降级：**「住宿候选数据还没有到位」**——刻意设计的诚实出口。
+- **一键检查 A 的数据缺口**（A 每次更新后跑一遍）：
+
+```powershell
+python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
+```
+
+**B 线 `1e7fa05` 复核结论（2026-09-27）**
+
+- B 只改了自己的 5 个文件（`llm/request_parser.py`、`tests/test_llm_request_parser.py`、
+  `frontend/src/stores/session.ts`、`PROGRESS_REPORT.md`、`docs/B_TEST_REPORT.md`），
+  **没有碰 C 的文件**；C 在他分支上实测 `226 passed, 1 skipped`，与他报的一致。
+- 他修的「玩 N 天多算一天」在**他自己的 LLM 解析层**用确定性规则兜住（日期/标签冲突时以
+  用户明写的日期为准），逻辑没问题，`diagnostics` 也会说明修正过程。
+- **但分支落后一个提交**：`1e7fa05` 基于 `1927694`，不含 C4 提交 `7973210`。
+  直接合并会把 C4 的 5 个文件删掉（见上方「需要 B 行动」），因此**暂不合并**，
+  等 B 同步 main 后再合。
+
+**需要 A 行动（C4/C7 的硬前置，按优先级）**
+
+- [ ] **① 住宿候选（必修）**：`search_resources` 的 `LODGING` / `LODGING_AREA` 现在都是 0；
+      请补 2 个住宿区域 + 3~4 个住宿候选（`price_range`、`commute_summary`、`lodging_area`，
+      主键按 Q4 用 `resource_id`）。没有它整个 P0 的「住宿」那部分和 C4 都跑不完整。
+- [ ] **② 路线覆盖（必修）**：现在只有 2 条且单向（`poi_1001→poi_1003`、`poi_1003→rest_2001`），
+      其余 7 个组合都返回空。P0 要求行程含交通时间，缺的这段 C4 只能记 `DATA_UNKNOWN`。
+- [ ] **③ 返程城际交通**：去程只有「上海→成都 10-02」1 条，返程（成都→上海 10-06）0 条。
+- [ ] **④ 天气覆盖整段行程**：成都只有 10-02/03/04，行程到 10-06 会直接抛 `DataMissingError`；
+      这条影响的是 B6 的「准备提醒」一节（不影响 C4 排程本身）。
+- [ ] **⑤（口头口径）**：`get_weather` 缺日期时抛自定义 `DataMissingError` 而不是契约对象，
+      建议写进 README/报告，免得别人接你的 Provider 踩坑。
+- [ ] **⑥ 车站 → 住宿的路线数据（新增，C7 用）**：组攻略时 `ArrivalPlan` / `ReturnPlan`
+      的 `duration_minutes` 与 `estimated_cost` 都是必填，现在 `get_route` 对
+      「车站 → 住宿」这类组合返回 0 条。没有它我没法诚实地填出「抵达与返程」那一节，
+      只能等（不会拿 `door_to_door_minutes` 硬凑）。
+- [ ] 原有的：真实 Provider 替换 `V04MockMCPProvider`、MySQL/Chroma、
+      `hotel_id`/`lodging_id` → `resource_id` 归一化
 - [ ] 你改的 `v04_mock_provider.py` 我会只读复核内部实现（类名与 9 个方法签名都没动，图不用改）
 
 **需要 B 行动**
@@ -34,22 +74,37 @@
 - [x] `git merge origin/main`（已完成：fast-forward `d09371c` → `1927694`，无冲突）
 - [x] 消息里「request_parser 原有 196 个用例」改成实际的 **18**（已完成，共 4 处：进度报告 3 处 + 测试报告 1 处）
 - [x] （可选）顶栏「演示模式使用模拟数据」和信封 `warnings` 重复，可合并成一处（已合并：保留状态条常驻标签「含模拟数据」，过滤同义的 warning）
+- [x] 台账「196 个用例」订正为 18 —— 已完成（4 处）〔C 复核确认，`c6147e0`〕
+- [x] 顶栏提示去重 —— 已完成（信封 `MOCK_DATA_IN_DEMO` 在前端过滤）〔C 复核确认，`c6147e0`〕
+- [x] **⚠️ 先 `git merge origin/main` 再推一次**：你的 `1e7fa05` 停在 `1927694`，
+      比 main（`7973210`）**少一个提交**。现在直接合你的分支会**删掉 C4 的 5 个文件**
+      （`services/itinerary_planner.py`、`tests/test_itinerary_planner.py`、
+      `tests/test_graph_planning.py`、`tests/test_reply_builder.py`、`tools/check_a_data.py`），
+      所以我不合，等你同步完再合
+      —— **B 已完成（2026-09-27）**：`git merge origin/main` 带上 C4（`7973210`）+
+      C5（`885dcdd`）+ C6（`6720d24`）+ 台账（`c6147e0`）；**只冲突本台账一处、已双向保留**；
+      C4/C5/C6 的 9 个新增文件**全部到位、零删除**；合并后全量 `283 passed, 1 skipped`
 
 **B 线复核更新（2026-09-27 追加）**
 
 按组长要求逐项复核，并把 B 写过的**每一个可核验数字**重新实测了一遍。
 
-- [x] 全量测试：merge 后 **226 passed, 1 skipped**（演进：211 → merge 后 222 → 本次新增 4 个用例后 226）
+- [x] 全量测试：**283 passed, 1 skipped**（本分支演进：211 → 222 → 226 → 283）
 - [x] **订正**：前端文件数 **30 → 31**（原清单漏列 `src/App.vue`；本文件 2 处 + 测试报告 1 处，均已订正）
 - [x] **复核发现并修复第 7 个缺陷（主流程阻断级）**：「玩 N 天」的返回日期在模型侧摇摆
       （实测同一句话 6 次里 4 次多算一天）→ `duration_days` 6 → 超过数据层覆盖门槛 →
       第一步即「覆盖不足」。修复在 `backend/app/llm/request_parser.py`，新增 4 个专项用例
 - [x] B 线自有测试文件用例数（29/25/24/13/8）与 8 项依赖版本，逐项实测**无误**
 
-**需要 C / A 定夺（本次复核新增）**
+**覆盖门槛（原 B 提出，已由 C 登记为 Q9，等三人拍板）**
 
-- [ ] 覆盖门槛 `duration_days × 2 + 1` 是否过陡：成都 12 个游玩地点**只够撑 5 天**，
-      6 天即判「覆盖不足」。与第 5 节 `KnowledgeCoverage` 那条「待定」直接相关
+- B 的原疑点：`duration_days × 2 + 1` 偏陡 —— 成都 12 个游玩地点只够撑 5 天，6 天即判不可规划
+- C 复核后指出**更该先修的东西**：`DESTINATIONS[...]["visit_place_count"]` 是硬编码常量
+  （成都 12 / 乐山 6 / 都江堰 2），而 Provider 实际只返回 **3 / 0 / 0** ——
+  门槛由一个**没人能核对、也不随数据更新**的常量决定
+- C 的建议：① 地点数改从真实候选集推导（不许硬编码）；② 门槛先别动
+  （「每天 2 个 + 1 个替代」合理，偏陡的观感来自数据太少）；③ 想放宽用 `ceil(天数 × 1.5) + 1`
+- 详见 `docs/contract-open-questions.md` Q9
 
 **需要三人共同确认**
 
@@ -57,10 +112,16 @@
 - [ ] Q6：追问要不要给结构化字段（B 的前端现在解析 C 写的「1. 2. 3.」文本，改文案就会打断他）
 - [ ] Q7：会话不存在时 `ErrorCode` 里没有对应取值（C 暂用 `DATA_MISSING` + HTTP 404）
 - [ ] Q8：`DestinationRecommendation` 是否新增 `name` 字段（B 的候选卡片现在只能显示 `dest_chengdu`）
+- [ ] Q9：**数据覆盖门槛**是否保持「每天 2 个游玩地点 + 1 个替代」（`duration_days × 2 + 1`）？
+      B 反馈成都的 12 个地点只够 5 天、6 天即判不可规划；C 复核发现那 12 是**硬编码常量**，
+      与真实候选集（成都实际只有 3 个）不一致，见 `docs/contract-open-questions.md` Q9
 
 **已完成，不需要行动**
 
 - C3 前置过滤（服务层 + 接入图）、解析器边界收尾、模拟数据提示去重
+- **C4 行程生成**（含「确认目的地 → 排行程」的闸门、费用与预算复算、三条降级路径）
+- **C5 验证器**（10 类检查 + 修复选项 + C4→C5 自动串联；顺带修掉 C4 的一个真缺陷）
+- **C6 修复引擎**（闭馆替换自动出 v2 + 下雨只重排当天 + 版本谱系；两张 P0 验收都跑通）
 - A、B 两条线的交付都已并入 main
 
 ---
@@ -302,10 +363,11 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | TripProfile 提取（B2 已接，C 的规则式留作降级） | B | `backend/app/llm/request_parser.py`（降级：`backend/app/services/request_parser.py`） | ✅ 已并入 main | 2026-09-27 |
 | 目的地推荐（B4 已接，C 的规则式留作降级） | B | `backend/app/llm/destination_recommender.py`（降级：`backend/app/services/destination_recommender.py`） | ✅ 已并入 main | 2026-09-27 |
 | 前置过滤（C3） | C | `backend/app/services/availability_filter.py` | ✅ 服务层 + 已接入 LangGraph | 2026-09-24 |
-| 行程生成（C4） | C | `backend/app/services/` | ⬜ 未开始 | — |
-| 验证器（C5） | C | `backend/app/services/` | ⬜ 未开始 | — |
-| 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始 | — |
-| REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-24 |
+| 行程生成（C4） | C | `backend/app/services/itinerary_planner.py` | ✅ 代码 + 单测完成；端到端等 A 的住宿/路线数据 | 2026-09-27 |
+| 验证器（C5） | C | `backend/app/services/plan_validator.py` | ✅ 完成（10 类检查 + 修复选项，已串进图） | 2026-09-27 |
+| 修复与重规划（C6） | C | `backend/app/services/repair_engine.py` | ✅ 完成（闭馆替换 + 下雨重排 + VersionLineage） | 2026-09-27 |
+| REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-27 |
+| A 线数据缺口自查脚本 | C | `tools/check_a_data.py` | ✅ 一条命令看清缺哪些数据 | 2026-09-27 |
 | MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始（P0 用 Mock 数据） | — |
 | Chroma 认知卡片（A2） | A | `data/` | ⬜ 未开始（P0 用 Mock 证据） | — |
 | RAG 检索（A3） | A | `backend/app/services/`（A 区） | 🔄 Mock 版已就位；Chroma 未接 | 2026-09-27 |
@@ -333,9 +395,9 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 5 | LLM 只在 `planning_ready` 候选中推荐 | B | 🔄 | `backend/app/llm/destination_recommender.py` + 越界 ID 护栏已并入 main |
 | 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 | C 的 `retrieve_destinations` 实际调用；A 的 MCP Server 已可由官方 SDK 调用（返回 Mock 数据） |
 | 7 | 根据日期过滤闭馆或不可用景点 | C | ✅ | `filter_candidates_for_trip` + 图上的 `filter_availability` 节点；`tests/test_availability_filter.py`、`tests/test_graph_clarification.py` |
-| 8 | 生成带时间、交通和预算的行程 | C | ⬜ | — |
-| 9 | 验证并修复至少一种冲突（闭馆替换） | C | ⬜ | — |
-| 10 | 用户修改后重新规划受影响部分（下雨） | C | ⬜ | — |
+| 8 | 生成带时间、交通和预算的行程 | C | 🔄 | C4 已完成并单测通过；真实数据缺住宿/路线，端到端要等 A（`tools/check_a_data.py` 可自查） |
+| 9 | 验证并修复至少一种冲突（闭馆替换） | C | ✅ | C5 检测 + C6 套用修复产出 v2；`tests/test_repair_engine.py`、`tests/test_plan_validator.py` |
+| 10 | 用户修改后重新规划受影响部分（下雨） | C | ✅ | 聊天里说「今天下雨了」即触发只重排当天（锁定/已完成节点不动）；`tests/test_graph_planning.py` |
 | 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | B6 `compose_travel_guide()` 已并入 main；待 C4/C5 产物与 C7 出口 |
 
 ---
@@ -1009,6 +1071,187 @@ main 现状 92be4b1：A、B 两条线全部并入
 
 ---
 
+### 步骤 7：C4 行程生成（排程 + 费用 + 接入 LangGraph）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 代码与单测完成（统一降级路径已验）；真实数据端到端等 A 的住宿/路线数据 |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/itinerary_planner.py     ★新增：单目的地排程 + 费用 + 预算复算
+backend/app/services/availability_filter.py   （复用）TripFilterResult.unavailable_dates
+backend/app/graph/nodes.py                    新增 check_destination_confirmation / plan_itinerary 节点，
+                                              抓取资源类型扩到 LODGING / LODGING_AREA
+backend/app/graph/workflow.py                 新增条件边：过滤 → 确认闸门 → 排程
+backend/app/graph/context.py                  TurnContext 带 previous_stage / plan_outcome
+backend/app/services/session_store.py         SessionExtras 保存 current_plan / data_snapshot /
+                                              intercity_options / plan_conflicts / plan_missing_inputs
+backend/app/services/session_service.py       落库计划与数据快照
+backend/app/services/reply_builder.py         PLANNING 阶段文案 + 缺数据原因（不再只说"资料不足"）
+tools/check_a_data.py                         ★新增：A 线数据缺口自查脚本
+backend/tests/test_itinerary_planner.py       ★新增 16 个用例
+backend/tests/test_graph_planning.py          ★新增 4 个用例（确认 → 出计划）
+backend/tests/test_reply_builder.py           ★新增 4 个用例
+```
+
+**2）实现的业务流程**
+
+```text
+用户确认目的地（"确认" 或再次点名同一目的地）
+  → plan_itinerary：住宿选主、按节奏把景点分到每天、开放时间排不下就跳过
+  → 相邻节点调 get_route 生成 TravelLeg（没有数据 → DATA_UNKNOWN 冲突，不估时间）
+  → CostItem[]：城际 / 住宿 / 餐饮 / 本地交通 → BudgetSummary 复算
+  → plan_validation_status = PENDING（VALID 由 C5 决定）
+  → 计划、数据快照、城际候选、冲突一起存进会话（C7 组攻略直接取）
+```
+
+**3）使用的契约**：§7.1–§7.8 全部（TripSegment / StaySegment / PlanNode / TravelLeg /
+DayPlan / CostItem / BudgetSummary / ItineraryPlan）、§4.4 DataSnapshot、
+§8.2 Conflict、§12.5/§12.6 路线与城际工具、§10.2 PlanState 引用字段。
+
+**4）运行的测试**
+
+```text
+cd backend && python -m pytest     → 246 passed, 1 skipped（合并前 222 + 本轮 24）
+python tools/check_a_data.py       → 当前退出码 1（住宿 2 项 + 路线 7 条 + 返程城际 + 天气未齐）
+```
+
+**5）仍是模拟实现**：Provider 仍是 `V04MockMCPProvider`；C4 的测试用测试替身补住宿与路线
+（`LodgingAwareMockProvider`），A 补上真实 Mock 数据后应改用 `V04MockMCPProvider`。
+
+**6）是否影响其他成员接口**
+
+**是，两处（都是新增，不破坏旧行为）**：
+
+① `POST /api/sessions/{id}/messages` 在确认后会返回 `stage = PLANNING` 与
+`conflicts[]`（数据缺口清单），B 的前端可以按 stage 新增一个「行程已排好」的展示分支；
+② 会话存储新增字段（`current_plan` 等），C7 的攻略接口与 B6 组装会直接消费。
+
+P0 的简化（已写进模块 docstring，不是隐藏行为）：单目的地；每天景点数按节奏固定
+（RELAXED 1 / BALANCED 2 / INTENSE 3）；不做区域聚类与按天气重排（P1）；
+住宿按每 2 人 1 间估算房晚；`ArrivalPlan` / `ReturnPlan` 待补（缺「车站 → 住宿」路线数据）。
+
+---
+
+### 步骤 8：C5 计划验证器（10 类检查 + 修复选项 + 串进图）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 完成（验证通过 → READY；不通过 → REPAIRING） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/plan_validator.py   ★新增：validate_plan / attach_validation
+backend/app/graph/nodes.py               新增 validate_plan 节点；修掉 C4 的候选过滤缺陷
+backend/app/graph/workflow.py            plan_itinerary → validate_plan → END
+backend/app/graph/context.py             TurnContext 带 validation_result / validated_plan
+backend/app/services/session_service.py  存"已验证的计划"与合并后的冲突清单
+backend/app/services/reply_builder.py    READY / REPAIRING 文案（含验证结论）
+backend/tests/test_plan_validator.py     ★新增 16 个用例
+backend/tests/test_graph_planning.py     改为断言 READY + VALID，并加"闭馆资源不得进计划"回归用例
+```
+
+**2）检查了什么**
+
+```text
+ERROR（→ INVALID）：
+  UNAVAILABLE / 当天闭馆资源进计划（附 REPLACE_RESOURCE 替代方案）
+  节点不在开放时间内（跨午夜也算不合法）
+  同一天节点重叠
+  早于用户要求的 earliest_day_start / 晚于 latest_day_end
+  最低估算超预算（FIXED 预算只给"请用户决定"，不给自动放宽）
+  行动不便 + 当天移动时间过长
+  VERIFIED 模式下的未知关键事实（§14 不变量 3）
+WARNING（计划仍可用）：
+  门票等数据缺口、接近预算上限、单日活动超过 8 小时
+```
+
+**3）使用的契约**：§8.1 `RepairOption`、§8.2 `Conflict`、§7.7 BudgetSummary、
+§10.2 PlanState、§14 不变量 2/3/4。
+
+**4）运行的测试**：`cd backend && python -m pytest` → **263 passed, 1 skipped**。
+
+**5）仍是模拟实现**：验证逻辑真实；输入的计划来自测试替身（A 的数据到位后换真实 Provider）。
+
+**6）是否影响其他成员接口**
+
+**是（新增 stage，不破坏旧行为）**：确认目的地后，回复的 `stage` 现在是
+`READY`（验证通过）或 `REPAIRING`（有问题），`conflicts[]` 里带严重度与修复选项。
+B 的前端可以按这两个 stage 分别展示"行程已就绪"和"需要处理的问题"。
+
+**附带修掉的 C4 缺陷**：`plan_itinerary` 之前把**未过滤**的原始候选喂给排程器，
+导致闭馆资源 `poi_1002` 被排进计划（C5 第一次运行即抓到）。现在只用
+`state.resource_candidate_ids`（C3 判定可规划的集合）。
+
+---
+
+### 步骤 9：C6 修复引擎（闭馆替换 + 突发重规划 + 版本谱系）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 完成（两条 P0 验收都有测试；端到端待 A 的住宿数据） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/repair_engine.py      ★新增：repair_plan / replan_for_incident / detect_incident
+backend/app/services/itinerary_planner.py  抽出 collect_costs 供 C4/C6 共用；暴露 make_plan_node /
+                                           build_travel_leg / summarize_budget / fetch_intercity_options
+backend/app/graph/nodes.py                 新增 detect_incident / replan_plan / repair_plan 三个节点；
+                                           validate_plan 现在验证"修复后的计划"；
+                                           plan_itinerary 只吃 C3 判定可规划的候选
+backend/app/graph/workflow.py              新增事件入口与"验证 → 修复 → 再验证"闭合回路
+backend/app/graph/stages.py                新增 REPLANNING（契约 §14 状态链里的取值）
+backend/app/graph/context.py               TurnContext 带 previous_plan / incident_type /
+                                           repair_outcome / intercity_options
+backend/app/services/session_store.py      SessionExtras 增加 version_lineage
+backend/app/services/session_service.py    传入已存计划，回写修复后的计划与版本谱系
+backend/tests/test_repair_engine.py        ★新增 14 个用例
+backend/tests/test_graph_planning.py       新增 2 个图级用例（下雨重排、改需求需再确认）
+```
+
+**2）实现的业务流程**
+
+```text
+自动修复    C5 报 ERROR → 闭馆换资源 / 超预算换更便宜住宿 / 时段冲突顺推
+            → 产出 v2 + VersionLineage → 再验证一次 → VALID 则 READY
+突发重规划  用户说「今天下雨了」 → 只重排当天：室外景点换室内
+            → 其他日期与锁定/已完成节点原样保留 → 再验证
+修不动      返回 REPAIRING 并把冲突交回用户（不硬改、不静默）
+```
+
+**3）使用的契约**：§10.1 `VersionLineage`、§10.2 `PlanState`（locked/completed/
+repair_attempts）、§10.3 通用重规划流程、§8.1 `RepairOption`、§8.2 `Conflict`、
+§14 不变量 6/7。
+
+**4）运行的测试**：`cd backend && python -m pytest` → **279 passed, 1 skipped**。
+
+**5）仍是模拟实现**：修复与验证逻辑真实；输入的计划与候选来自测试替身
+（`LodgingAwareMockProvider` 补了住宿与一个室内备选景点），A 的数据到位后换真实 Provider。
+
+**6）是否影响其他成员接口**
+
+**是（新增能力，不破坏旧行为）**：
+
+① B 的前端可以直接用文本触发重规划——发送「今天下雨了」「美术馆闭馆了」这类句子，
+   后端会走重规划并把新版本计划返回（`stage` 会重新变成 `READY`）；
+② 会话存储新增 `version_lineage`，C7 的 `/api/guides/{id}/modify` 与 `/incident`
+   会把它放进响应的 `version_lineage` 字段。
+
+P0 口径说明：修复只自动跑**一轮**（`repair_attempts` 上限 1），修不动就交回用户；
+同一资源可以在不同日期复用（小数据集下否则永远修不动），但**同一天内不重复**。
+
+---
+
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
@@ -1038,7 +1281,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 确认项 | 状态 | 结论 |
 |---|---|---|
 | 知识库数据目录和版本 | ⚠️ 待定 | 先用模拟数据，具体信息后续确认 |
-| `KnowledgeCoverage` 最低规划门槛 | ⚠️ 待定 | 建议：≥8 个游玩地点、核心事实覆盖 ≥0.8、开放规则 ≥0.8、有路线数据、有住宿候选、能给出抵达方式 |
+| `KnowledgeCoverage` 最低规划门槛 | ⚠️ 待定（见 Q9） | 当前实现是「`duration_days × 2 + 1` 个游玩地点 + 开放规则/路线/住宿不低于 LIMITED」；B 反馈偏陡，C 发现门槛用的地点数是硬编码常量（12）而非真实候选集（3），见 `docs/contract-open-questions.md` Q9 |
 | 数据源调研任务和 Fake Provider 方案 | ⬜ | 待 A 线执行 |
 | 首批住宿候选和基础餐厅范围 | ⬜ | 待 A 线执行 |
 | 主 LLM Provider 已通过 POC | ⬜ | 待三人确认 |
@@ -1089,9 +1332,9 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 4 | **重建共享 Schema v0.4（C1）** | fixtures 全过 + 打 `schema-v0.4` 标签 | ✅ |
 | 4.5 | **C1c/C2c：代码整体迁到 v0.4 + C3 接入图** | C 线代码只用 v0.4 对象，legacy 删除 | ✅ |
 | 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层 + 已接入图 |
-| 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | 🔄 下一步 |
-| 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ⬜ |
-| 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |
+| 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ✅ 代码 + 16 个单测通过；端到端等 A 数据 |
+| 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ✅ |
+| 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ✅（端到端待 A 数据） |
 | 9 | REST 接口集成（C7） | Vue 可端到端调用 | 🔄 会话三接口已完成；攻略三接口排在 C4/C5 之后（B 的硬阻塞） |
 | 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |
 
@@ -1106,6 +1349,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | ⚠️ 回归：v0.4 模型不再拦截多余字段 | **已发生** | v0.3 的 `extra="forbid"` 没有迁移到 v0.4；已登记 Q5，等三人拍板后加回 |
 | A 线新增 `mcp` 依赖，未安装时全量测试收集失败 | ✅ 已解决（2026-09-27） | A 改为 `pytest.importorskip("mcp")`；未装 SDK 时 `222 passed, 1 skipped`，装齐时 223 passed |
 | 三条线都在 main 上，C 的排程/验证还没做，端到端跑不到攻略 | ⚠️ 进行中 | C4 → C5 → C6 → C7 按顺序推；在此之前 B 的联调只能到「目的地确认」 |
+| **A 的 Mock 缺住宿候选与路线覆盖，C4 排不出完整行程** | ⚠️ 阻塞端到端 | 已列成必修清单（见「最新变更」的 A 行动）；`python tools/check_a_data.py` 一键自查；在 A 补数据前，C4 用测试替身验证逻辑 |
 | 三条线各自的 feature 分支都有提交后，C 不能再覆盖 | **已生效** | 所有同步改为「C 合进 main → A/B 各自 merge origin/main」 |
 | 模拟数据被当成真实数据 | 已强制标记 `MOCK` + `MOCK_ONLY` | 由测试守护 |
 | 外部 API 拿不到 | 未发生 | 统一 Provider 接口 + fake 实现 |

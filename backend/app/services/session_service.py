@@ -79,11 +79,29 @@ class SessionService:
             text,
             draft=extras.draft,
             profile=extras.profile,
+            previous_plan=extras.current_plan,
             run_mode=extras.run_mode,
         )
         extras.draft = context.draft
         extras.profile = context.profile
         extras.excluded_resources = _excluded_records(context)
+        outcome = context.plan_outcome
+        if outcome is not None:
+            extras.current_plan = context.validated_plan or outcome.plan
+            extras.data_snapshot = outcome.data_snapshot
+            extras.intercity_options = list(outcome.intercity_options)
+            extras.plan_conflicts = list(
+                context.validation_result.conflicts
+                if context.validation_result is not None
+                else outcome.conflicts
+            )
+            extras.plan_missing_inputs = list(outcome.missing_inputs)
+        if context.repair_outcome is not None and context.repair_outcome.lineage is not None:
+            extras.version_lineage = context.repair_outcome.lineage
+        if context.validated_plan is not None:
+            extras.current_plan = context.validated_plan
+        if context.validation_result is not None:
+            extras.plan_conflicts = list(context.validation_result.conflicts)
 
         self._repository.save(new_state)
         self._repository.save_extras(session_id, extras)
@@ -94,6 +112,9 @@ class SessionService:
             profile=extras.profile,
             recommendations=context.recommendations,
             filter_result=context.filter_result,
+            plan=extras.current_plan,
+            plan_conflicts=extras.plan_conflicts,
+            missing_inputs=extras.plan_missing_inputs,
             name_lookup=self._name_lookup,
             data_is_mock=self._data_is_mock,
         )
@@ -111,6 +132,9 @@ class SessionService:
             state,
             draft=extras.draft,
             profile=extras.profile,
+            plan=extras.current_plan,
+            plan_conflicts=extras.plan_conflicts,
+            missing_inputs=extras.plan_missing_inputs,
             name_lookup=self._name_lookup,
             data_is_mock=self._data_is_mock,
         )

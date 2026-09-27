@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 
 from app.schemas import (
     DestinationRecommendation,
+    IntercityOption,
+    ItineraryPlan,
     PlanningReadinessEvaluation,
     ResourceCandidateBase,
     RunMode,
@@ -29,6 +31,9 @@ from app.schemas import (
     TripProfileDraft,
 )
 from app.services.availability_filter import TripFilterResult
+from app.services.itinerary_planner import PlanBuildOutcome
+from app.services.plan_validator import ValidationResult
+from app.services.repair_engine import RepairOutcome
 
 
 @dataclass
@@ -51,3 +56,19 @@ class TurnContext:
     resources: list[ResourceCandidateBase] = field(default_factory=list)
     #: C3 前置过滤结果（含被排除资源与禁排日期，供 C4/C5 使用）
     filter_result: TripFilterResult | None = None
+    #: 进入本轮之前会话所处的阶段（C4 用它判断"用户是不是在回答确认"）
+    previous_stage: str | None = None
+    #: C4 排程结果（含计划、冲突与降级说明）
+    plan_outcome: PlanBuildOutcome | None = None
+    #: C5 验证结果
+    validation_result: ValidationResult | None = None
+    #: 写回验证结论后的计划（`plan_validation_status` / `conflict_ids` 已更新）
+    validated_plan: ItineraryPlan | None = None
+    #: 会话里已有的计划（C6 重规划要以它为基础，而不是重排一份新的）
+    previous_plan: ItineraryPlan | None = None
+    #: 本轮识别出的突发事件类型（RAIN / CLOSURE / ...）
+    incident_type: str | None = None
+    #: C6 修复/重规划结果（含版本谱系）
+    repair_outcome: RepairOutcome | None = None
+    #: 本轮取到的城际候选（C6 重算费用时要用）
+    intercity_options: list[IntercityOption] = field(default_factory=list)
