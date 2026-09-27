@@ -9,23 +9,29 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
-**C线更新**：2026-09-27 · **C5 验证器完成（C4 → C5 已串起来）；端到端仍卡在 A 的数据**
+**C线更新**：2026-09-27 · **C6 修复引擎完成：两条 P0 验收（闭馆替换 / 下雨重规划）都跑通了**
 
-- **C5 已完成**：`backend/app/services/plan_validator.py` 检查 10 类问题并给出修复选项，
-  图上新增 `validate_plan` 节点（C4 排完自动验证）：
-  **验证通过 → `READY`；不通过 → `REPAIRING`**（`CONTRACTS.md` §14 不变量 4：
-  INVALID 不得进入 READY）。全量测试：**263 passed, 1 skipped**。
-- **C5 第一次跑起来就抓到了 C4 的一个真 bug**：C4 当时拿到的是**未过滤**的原始候选，
-  把行程期内一直闭馆的 `poi_1002` 排进了计划。根因已在 `plan_itinerary` 修掉
-  （只用 C3 判定"可规划"的 `state.resource_candidate_ids`），并补了回归用例；
-  验证器保留为第二道防线。
-- **三条红线照旧**：不编数据（缺路线/票价记 `DATA_UNKNOWN`）、尊重 C3 禁排日期、
-  预算只由 `CostItem[]` 复算；固定预算（`budget_flexibility = FIXED`）超限时
-  只给 `REQUEST_USER_CHOICE`，**不给自动放宽选项**。
-- **⚠️ 端到端仍跑不通，原因在数据不在代码**：`DayPlan.stay_segment_id` 与
-  `ItineraryPlan.stay_segments` 都是必填，而 A 的 Mock Provider **没有任何住宿候选**
-  （`LODGING` / `LODGING_AREA` 都返回 0）。对真实数据「确认」后只会得到明确降级：
-  **「住宿候选数据还没有到位」**——刻意设计的诚实出口。
+- **C6 已完成**：`backend/app/services/repair_engine.py` 两个入口共用一套机制
+  （`CONTRACTS.md` §10.3 要求"不同事件走同一套重规划"）：
+
+```text
+repair_plan()          自动修复：C5 的 ERROR → 能修的修掉（闭馆换资源、超预算换住宿、
+                       时段冲突顺推），产出 v2 + VersionLineage
+replan_for_incident()  突发重规划：下雨 → 只重排当天，把室外景点换成室内的
+```
+
+- **图上已经串成闭环**：`parse_request → detect_incident →(突发事件) replan_plan →
+  validate_plan →(还有 ERROR) repair_plan → validate_plan → READY`。
+  **聊天里直接说「今天下雨了」就会触发只重排当天的重规划**，不需要等 C7 接口。
+- **守住的边界**：锁定节点（`locked_node_ids`）与已完成节点（`completed_node_ids`）
+  一律不动，相关冲突交回用户；固定预算不自动放宽；修不动的不硬改（返回 `REPAIRING`）。
+  每次成功修复都产出新计划版本并记录 `VersionLineage`（保留/变更/移除节点 + 替换关系）。
+- 全量测试：**279 passed, 1 skipped**（本轮新增 16 个：修复引擎 14 + 图级 2）。
+- **C5 已经证明自己的价值**：它第一次运行就抓到 C4 把闭馆资源排进计划的真 bug
+  （现已在 `plan_itinerary` 修掉并加回归用例）。
+- **⚠️ 端到端仍卡在 A 的数据**：`DayPlan.stay_segment_id` 与 `ItineraryPlan.stay_segments`
+  都是必填，而 A 的 Mock Provider **没有任何住宿候选**，所以对真实数据「确认」后
+  只会得到明确降级：**「住宿候选数据还没有到位」**——刻意设计的诚实出口。
 - **一键检查 A 的数据缺口**（A 每次更新后跑一遍）：
 
 ```powershell
@@ -88,6 +94,7 @@ python tools/check_a_data.py     # 退出码 1 = 还有必修数据没到位
 - C3 前置过滤（服务层 + 接入图）、解析器边界收尾、模拟数据提示去重
 - **C4 行程生成**（含「确认目的地 → 排行程」的闸门、费用与预算复算、三条降级路径）
 - **C5 验证器**（10 类检查 + 修复选项 + C4→C5 自动串联；顺带修掉 C4 的一个真缺陷）
+- **C6 修复引擎**（闭馆替换自动出 v2 + 下雨只重排当天 + 版本谱系；两张 P0 验收都跑通）
 - A、B 两条线的交付都已并入 main
 
 ---
@@ -331,7 +338,7 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 前置过滤（C3） | C | `backend/app/services/availability_filter.py` | ✅ 服务层 + 已接入 LangGraph | 2026-09-24 |
 | 行程生成（C4） | C | `backend/app/services/itinerary_planner.py` | ✅ 代码 + 单测完成；端到端等 A 的住宿/路线数据 | 2026-09-27 |
 | 验证器（C5） | C | `backend/app/services/plan_validator.py` | ✅ 完成（10 类检查 + 修复选项，已串进图） | 2026-09-27 |
-| 修复与重规划（C6） | C | `backend/app/services/` | ⬜ 未开始（下一步） | — |
+| 修复与重规划（C6） | C | `backend/app/services/repair_engine.py` | ✅ 完成（闭馆替换 + 下雨重排 + VersionLineage） | 2026-09-27 |
 | REST 集成（C7） | C | `backend/app/api/` | 🔄 会话三接口已按 v0.4 信封实现；攻略接口未做 | 2026-09-27 |
 | A 线数据缺口自查脚本 | C | `tools/check_a_data.py` | ✅ 一条命令看清缺哪些数据 | 2026-09-27 |
 | MySQL 表与试点数据（A1） | A | `data/` | ⬜ 未开始（P0 用 Mock 数据） | — |
@@ -362,8 +369,8 @@ C 每完成一步 → 提交并推送 main → 再把三条 feature 分支同步
 | 6 | 至少一个 MCP 工具被 LangGraph 实际调用 | A/C | 🔄 | C 的 `retrieve_destinations` 实际调用；A 的 MCP Server 已可由官方 SDK 调用（返回 Mock 数据） |
 | 7 | 根据日期过滤闭馆或不可用景点 | C | ✅ | `filter_candidates_for_trip` + 图上的 `filter_availability` 节点；`tests/test_availability_filter.py`、`tests/test_graph_clarification.py` |
 | 8 | 生成带时间、交通和预算的行程 | C | 🔄 | C4 已完成并单测通过；真实数据缺住宿/路线，端到端要等 A（`tools/check_a_data.py` 可自查） |
-| 9 | 验证并修复至少一种冲突（闭馆替换） | C | 🔄 | C5 已能查出闭馆并给出 `REPLACE_RESOURCE` 方案；**套用修复产出 v2 属于 C6** |
-| 10 | 用户修改后重新规划受影响部分（下雨） | C | ⬜ | — |
+| 9 | 验证并修复至少一种冲突（闭馆替换） | C | ✅ | C5 检测 + C6 套用修复产出 v2；`tests/test_repair_engine.py`、`tests/test_plan_validator.py` |
+| 10 | 用户修改后重新规划受影响部分（下雨） | C | ✅ | 聊天里说「今天下雨了」即触发只重排当天（锁定/已完成节点不动）；`tests/test_graph_planning.py` |
 | 11 | 七部分 `TravelGuide` 由后端组装并在 Vue 展示 | B/C | 🔄 | B6 `compose_travel_guide()` 已并入 main；待 C4/C5 产物与 C7 出口 |
 
 ---
@@ -1158,6 +1165,66 @@ B 的前端可以按这两个 stage 分别展示"行程已就绪"和"需要处�
 
 ---
 
+### 步骤 9：C6 修复引擎（闭馆替换 + 突发重规划 + 版本谱系）
+
+| 项目 | 内容 |
+|---|---|
+| 日期 | 2026-09-27 |
+| 执行线 | C |
+| 状态 | ✅ 完成（两条 P0 验收都有测试；端到端待 A 的住宿数据） |
+
+**1）修改/新增的文件**
+
+```text
+backend/app/services/repair_engine.py      ★新增：repair_plan / replan_for_incident / detect_incident
+backend/app/services/itinerary_planner.py  抽出 collect_costs 供 C4/C6 共用；暴露 make_plan_node /
+                                           build_travel_leg / summarize_budget / fetch_intercity_options
+backend/app/graph/nodes.py                 新增 detect_incident / replan_plan / repair_plan 三个节点；
+                                           validate_plan 现在验证"修复后的计划"；
+                                           plan_itinerary 只吃 C3 判定可规划的候选
+backend/app/graph/workflow.py              新增事件入口与"验证 → 修复 → 再验证"闭合回路
+backend/app/graph/stages.py                新增 REPLANNING（契约 §14 状态链里的取值）
+backend/app/graph/context.py               TurnContext 带 previous_plan / incident_type /
+                                           repair_outcome / intercity_options
+backend/app/services/session_store.py      SessionExtras 增加 version_lineage
+backend/app/services/session_service.py    传入已存计划，回写修复后的计划与版本谱系
+backend/tests/test_repair_engine.py        ★新增 14 个用例
+backend/tests/test_graph_planning.py       新增 2 个图级用例（下雨重排、改需求需再确认）
+```
+
+**2）实现的业务流程**
+
+```text
+自动修复    C5 报 ERROR → 闭馆换资源 / 超预算换更便宜住宿 / 时段冲突顺推
+            → 产出 v2 + VersionLineage → 再验证一次 → VALID 则 READY
+突发重规划  用户说「今天下雨了」 → 只重排当天：室外景点换室内
+            → 其他日期与锁定/已完成节点原样保留 → 再验证
+修不动      返回 REPAIRING 并把冲突交回用户（不硬改、不静默）
+```
+
+**3）使用的契约**：§10.1 `VersionLineage`、§10.2 `PlanState`（locked/completed/
+repair_attempts）、§10.3 通用重规划流程、§8.1 `RepairOption`、§8.2 `Conflict`、
+§14 不变量 6/7。
+
+**4）运行的测试**：`cd backend && python -m pytest` → **279 passed, 1 skipped**。
+
+**5）仍是模拟实现**：修复与验证逻辑真实；输入的计划与候选来自测试替身
+（`LodgingAwareMockProvider` 补了住宿与一个室内备选景点），A 的数据到位后换真实 Provider。
+
+**6）是否影响其他成员接口**
+
+**是（新增能力，不破坏旧行为）**：
+
+① B 的前端可以直接用文本触发重规划——发送「今天下雨了」「美术馆闭馆了」这类句子，
+   后端会走重规划并把新版本计划返回（`stage` 会重新变成 `READY`）；
+② 会话存储新增 `version_lineage`，C7 的 `/api/guides/{id}/modify` 与 `/incident`
+   会把它放进响应的 `version_lineage` 字段。
+
+P0 口径说明：修复只自动跑**一轮**（`repair_attempts` 上限 1），修不动就交回用户；
+同一资源可以在不同日期复用（小数据集下否则永远修不动），但**同一天内不重复**。
+
+---
+
 ## 4. 契约冻结状态
 
 | 契约对象 | 状态 | 备注 |
@@ -1240,7 +1307,7 @@ C 实现全部共享对象 → fixtures 全过 → 可导出 OpenAPI/JSON Schema
 | 5 | 前置过滤（C3） | 不可用地点不会进入规划 | ✅ 服务层 + 已接入图 |
 | 6 | 行程生成（C4） | 输出时间、交通、预算和节点 | ✅ 代码 + 16 个单测通过；端到端等 A 数据 |
 | 7 | 验证器（C5） | 能发现时间窗或预算冲突 | ✅ |
-| 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ⬜ |
+| 8 | 通用重规划 + VersionLineage（C6） | 锁定节点不变、差异可追踪 | ✅（端到端待 A 数据） |
 | 9 | REST 接口集成（C7） | Vue 可端到端调用 | 🔄 会话三接口已完成；攻略三接口排在 C4/C5 之后（B 的硬阻塞） |
 | 10 | 端到端 fake 测试 + 联调准备 | 三条线用同一套 fixture 跑通 | ⬜ |
 

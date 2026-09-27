@@ -40,6 +40,8 @@ class PlanStage(str, Enum):
     PLANNING = "PLANNING"
     VALIDATING = "VALIDATING"
     REPAIRING = "REPAIRING"
+    #: 突发事件触发的重规划（`CONTRACTS.md` §14 状态链里的 REPLANNING）
+    REPLANNING = "REPLANNING"
     READY = "READY"
 
     def __str__(self) -> str:  # pragma: no cover - 仅用于可读输出

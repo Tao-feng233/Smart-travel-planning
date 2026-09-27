@@ -38,6 +38,7 @@ from app.schemas import (
     RunMode,
     TripProfile,
     TripProfileDraft,
+    VersionLineage,
 )
 
 
@@ -66,6 +67,7 @@ class SessionExtras(BaseModel):
     intercity_options: list[IntercityOption] = Field(default_factory=list)
     plan_conflicts: list[Conflict] = Field(default_factory=list)
     plan_missing_inputs: list[str] = Field(default_factory=list)
+    version_lineage: VersionLineage | None = None
 
 
 class SessionRepository(Protocol):

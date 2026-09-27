@@ -4,28 +4,39 @@ from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
-from app.schemas import PlanState, RunMode, TripProfile, TripProfileDraft
+from app.schemas import (
+    ItineraryPlan,
+    PlanState,
+    RunMode,
+    TripProfile,
+    TripProfileDraft,
+)
 
 from .context import TurnContext
 from .nodes import (
     ASK_CLARIFICATION,
-    CHECK_MISSING_FIELDS,
     CHECK_DESTINATION_CONFIRMATION,
+    CHECK_MISSING_FIELDS,
+    DETECT_INCIDENT,
     FETCH_RESOURCES,
     FILTER_AVAILABILITY,
     FINISH_TURN,
     PARSE_REQUEST,
     PLAN_ITINERARY,
     RECOMMEND_DESTINATIONS,
+    REPLAN_PLAN,
+    REPAIR_PLAN,
     REPORT_INSUFFICIENT_DATA,
     RETRIEVE_DESTINATIONS,
     VALIDATE_PLAN,
     NodeDeps,
     build_nodes,
+    route_after_incident_detection,
     route_after_filter,
     route_after_fetch,
     route_after_missing_check,
     route_after_retrieve,
+    route_after_validation,
 )
 
 
@@ -42,7 +53,16 @@ def build_graph(deps: NodeDeps):
         graph.add_node(name, func)
 
     graph.add_edge(START, PARSE_REQUEST)
-    graph.add_edge(PARSE_REQUEST, CHECK_MISSING_FIELDS)
+    graph.add_edge(PARSE_REQUEST, DETECT_INCIDENT)
+    graph.add_conditional_edges(
+        DETECT_INCIDENT,
+        route_after_incident_detection,
+        {
+            REPLAN_PLAN: REPLAN_PLAN,
+            CHECK_MISSING_FIELDS: CHECK_MISSING_FIELDS,
+        },
+    )
+    graph.add_edge(REPLAN_PLAN, VALIDATE_PLAN)
     graph.add_conditional_edges(
         CHECK_MISSING_FIELDS,
         route_after_missing_check,
@@ -79,7 +99,15 @@ def build_graph(deps: NodeDeps):
         },
     )
     graph.add_edge(PLAN_ITINERARY, VALIDATE_PLAN)
-    graph.add_edge(VALIDATE_PLAN, END)
+    graph.add_conditional_edges(
+        VALIDATE_PLAN,
+        route_after_validation,
+        {
+            REPAIR_PLAN: REPAIR_PLAN,
+            FINISH_TURN: END,
+        },
+    )
+    graph.add_edge(REPAIR_PLAN, VALIDATE_PLAN)
     graph.add_edge(REPORT_INSUFFICIENT_DATA, END)
 
     return graph.compile()
@@ -92,6 +120,7 @@ def run_turn(
     *,
     draft: TripProfileDraft | None = None,
     profile: TripProfile | None = None,
+    previous_plan: ItineraryPlan | None = None,
     run_mode: RunMode = RunMode.DEMO,
 ) -> tuple[PlanState, TurnContext]:
     """推进一轮对话，返回新的 `PlanState` 与本轮上下文。
@@ -108,6 +137,7 @@ def run_turn(
         profile=profile,
         run_mode=run_mode,
         previous_stage=state.stage,
+        previous_plan=previous_plan,
     )
     raw = graph.invoke(state.model_copy(deep=True), context=context)
     return PlanState.model_validate(raw), context

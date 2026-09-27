@@ -152,8 +152,8 @@ def build_itinerary(
 
     nodes: list[PlanNode] = []
     legs: list[TravelLeg] = []
+    leg_costs: list[CostItem] = []
     day_plans: list[DayPlan] = []
-    cost_items: list[CostItem] = []
 
     schedule = _assign_places(visits, days, profile.pace, blocked, notes)
     meals_used = 0
@@ -174,9 +174,6 @@ def build_itinerary(
             nodes.append(arrive)
             day_nodes.append(arrive)
             slot = max(slot, arrive.end_at)
-            cost = _intercity_cost(arrival, profile, len(cost_items) + 1)
-            if cost is not None:
-                cost_items.append(cost)
 
         if index == 0:
             check_in = _make_node(
@@ -216,13 +213,13 @@ def build_itinerary(
 
         for previous, following in zip(day_nodes, day_nodes[1:]):
             leg, conflict, cost = _build_leg(
-                previous, following, mcp, len(legs) + 1, len(cost_items) + 1
+                previous, following, mcp, len(legs) + 1, len(leg_costs) + 1
             )
             if leg is not None:
                 legs.append(leg)
                 day_legs.append(leg)
             if cost is not None:
-                cost_items.append(cost)
+                leg_costs.append(cost)
             if conflict is not None:
                 conflicts.append(conflict)
 
@@ -238,12 +235,14 @@ def build_itinerary(
 
     if len(days) > 1:
         notes.append(f"住宿覆盖 {len(days)} 晚：{lodging.lodging_area}（P0 单住宿）。")
-    lodging_cost = _lodging_cost(lodging, profile, len(cost_items) + 1)
-    if lodging_cost is not None:
-        cost_items.append(lodging_cost)
-    dining_cost = _dining_cost(restaurants, meals_used, profile, len(cost_items) + 1)
-    if dining_cost is not None:
-        cost_items.append(dining_cost)
+    cost_items = collect_costs(
+        profile=profile,
+        leg_costs=leg_costs,
+        stay_lodging=lodging,
+        restaurants=restaurants,
+        meal_count=meals_used,
+        intercity_options=[arrival] if arrival is not None else [],
+    )
     if any(node.node_type == "ATTRACTION" for node in nodes):
         conflicts.append(
             Conflict(
@@ -651,6 +650,47 @@ def _budget_summary(
         by_category=by_category,
         unknown_cost_item_ids=unknown_ids,
     )
+
+
+def collect_costs(
+    *,
+    profile: TripProfile,
+    leg_costs: Sequence[CostItem],
+    stay_lodging: LodgingCandidate | None,
+    restaurants: Sequence[RestaurantCandidate],
+    meal_count: int,
+    intercity_options: Sequence[IntercityOption],
+) -> list[CostItem]:
+    """按统一规则汇总费用项，并统一重排 `cost_item_id`。
+
+    C4（首次排程）与 C6（修复后重算）共用这一处，避免两条线各自算一套预算。
+    """
+
+    items: list[CostItem] = []
+    for option in intercity_options:
+        cost = _intercity_cost(option, profile, 1)
+        if cost is not None:
+            items.append(cost)
+    if stay_lodging is not None:
+        cost = _lodging_cost(stay_lodging, profile, 1)
+        if cost is not None:
+            items.append(cost)
+    dining = _dining_cost(restaurants, meal_count, profile, 1)
+    if dining is not None:
+        items.append(dining)
+    items.extend(leg_costs)
+    return [
+        item.model_copy(update={"cost_item_id": f"cost_{index:03d}"})
+        for index, item in enumerate(items, 1)
+    ]
+
+
+#: C6 修复引擎复用这几个原语（同一套算法，不另写一份）
+make_plan_node = _make_node
+build_travel_leg = _build_leg
+summarize_budget = _budget_summary
+arrival_option_for = _arrival_option
+fetch_intercity_options = _fetch_intercity
 
 
 # --- 辅助 -------------------------------------------------------------------

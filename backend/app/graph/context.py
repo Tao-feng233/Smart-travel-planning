@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 from app.schemas import (
     DestinationRecommendation,
+    IntercityOption,
     ItineraryPlan,
     PlanningReadinessEvaluation,
     ResourceCandidateBase,
@@ -32,6 +33,7 @@ from app.schemas import (
 from app.services.availability_filter import TripFilterResult
 from app.services.itinerary_planner import PlanBuildOutcome
 from app.services.plan_validator import ValidationResult
+from app.services.repair_engine import RepairOutcome
 
 
 @dataclass
@@ -62,3 +64,11 @@ class TurnContext:
     validation_result: ValidationResult | None = None
     #: 写回验证结论后的计划（`plan_validation_status` / `conflict_ids` 已更新）
     validated_plan: ItineraryPlan | None = None
+    #: 会话里已有的计划（C6 重规划要以它为基础，而不是重排一份新的）
+    previous_plan: ItineraryPlan | None = None
+    #: 本轮识别出的突发事件类型（RAIN / CLOSURE / ...）
+    incident_type: str | None = None
+    #: C6 修复/重规划结果（含版本谱系）
+    repair_outcome: RepairOutcome | None = None
+    #: 本轮取到的城际候选（C6 重算费用时要用）
+    intercity_options: list[IntercityOption] = field(default_factory=list)

@@ -3,13 +3,14 @@
 > 三条开发线的共享进度台账见仓库根目录的 `PROGRESS_REPORT.md`；
 > 契约待确认项见 `docs/contract-open-questions.md`。
 
-## 当前状态（步骤 8 完成）
+## 当前状态（步骤 9 完成）
 
 已实现共享契约对象（v0.4，旧 v0.3 已删除）、LangGraph 追问/推荐回路、
 **C3 前置过滤**、**C4 行程生成（确认目的地 → 排行程 + 费用预算）**、
-**C5 计划验证器（10 类检查 + 修复选项 → READY / REPAIRING）**
+**C5 计划验证器（10 类检查 + 修复选项 → READY / REPAIRING）**、
+**C6 修复引擎（闭馆替换 / 超预算换住宿 / 下雨只重排当天 + VersionLineage）**
 和会话 REST 接口（统一响应信封）。
-尚未实现修复与通用重规划、攻略接口（C6–C7）。
+尚未实现攻略接口（C7）。
 
 ```text
 backend/
@@ -22,9 +23,10 @@ backend/
 │   ├── providers/     A线统一Provider协议与工厂
 │   ├── mcp_server/    A线九工具强类型MCP Server
 │   ├── main.py        FastAPI 应用入口
-│   └── services/      缺失字段判定、提取、推荐、前置过滤、行程生成、计划验证、Mock Provider、会话存储
+│   └── services/      缺失字段判定、提取、推荐、前置过滤、行程生成、计划验证、
+│                      修复引擎、Mock Provider、会话存储
 ├── tests/
-│   └── ...            263 个用例（安装完整 requirements；未装 MCP SDK 时 262 passed, 1 skipped）
+│   └── ...            279 个用例（安装完整 requirements；未装 MCP SDK 时 278 passed, 1 skipped）
 └── requirements.txt
 ```
 

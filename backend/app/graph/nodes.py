@@ -63,8 +63,15 @@ from app.schemas import (
 from app.services.availability_filter import TripFilterResult, filter_candidates_for_trip
 from app.services.destination_recommender import DestinationRecommender
 from app.services.itinerary_planner import PlanBuildOutcome, build_itinerary
+from app.services.itinerary_planner import fetch_intercity_options
+from app.services.plan_validator import ValidationResult
 from app.services.missing_fields import find_missing_fields
 from app.services.plan_validator import attach_validation, validate_plan
+from app.services.repair_engine import (
+    detect_incident,
+    replan_for_incident,
+    repair_plan,
+)
 from app.services.request_parser import TripProfileParser
 
 #: 节点名（与 LangGraph 图上的名称一致，便于测试与日志定位）
@@ -79,6 +86,9 @@ FILTER_AVAILABILITY = "filter_availability"
 CHECK_DESTINATION_CONFIRMATION = "check_destination_confirmation"
 PLAN_ITINERARY = "plan_itinerary"
 VALIDATE_PLAN = "validate_plan"
+REPAIR_PLAN = "repair_plan"
+DETECT_INCIDENT = "detect_incident"
+REPLAN_PLAN = "replan_plan"
 
 #: 条件边的“本轮到此结束”出口（映射到 LangGraph 的 END）
 FINISH_TURN = "finish_turn"
@@ -280,17 +290,7 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
                 "awaiting_user_input": True,
             }
 
-        date_range = DateRange(start_date=profile.start_date, end_date=profile.end_date)
-        resources: list[ResourceCandidateBase] = []
-        for resource_type in _RESOURCE_TYPES:
-            output = deps.mcp.search_resources(
-                SearchResourcesRequest(
-                    resource_type=resource_type,
-                    destination_id=destination_id,
-                    date_range=date_range,
-                )
-            )
-            resources.extend(output.resources)
+        resources = _fetch_candidates(deps, profile, destination_id)
         runtime.context.resources = resources
 
         if not resources:
@@ -400,6 +400,7 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             parent_plan_version=state.current_plan_version,
         )
         runtime.context.plan_outcome = outcome
+        runtime.context.intercity_options = list(outcome.intercity_options)
         plan: ItineraryPlan | None = outcome.plan
         if plan is None:
             # 缺关键输入（例如没有住宿候选）：明确报资料不足，不产残缺计划
@@ -422,21 +423,23 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         """C5：验证 C4 产出的计划，并把结论写回计划状态（PENDING → VALID/INVALID）。"""
 
         outcome = runtime.context.plan_outcome
-        if outcome is None or outcome.plan is None or runtime.context.profile is None:
+        # 修复过一轮时验证的是"修复后的计划"，而不是最初那份
+        plan = runtime.context.validated_plan or (outcome.plan if outcome else None)
+        if plan is None or runtime.context.profile is None:
             return {
                 "stage": PlanStage.INSUFFICIENT_DATA.value,
                 "awaiting_user_input": True,
             }
         result = validate_plan(
-            outcome.plan,
+            plan,
             profile=runtime.context.profile,
             candidates=runtime.context.resources,
             filter_result=runtime.context.filter_result,
-            prior_conflicts=outcome.conflicts,
+            prior_conflicts=outcome.conflicts if outcome else (),
             run_mode=runtime.context.run_mode,
         )
         runtime.context.validation_result = result
-        runtime.context.validated_plan = attach_validation(outcome.plan, result)
+        runtime.context.validated_plan = attach_validation(plan, result)
         # §14 不变量 4：INVALID 不得进入 READY（攻略组装属于 C7）
         stage = (
             PlanStage.READY.value
@@ -447,6 +450,122 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             "stage": stage,
             "awaiting_user_input": True,
             "conflict_ids": [item.conflict_id for item in result.conflicts],
+        }
+
+    def detect_incident_node(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """有已存计划时，先判断本轮是不是突发事件（下雨 / 闭馆 / 起晚…）。
+
+        识别到事件就走重规划，而不是从头重排一份新计划——`CONTRACTS.md` §10.3
+        要求"不同事件走同一套重规划机制"，而不是各写一套。
+        """
+
+        if runtime.context.previous_plan is None:
+            return {"stage": PlanStage.CHECKING_FIELDS.value}
+        trigger = detect_incident(runtime.context.user_message or "")
+        if trigger is None:
+            return {"stage": PlanStage.CHECKING_FIELDS.value}
+        runtime.context.incident_type = trigger
+        return {
+            "stage": PlanStage.REPLANNING.value,
+            "active_incidents": [trigger],
+        }
+
+    def replan_plan_node(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """C6：只重排受事件影响的那一天，锁定与已完成节点不动。"""
+
+        plan = runtime.context.previous_plan
+        trigger = runtime.context.incident_type
+        profile = runtime.context.profile
+        destination_id = _fixed_destination_id(profile)
+        if plan is None or trigger is None or profile is None or destination_id is None:
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+
+        candidates = _fetch_candidates(deps, profile, destination_id)
+        runtime.context.resources = candidates
+        runtime.context.intercity_options = fetch_intercity_options(
+            profile, destination_id, deps.mcp, []
+        )
+        outcome = replan_for_incident(
+            plan,
+            incident_type=trigger,
+            profile=profile,
+            candidates=candidates,
+            mcp=deps.mcp,
+            locked_node_ids=state.locked_node_ids,
+            completed_node_ids=state.completed_node_ids,
+            intercity_options=runtime.context.intercity_options,
+            change_request_id=f"change_{state.session_id}_{trigger.lower()}",
+            run_mode=runtime.context.run_mode,
+        )
+        runtime.context.repair_outcome = outcome
+        if outcome.plan is None:
+            # 修不动就把问题交回用户，不硬改计划
+            runtime.context.validation_result = ValidationResult(
+                status=PlanValidationStatus.INVALID,
+                conflicts=list(outcome.unresolved),
+            )
+            return {
+                "stage": PlanStage.REPAIRING.value,
+                "awaiting_user_input": True,
+                "conflict_ids": [item.conflict_id for item in outcome.unresolved],
+            }
+        runtime.context.validated_plan = outcome.plan
+        return {
+            "stage": PlanStage.VALIDATING.value,
+            "awaiting_user_input": False,
+            "current_plan_id": outcome.plan.plan_id,
+            "current_plan_version": outcome.plan.plan_version,
+            "repair_attempts": state.repair_attempts + 1,
+        }
+
+    def repair_plan_node(
+        state: PlanState, runtime: Runtime[TurnContext]
+    ) -> NodeReturn:
+        """C6：把验证发现的 ERROR 自动修掉，产出 v2 后再验证一次。"""
+
+        plan = runtime.context.validated_plan
+        result = runtime.context.validation_result
+        profile = runtime.context.profile
+        if plan is None or result is None or profile is None:
+            return {
+                "stage": PlanStage.INSUFFICIENT_DATA.value,
+                "awaiting_user_input": True,
+            }
+        outcome = repair_plan(
+            plan,
+            result.conflicts,
+            profile=profile,
+            candidates=runtime.context.resources,
+            mcp=deps.mcp,
+            filter_result=runtime.context.filter_result,
+            locked_node_ids=state.locked_node_ids,
+            completed_node_ids=state.completed_node_ids,
+            intercity_options=runtime.context.intercity_options,
+            change_request_id=f"change_{state.session_id}_auto",
+            run_mode=runtime.context.run_mode,
+        )
+        runtime.context.repair_outcome = outcome
+        if outcome.plan is None:
+            return {
+                "stage": PlanStage.REPAIRING.value,
+                "awaiting_user_input": True,
+                "conflict_ids": [item.conflict_id for item in outcome.unresolved],
+            }
+        runtime.context.validated_plan = outcome.plan
+        runtime.context.validation_result = None
+        return {
+            "stage": PlanStage.VALIDATING.value,
+            "awaiting_user_input": False,
+            "current_plan_id": outcome.plan.plan_id,
+            "current_plan_version": outcome.plan.plan_version,
+            "repair_attempts": state.repair_attempts + 1,
         }
 
     return {
@@ -461,6 +580,9 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         CHECK_DESTINATION_CONFIRMATION: check_destination_confirmation,
         PLAN_ITINERARY: plan_itinerary,
         VALIDATE_PLAN: validate_plan_node,
+        DETECT_INCIDENT: detect_incident_node,
+        REPLAN_PLAN: replan_plan_node,
+        REPAIR_PLAN: repair_plan_node,
     }
 
 
@@ -500,7 +622,44 @@ def route_after_filter(state: PlanState) -> str:
     return FINISH_TURN
 
 
+def route_after_incident_detection(state: PlanState) -> str:
+    """识别到突发事件就重规划，否则按常规追问/推荐流程走。"""
+
+    if state.stage == PlanStage.REPLANNING.value:
+        return REPLAN_PLAN
+    return CHECK_MISSING_FIELDS
+
+
+def route_after_validation(state: PlanState) -> str:
+    """验证通过就结束；不通过则自动修一轮（只修一次，剩下的交给用户）。"""
+
+    if state.stage == PlanStage.READY.value:
+        return FINISH_TURN
+    if state.repair_attempts >= 1:
+        return FINISH_TURN
+    return REPAIR_PLAN
+
+
 # --- 辅助 ------------------------------------------------------------------
+
+
+def _fetch_candidates(
+    deps: NodeDeps, profile: TripProfile, destination_id: str
+) -> list[ResourceCandidateBase]:
+    """抓取某目的地的全部资源候选（C4 首次排程与 C6 重规划共用）。"""
+
+    date_range = DateRange(start_date=profile.start_date, end_date=profile.end_date)
+    resources: list[ResourceCandidateBase] = []
+    for resource_type in _RESOURCE_TYPES:
+        output = deps.mcp.search_resources(
+            SearchResourcesRequest(
+                resource_type=resource_type,
+                destination_id=destination_id,
+                date_range=date_range,
+            )
+        )
+        resources.extend(output.resources)
+    return resources
 
 
 def _same_profile(previous: TripProfile, current: TripProfile) -> bool:

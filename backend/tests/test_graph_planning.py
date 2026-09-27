@@ -21,6 +21,7 @@ from app.schemas import (
     SearchResourcesResponse,
     TimeWindow,
     LodgingAreaCandidate,
+    VisitPlaceCandidate,
 )
 from app.services import v04_mock_provider
 from app.services.destination_recommender import StubDestinationRecommender
@@ -49,6 +50,33 @@ def _lodging() -> LodgingCandidate:
     )
 
 
+def _extra_indoor() -> VisitPlaceCandidate:
+    """室内景点：给 C6 的「下雨换室内」当备用（A 的数据到位后由真实数据提供）。"""
+    return VisitPlaceCandidate(
+        resource_id="poi_extra_indoor",
+        destination_id="dest_chengdu",
+        area_id="area_002",
+        name="测试室内展馆",
+        address="示例地址",
+        latitude=30.66,
+        longitude=104.07,
+        categories=["CULTURE"],
+        suggested_duration_minutes=90,
+        availability_status="AVAILABLE",
+        opening_windows=[
+            TimeWindow(
+                start_at=datetime.combine(date(2026, 9, 24), time(9, 0), tzinfo=TZ),
+                end_at=datetime.combine(date(2026, 9, 24), time(18, 0), tzinfo=TZ),
+            )
+        ],
+        physical_intensity="LOW",
+        indoor=True,
+        weather_sensitivity="LOW",
+        planning_fact_ids=["pf_poi_extra"],
+        evidence_ids=["ev_301"],
+    )
+
+
 def _lodging_area() -> LodgingAreaCandidate:
     return LodgingAreaCandidate(
         resource_id="area_test_1",
@@ -70,6 +98,11 @@ class LodgingAwareMockProvider(V04MockMCPProvider):
             return SearchResourcesResponse(resources=[_lodging()])
         if request.resource_type == "LODGING_AREA":
             return SearchResourcesResponse(resources=[_lodging_area()])
+        if request.resource_type == "VISIT_PLACE":
+            # 多给一个室内景点：C6 的"下雨换室内"需要一个未被当天占用的替代项
+            return SearchResourcesResponse(
+                resources=[*super().search_resources(request).resources, _extra_indoor()]
+            )
         return super().search_resources(request)
 
     def get_route(self, request):
@@ -136,16 +169,23 @@ def _run(repository: InMemorySessionRepository, session_id: str, text: str):
         text,
         draft=extras.draft,
         profile=extras.profile,
+        previous_plan=extras.current_plan,
         run_mode=extras.run_mode,
     )
     repository.save(new_state)
     extras.draft = context.draft
     extras.profile = context.profile
     if context.plan_outcome is not None:
-        extras.current_plan = context.plan_outcome.plan
+        extras.current_plan = context.validated_plan or context.plan_outcome.plan
         extras.data_snapshot = context.plan_outcome.data_snapshot
         extras.intercity_options = list(context.plan_outcome.intercity_options)
         extras.plan_conflicts = list(context.plan_outcome.conflicts)
+    if context.repair_outcome is not None and context.repair_outcome.lineage is not None:
+        extras.version_lineage = context.repair_outcome.lineage
+    if context.validated_plan is not None:
+        extras.current_plan = context.validated_plan
+    if context.validation_result is not None:
+        extras.plan_conflicts = list(context.validation_result.conflicts)
     repository.save_extras(session_id, extras)
     return new_state, context
 
@@ -213,6 +253,56 @@ def test_naming_destination_again_counts_as_confirmation() -> None:
     state, _ = _run(repository, "sess_name", "就成都")
     assert state.stage == PlanStage.READY.value
     assert state.current_plan_id is not None
+
+
+def test_rain_incident_replans_only_the_affected_day() -> None:
+    """P0 验收：下雨 → 锁定已完成/已预约节点，只重排当天剩余部分。"""
+
+    repository = InMemorySessionRepository()
+    _session(repository, "sess_rain")
+    _run(repository, "sess_rain", TRIP_TEXT)
+    first, _ = _run(repository, "sess_rain", "确认")
+    assert first.stage == PlanStage.READY.value
+    before = repository.get_extras("sess_rain").current_plan
+    assert before is not None
+    second_day = date(2026, 10, 3)
+    day2_before = next(item.node_ids for item in before.days if item.date == second_day)
+
+    state, context = _run(repository, "sess_rain", "今天下雨了")
+    assert state.stage == PlanStage.READY.value, "重排后应重新通过验证"
+    after = repository.get_extras("sess_rain").current_plan
+    assert after is not None
+    assert after.plan_version == before.plan_version + 1
+    assert after.parent_plan_version == before.plan_version
+
+    # 只动受影响的那天：第二天引用的节点不变
+    assert next(item.node_ids for item in after.days if item.date == second_day) == day2_before
+
+    # 当天不再有"室外"景点，换成了室内的备用景点
+    by_id = {node.node_id: node for node in after.nodes}
+    day_one = next(item for item in after.days if item.date == date(2026, 10, 2))
+    resources = {by_id[node_id].resource_id for node_id in day_one.node_ids}
+    assert "poi_1003" not in resources
+    assert "poi_extra_indoor" in resources
+
+    extras = repository.get_extras("sess_rain")
+    assert extras.version_lineage is not None
+    assert extras.version_lineage.replacement_relations
+    assert extras.version_lineage.new_plan_version == after.plan_version
+
+
+def test_after_receiving_a_plan_changing_requirements_asks_for_confirmation() -> None:
+    """拿到计划后改需求：要再确认一次才重排，不擅自替换用户已经看到的行程。"""
+
+    repository = InMemorySessionRepository()
+    _session(repository, "sess_after")
+    _run(repository, "sess_after", TRIP_TEXT)
+    _run(repository, "sess_after", "确认")
+    version_before = repository.get_extras("sess_after").current_plan.plan_version
+
+    state, _ = _run(repository, "sess_after", "预算改成8000元")
+    assert state.stage == PlanStage.AWAITING_DESTINATION_CONFIRMATION.value
+    assert repository.get_extras("sess_after").current_plan.plan_version == version_before
 
 
 def test_closed_resource_from_step_c3_never_enters_the_plan() -> None:
