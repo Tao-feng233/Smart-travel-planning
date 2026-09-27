@@ -116,6 +116,89 @@ export interface Conflict {
   status: string
 }
 
+// --- §11 用户动作与版本谱系（B7 攻略接口的入参/出参） -----------------------
+
+export type ActionType =
+  | 'SELECT_DESTINATION'
+  | 'CONFIRM_GUIDE'
+  | 'MODIFY_GUIDE'
+  | 'REPORT_INCIDENT'
+
+export type ChangeType =
+  | 'REMOVE_NODE'
+  | 'REPLACE_NODE'
+  | 'ADD_FIXED_NODE'
+  | 'LOWER_INTENSITY'
+  | 'CHANGE_DATE'
+  | 'CHANGE_BUDGET'
+  | 'CHANGE_PACE'
+  | 'CHANGE_LODGING'
+
+export type ScopeHint = 'NODE' | 'DAY' | 'STAY_SEGMENT' | 'TRIP_SEGMENT' | 'WHOLE_GUIDE'
+
+export interface ActionChangePayload {
+  change_type: ChangeType
+  scope_hint: ScopeHint
+  date?: string | null
+  target_node_ids?: string[]
+}
+
+export interface UserAction {
+  action_id: string
+  /** 重复的 idempotency_key 不得生成重复版本（§11）。 */
+  idempotency_key?: string | null
+  action_type: ActionType
+  session_id: string
+  guide_id?: string | null
+  expected_guide_version?: number | null
+  raw_text?: string | null
+  payload?: ActionChangePayload | null
+}
+
+export interface ReplacementRelation {
+  old_node_id: string
+  new_node_id: string
+}
+
+/** §11 版本谱系：重规划后哪些节点被保留 / 替换 / 移除。 */
+export interface VersionLineage {
+  change_request_id: string
+  parent_plan_version: number | null
+  new_plan_version: number | null
+  parent_guide_version: number | null
+  new_guide_version: number | null
+  preserved_node_ids: string[]
+  changed_node_ids: string[]
+  removed_node_ids: string[]
+  replacement_relations: ReplacementRelation[]
+}
+
+// --- §13.2 攻略接口的请求与响应数据 -----------------------------------------
+
+export interface GetGuideData {
+  travel_guide: TravelGuide
+}
+
+export interface ConfirmGuideRequest {
+  expected_guide_version: number
+  lock_node_ids: string[]
+  idempotency_key: string
+}
+
+export interface ConfirmGuideData {
+  travel_guide: TravelGuide
+}
+
+export interface ModifyGuideRequest {
+  action: UserAction
+}
+
+export interface GuideChangeData {
+  travel_guide: TravelGuide
+  version_lineage: VersionLineage
+  conflicts: Conflict[]
+}
+
 /** §10.2 LangGraph 状态（只存引用，不存业务对象）。 */
 export interface PlanState {
   session_id: string

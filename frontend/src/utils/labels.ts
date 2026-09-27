@@ -202,6 +202,8 @@ export function warningTitle(code: string): string {
     DEGRADED_DATA: '部分数据已降级',
     DATA_EXPIRED: '数据已过期',
     LIMITED_EVIDENCE: '证据不足',
+    // C7 改攻略/报突发成功后附带的改动说明（`routes._guide_change`）。
+    CHANGE_NOTE: '本轮改动说明',
   }
   return table[code] ?? code
 }
