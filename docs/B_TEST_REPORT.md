@@ -2,9 +2,9 @@
 
 - 报告人：成员 B
 - 分支：`feature/llm-vue`
-- 测试日期：2026-09-24（**2026-09-27 复核更新，见下方复核提示**）
+- 测试日期：2026-09-24（**2026-09-27 两轮复核更新：先 merge `origin/main` 复核，后接 C7 攻略接口做 B7**，见下方两个复核提示块）
 - 契约基线：`schema-v0.4`（`CONTRACTS.md` / `backend/app/schemas/v04/`）
-- 一句话结论：**B 线交付物全部就位，B 线自身 103 个自动化用例全过、7 组 HTTP 端到端全过、前端类型检查与生产构建全过；过程中发现并修复 7 个缺陷，其中 3 个是阻断主流程的严重缺陷。**
+- 一句话结论：**B 线交付物全部就位，B 线自身 103 个自动化用例全过、7 组 HTTP 端到端全过 + 5 组攻略接口端到端全过、前端类型检查与生产构建全过；过程中发现并修复 12 处问题，其中 3 个是阻断主流程的严重缺陷、5 处是 B 自己此前写错的。**
 
 > **复核提示（2026-09-27，merge `origin/main` 之后）**
 >
@@ -26,6 +26,22 @@
 >
 > 另：复核发现第 7 个缺陷（见第四节），它会让「玩 5 天」这类最自然的口语
 > 说法在链路第一步就收到「覆盖不足」—— 属主流程阻断级，已修复并补测。
+
+> **B7 复核实测（2026-09-27，C7 攻略接口就位之后）**
+>
+> C7 已交付，B6/B5 的 HTTP 出口**不再缺失**，第六节与第七节里「尚未实现 / 无 HTTP 链路」
+> 的表述**均已过期**（下方对应行已逐条标注）。本节数字为本轮实测。
+>
+> | 项 | 复核实测（09-27 B7） |
+> | --- | --- |
+> | 全量用例 | **292 passed, 1 skipped**（skip = `tests/test_a_mcp_server.py`，本机 venv 未装 `mcp` SDK） |
+> | 与 main 的差值来源 | main（`76f0e30`）288 + 本次 B 线新增 4（`test_llm_request_parser.py` 25 → 29）= **292**，已逐文件核实 |
+> | 前端 | `vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0 |
+> | 攻略接口对接 | 四个接口全部接进页面，前端载荷与真实路由**逐字段实测通过**（见 3.5） |
+> | 端到端演示脚本 | 新增 `tools/check_b_flow.py`，逐步打印 stage，`--deps fake` 全链路跑通 |
+>
+> 本轮又发现并修掉 5 处问题（第 1、4、5 处是 B 自己此前写错的），见第四节「缺陷 8–12」；
+> 另发现 2 处**接口缺口属 C 侧**，已记入 7.1，B 未改 C 的任何文件。
 
 
 ---
@@ -54,6 +70,9 @@
 | L4 前端静态与构建 | `vue-tsc --noEmit`、`vite build`、开发服务器逐模块请求 | 前端全部源码 |
 
 > 说明：`/api/guides/...`（C7）与 `UserAction` 路由尚未实现，因此 B6 攻略组装与 B5 意图识别**无法走 HTTP 链路**，采用 L1 + L2 直接调用验证。
+>
+> **已过期（2026-09-27）**：C7 已交付四个攻略接口，B7 已把 B6 攻略正文与 B5 `UserAction`
+> 接到这些接口上，并新增 **L3b 攻略接口端到端**（见 3.5）。本句保留为 09-24 当时的快照。
 
 ---
 
@@ -109,6 +128,28 @@
 - 开发服务器逐模块请求：`main.ts` / `App.vue` / 各组件 / 各工具模块全部 HTTP 200，无转换错误
 - fixture 跨目录读取：`/@fs/D:/ProjectB/fixtures/valid/travel_guide.json` 解析正确（未复制样例数据）
 
+### 3.5 攻略接口端到端（L3b，2026-09-27 B7 新增）
+
+用前端**逐字段一模一样**的载荷打真实路由（`TestClient` + 测试替身依赖），验证对接不是"看签名猜的"：
+
+| # | 调用 | 前端载荷要点 | 实测结果 |
+| --- | --- | --- | --- |
+| 1 | `GET /api/guides/{id}` | 无 | `200`，七部分齐，`guide_version=1`，`lifecycle=DRAFT` |
+| 2 | `POST /api/guides/{id}/confirm` | `{expected_guide_version, lock_node_ids:[], idempotency_key}` | `200`，`v1 → v2`，`lifecycle=CONFIRMED` |
+| 3 | 同上（重复提交，版本已过期） | 同一 `idempotency_key` + 旧版本号 | `409` `VERSION_CONFLICT`（前端据此改为重新拉取状态） |
+| 4 | `POST /api/guides/{id}/incident` | `{action: UserAction(REPORT_INCIDENT, raw_text="今天下雨了")}` | `200`，`v2 → v3`，谱系 6 保留 / 1 替换 / 1 移除 / 1 条替换关系 |
+| 5 | 字段集比对 | 前端 TS 声明的字段 vs 实际返回 | `GuideChangeData` 与 `VersionLineage` **完全一致**（无缺无多） |
+
+`tools/check_b_flow.py`（逐步打印 stage，可直接当演示证据）：
+
+| 模式 | 结果 |
+| --- | --- |
+| `--deps fake`（默认，测试替身） | 退出码 **0**：建会话 → 追问 → 推荐 → 确认 → 七部分攻略 → 确认攻略 → 报突发 → 新版本；`示例历史街区 → 测试室内展馆` |
+| `--deps real`（A 的 Mock Provider） | 退出码 **2**：第 4 步停在 `INSUFFICIENT_DATA` +「住宿候选数据还没有到位」，**不再是 500** |
+
+退出码约定：`0` 全通 / `1` 真失败（应报 bug）/ `2` 数据缺口（A 的待办，不是 bug）——
+这样它同时是演示材料和 A 的数据探针。
+
 ---
 
 ## 四、过程中发现并修复的缺陷
@@ -122,12 +163,23 @@
 | 5 | `interests` 中英标签混用（`["美食","FOOD"]`） | 模型返回中文兴趣词 | 下游按标签匹配资源会漏（两套词表并存，语义重复） | `guards.py` 增加标签归一（中文→规范标签，词表外的值原样保留以免丢信息）；提示词同步给出规范词表 | `test_llm_request_parser.py` 新增 3 用例 |
 | 6 | B5 "10月3号"这类无年份日期完全丢失 | 用户改行程时不写年份 | 修改意图拿不到目标日期，下游无法定位到具体哪天 | `_extract_date` 支持月日短格式，并按参考日期补年份；`interpret()` 增加可选 `reference_date`（默认今天，向后兼容） | `test_action_interpreter.py` 新增 4 用例 |
 | 7 | **「玩 N 天」的返回日期在模型侧摇摆**（2026-09-27 复核发现） | 用户用口语说时长，如「玩5天」 | **主流程阻断**：实测同一句话 6 次里 4 次给出 `出发日+5`（把「含首尾共 5 天」算成 6 天）→ `duration_days=6` → 超过数据层覆盖门槛（成都 12 个游玩地点 < `2×6+1`）→ 第一步即返回「覆盖不足」，推荐与攻略都走不到 | `backend/app/llm/request_parser.py` 在规则辅助中加**显式时长校正**：文本明说「N 天」且用户没写往返两个日期时，以 `start + N - 1` 为准，并记入 `diagnostics` | `test_llm_request_parser.py` 新增 4 用例（含「第一天」不被误读、两个明确日期不被改口） |
+| 8 | **前端用 `guide_id` 反推 stage**（B7 自查发现，B 自己此前写错） | 后端在 `REPAIRING`/`PLANNING` 阶段返回响应 | `send()` 里有一句 `if (data.guide_id) stage='READY'`（C7 之前的临时补丁）。实测 `services/reply_builder.py:121-133`：`PLANNING/READY/REPAIRING` 分支带的都是**持久化的上一版** `current_guide_id`，所以 stage 为 `REPAIRING` 时也会带 `guide_id` → 前端把「正在修复冲突」谎报成「攻略已就绪」，并把旧攻略当本轮新产出展示 | `frontend/src/stores/session.ts` 删掉该覆盖，stage 一律只取后端值；`guide_id` 存在但 stage 非 `READY` 时另加一条说明 | `tools/check_b_flow.py` 第 4 步；`build_reply` 四种 stage 逐个实测 |
+| 9 | **确认攻略的注释与提示写错了后端语义**（B7 自查发现，B 写错事实） | 点「就按这份走」 | 原注释称"后端从攻略里已有 `locked` 标记的节点取"、提示称"被锁定的节点后续不再自动改动"。实测 `services/session_service.py:227`：`locked = sorted({*lock_node_ids})`，**服务端不会自己挑节点**；传 `[]` 时锁定数为 0，一句都没锁上 | 注释与提示改为如实描述（状态置 `CONFIRMED`、版本 +1、本页暂不支持逐节点锁定），按钮加 tooltip 说明 | 传 `[]` 与传全部节点的两组实测对比 |
+| 10 | **谱系里的旧节点名显示成裸 ID**（B7 自查发现，B 漏考虑） | 报突发后看「本轮改动」面板 | `removed_node_ids` 与 `replacement_relations.old_node_id` 是**旧版**节点，在新版正文里查不到名字 → 面板显示 `node_39b89926`。且 `GET /api/guides/{id}?version=N` 取不到历史版本（见 7.1），没法回查 | 新增 `lineageBaseGuide` 保存"改动前那一版"作索引，组件双版查名；两版都查不到时如实标「名称不可得」 | `tools/check_b_flow.py` 第 8 步（校验保留/替换在新版、移除/被替换在旧版，两版合起来全覆盖） |
+| 11 | **通用错误文案盖掉后端具体原因**（B7 自查发现，既有代码） | 后端返回 `error.code='DATA_MISSING'` 但 `message` 是具体原因 | `ApiError` 原为 `ERROR_TEXT[code] ?? detail.message`，`DATA_MISSING` 在多个场景复用（攻略不存在 / 素材缺失 / 「本轮没有需要调整的安排」），用户看到的却是「找不到对应的会话或数据」，真实原因被盖掉、没法自救 | `frontend/src/api/client.ts` 改为**后端 `message` 优先**，`ERROR_TEXT` 降为兜底 | `tools/check_b_flow.py` 锁全部节点后报突发（实测返回「2026-10-02 没有需要调整的安排」） |
+| 12 | **两个动作按钮同时转圈 / 用残留错误判成败**（B7 自查发现，B 写错） | 攻略页点动作 | ① 两个按钮都绑 `store.loading` → 同时转圈，分不清哪次请求在跑；② 组件用 `store.error` 判成败 → 会把**上一轮**别的操作残留的错误报成"本次失败" | 组件加本地 `pending: 'confirm' \| 'incident' \| null`；`confirmCurrentGuide` / `reportIncidentNow` 改为返回 `boolean`，组件只看返回值 | `vue-tsc --noEmit` + `vite build` |
 
 > 补充说明 1：缺陷 1、4 改动了 `backend/app/services/request_parser.py`（C 线文件）。改动均为**增量修复**，未改动任何函数签名与对外行为，改动后全量用例通过。如需 C 线自行处理，可直接回退该文件的这几处改动。
 >
 > 补充说明 2：缺陷 6、7 的**规则式解析器侧本来就有正确实现**（`request_parser.py` 的「N 天」分支），问题出在 B 的 LLM 层：`_apply_rule_assist` 的策略是「模型已有值不动、只补空字段」，于是模型多算一天的结果被直接放行。本次修复把「用户明说的时长」提到与规则式同一口径。
 >
 > 补充说明 3：该缺陷同时暴露一个**跨线口径问题**（建议 C / A 关注）：数据层覆盖门槛 `required = duration_days × 2 + 1` 与 mock 数据规模相互卡得很紧 —— 成都 12 个游玩地点只够撑 5 天行程，6 天即判不可规划。**门槛本身是否该这么陡，建议在 C 侧确认**（见 `PROGRESS_REPORT.md` 第 5 节 `KnowledgeCoverage` 那条「待定」）。
+>
+> 补充说明 4（2026-09-27 B7）：缺陷 8、9、12 是 **B 自己此前写错**的东西 —— 8 是 C7 之前留下的临时补丁
+> 没随接口就位一起删掉，9 是把后端语义写错了，12 是组件层的两处误用。三条都不是"改需求"，
+> 而是"前后端说法不一致"：**前端替后端下结论、注释与实现不符**。这也是本轮把
+> `tools/check_b_flow.py` 做出来的原因 —— 逐步打印 stage，让"前端显示的"和"后端返回的"直接并排可见。
+> 缺陷 10、11 中，10 是 B 漏考虑（旧节点名解析），11 是既有代码的通用文案盖掉具体原因。
 
 ---
 
@@ -155,13 +207,15 @@
 
 | 项 | 说明 | 影响 |
 | --- | --- | --- |
-| B6 攻略组装无 HTTP 链路 | `/api/guides/...`（C7）未实现，只能用官方 fixture 验证 | 组装逻辑与 fixture 完全对齐，但**未与真实规划产物对接过** |
-| B5 无 HTTP 链路 | `UserAction` 路由未实现（C7） | 解析器已就绪，接口签名已按契约对齐，待 C 提供路由即可接入 |
-| 端到端止于"目的地确认" | C3–C6（抓取资源 → 排程 → 验证）尚未实现 | 完整链路（生成攻略）暂时跑不到，B6 的输入依赖 C 线规划产物 |
-| 组装规则出自 fixture 反推 | 非 C 线当面确认的口径 | 建议 C 线复核 `compose_travel_guide()` 的富化与求和规则 |
-| `DestinationRecommendation` 缺 `name` 字段 | 前端候选卡片只能显示 `dest_chengdu` 这类 ID | 建议提给全员，由 C 线加字段（前端已就绪，加字段后无需改动） |
-| 浏览器自动化验证未完成 | agent-browser 守护进程在本机反复挂起（已成功打开页面一次，标题正确） | 前端渲染以人工查看 + 静态检查替代，不影响功能 |
-| 前端会话持久化仅存"钥匙" | 只持久化 `sessionId` 与消息，权威状态仍从后端拉取 | 后端为内存存储，重启后旧会话失效时静默新建（已处理） |
+| ~~B6 攻略组装无 HTTP 链路~~ **已解除（2026-09-27 B7）** | `/api/guides/...`（C7）已交付，B7 已接进页面 | 已与真实规划产物对接过：见 3.5 的 5 组攻略接口端到端；不再依赖 fixture |
+| ~~B5 无 HTTP 链路~~ **已解除（2026-09-27 B7）** | `UserAction` 路由（`/modify`、`/incident`）已实现 | 先接的是 `REPORT_INCIDENT`（页面「上报突发」）；`MODIFY_GUIDE` 的请求层已就绪（`api/guides.ts` 的 `modifyGuide`），**尚无页面入口** |
+| ~~端到端止于"目的地确认"~~ **已解除（2026-09-27）** | C4/C5/C6/C7 全部交付 | 全链路已跑通：`tools/check_b_flow.py --deps fake` 到「报突发 → 新版本」，退出码 0。**真实数据下仍止于 `INSUFFICIENT_DATA`（A 缺住宿等 6 项，非代码问题）** |
+| 组装规则出自 fixture 反推 | 非 C 线当面确认的口径 | 建议 C 线复核 `compose_travel_guide()` 的富化与求和规则（B7 之后已有真实链路产物可比对） |
+| `DestinationRecommendation` 缺 `name` 字段 | 前端候选卡片只能显示 `dest_chengdu` 这类 ID | 建议提给全员，由 C 线加字段（前端已就绪，加字段后无需改动）；属 Q8 |
+| 浏览器自动化验证未完成 | agent-browser 守护进程在本机反复挂起（已成功打开页面一次，标题正确） | 前端渲染以人工查看 + 静态检查替代，不影响功能（B7 新增的改动面板同此口径） |
+| 前端会话持久化仅存"钥匙" | 只持久化 `sessionId`、消息与 `guideId`，权威状态仍从后端拉取 | 后端为内存存储，重启后旧会话失效时静默新建（已处理）。`guideId` 是 B7 新增的钥匙，理由见 7.1 第 2 条 |
+| **真实数据下跑不到 `READY`**（2026-09-27 新增） | A 的必修数据 7 项里 6 项未到位（住宿候选/住宿区域/景点间路线/返程城际/天气覆盖/车站-住宿路线） | 决定"能不能演示完整行程"的是 **A 的数据**，不是前端。演示请用 `--deps fake` 并如实标注依赖来源 |
+| **`REPAIRING + conflicts[]` 未在 HTTP 层实测**（2026-09-27 新增） | 该分支要求"有计划但修不动"，A 缺数据到不了"有计划"那一步；C 的 `test_repair_loop_is_bounded` 锁的是**路由**判定而非 HTTP 响应 | 前端已按契约渲染该结构（`conflicts` 由 `GuideChangePanel` 展示），但**这条判定 B 不做"已验收"声明** |
 
 ---
 
@@ -174,14 +228,17 @@
 
 | 事项 | 卡住什么 | B 侧现状 |
 | --- | --- | --- |
-| `GET /api/guides/{id}?version=`（§13.2） | B6 七部分组装无 HTTP 出口，只能对 fixture 验证 | `compose_travel_guide()` 已实现，29 个用例全过，接口就位即可接入 |
-| `POST /api/guides/{id}/modify`、`POST /api/guides/{id}/incident`（§13.2） | B5 `UserAction`（`MODIFY_GUIDE` / `REPORT_INCIDENT`）无出口 | `ActionInterpreter` 已就绪，签名已按契约对齐 |
-| C3–C6 规划链路 | 端到端止于「目的地确认」，跑不到攻略生成 | 组装输入依赖 C 线的 `ItineraryPlan` 产物 |
+| ~~`GET /api/guides/{id}?version=`（§13.2）~~ **已交付（C7）** | 已不卡 | B7 已接入并实测通过（3.5 第 1 组） |
+| ~~`POST /api/guides/{id}/modify`、`/incident`（§13.2）~~ **已交付（C7）** | 已不卡 | `REPORT_INCIDENT` 已接进页面；`MODIFY_GUIDE` 请求层就绪、尚无页面入口 |
+| ~~C3–C6 规划链路~~ **已交付** | 已不卡 | 全链路已跑通（`tools/check_b_flow.py`） |
 | 复核 `compose_travel_guide()` 的富化与求和规则 | 该规则由官方 fixture 反推，非当面确认口径 | 若与 C4/C5 口径不符，改动集中在 `backend/app/guide/composer.py` 单文件 |
-| `DestinationRecommendation` 补 `name` 字段 | 前端候选卡片只能显示 `dest_chengdu` 这类 ID | 前端已就绪，后端加字段后前端无需改动 |
-| 复核 B 对 `request_parser.py` 的修正 | 修的是「返回日期被当成出发日期，导致追问关不上」 | 改动最小化，该文件原有 18 个用例全过 |
-| **确认覆盖门槛 `duration_days × 2 + 1` 是否过陡**（2026-09-27 新增） | 成都 12 个游玩地点**只够撑 5 天**：门槛 11 勉强过、13 就不过。口语说「玩 5 天」一旦被算成 6 天，链路第一步就断 | B 已在解析层修掉「多算一天」（缺陷 7），但**门槛与 mock 数据规模的匹配关系需要 C / A 定夺** |
+| `DestinationRecommendation` 补 `name` 字段 | 前端候选卡片只能显示 `dest_chengdu` 这类 ID | 前端已就绪，后端加字段后前端无需改动（属 Q8） |
+| 复核 B 对 `request_parser.py` 的修正 | 修的是「返回日期被当成出发日期，导致追问关不上」 | 改动最小化，该文件原有用例全过 |
+| **确认覆盖门槛 `duration_days × 2 + 1` 是否过陡**（2026-09-27 新增） | 成都 12 个游玩地点**只够撑 5 天**：门槛 11 勉强过、13 就不过。口语说「玩 5 天」一旦被算成 6 天，链路第一步就断 | B 已在解析层修掉「多算一天」（缺陷 7），但**门槛与 mock 数据规模的匹配关系需要 C / A 定夺**（Q9） |
 | 复核 B 本次新增的「显式时长校正」（2026-09-27 新增） | 该规则**会覆盖模型给出的返回日期**（仅在用户没写往返两个日期时生效） | 改动集中在 `backend/app/llm/request_parser.py` 单文件，4 个专项用例覆盖（含不介入的边界） |
+| **`GET /api/guides/{id}?version=N` 取不到历史版本**（2026-09-27 B7 实测发现） | 谱系（`version_lineage`）里 `removed_node_ids` 与 `replacement_relations.old_node_id` 是**旧版**节点，前端想回查旧版正文取名字却拿不到 | 实测：`v2.parent_guide_version=1`（有值），但 `GET /api/guides/{id}?version=1` → **404 `DATA_MISSING`**。根因是 `services/guide_service.py:269` 的 `store_guide()` 按 `guide_id` 覆盖（`kept = [... if item.guide_id != guide.guide_id]`），同一 `guide_id` 只留最新版，于是 `find_guide(..., version)` 的版本比对只可能命中当前版 —— **契约 §13.2 写了 `?version=`，目前它是死参数且无测试覆盖**。B 的前端已不依赖它（改用"改动前那一版"做本地索引，缺陷 10） |
+| **`GET /api/sessions/{id}` 从不返回 `guide_id`**（2026-09-27 B7 实测发现） | 前端刷新页面后拿不到攻略 ID，页面会从「有攻略」退回「攻略还没有生成」 | 实测 `services/session_service.py:183-192` 的 `get_state()` 调 `build_reply()` 时**没传** `guide_id=extras.current_guide_id`，而 `build_reply` 的 `PLANNING/READY/REPAIRING` 分支本来会带上它（`send_message` 那条路径就传了）。**一行可修**；B 的前端已先把 `guideId` 一并存进 localStorage 绕开，不阻塞合入 |
+| **`/incident` 返回的谱系里攻略版本号恒为 `null`**（2026-09-27 B7 实测发现，建议登记为新 Q；Q 编号由 C 分配，B 不自行编号） | 前端没法显示「攻略 v2 → v3」，只能显示计划版本变化 | 实测 `POST /api/guides/{id}/incident` 的 `version_lineage` 中 `parent_guide_version` / `new_guide_version` **都是 `null`**，而同一次响应里 `travel_guide.guide_version` 正常递增（2 → 3）。契约里这两字段可空，不算违约，但**谱系因此少了一半信息**。B 的面板如实标注「谱系未带攻略版本号」而不是猜数字 —— 是否补值请 C 定夺 |
 
 ### 7.2 需要 A 提供
 
@@ -214,6 +271,16 @@ npx vite build
 npx vite             # http://localhost:5173
 ```
 
+```bash
+# B 线 P0 链路演示（逐步打印 stage，可直接当演示证据；在仓库根目录跑）
+python tools/check_b_flow.py                 # 测试替身 → 跑到"报突发 → 新版本"，退出码 0
+python tools/check_b_flow.py --deps real     # A 的 Mock Provider → 停在 INSUFFICIENT_DATA，退出码 2
+python tools/check_b_flow.py --show-json     # 额外打印每一步的关键 JSON
+```
+
+> 退出码：`0` 全通 / `1` 真失败（应报 bug）/ `2` 数据缺口（A 的待办）。
+> **真实数据下现在只能得到 2** —— 这不是代码问题，是 A 的住宿等 6 项数据未到位。
+
 配置 LLM 通道：把仓库根 `.env.example` 复制为 `.env`，填 `LLM_PRIMARY_API_KEY` / `BASE_URL` / `MODEL`。未填写时自动降级到规则式实现，功能可用但语义理解能力受限。
 
 ---
@@ -240,6 +307,19 @@ npx vite             # http://localhost:5173
 
 > 复核订正（2026-09-27）：原文写 30 个且清单漏列 `src/App.vue`，
 > 按 `git ls-files frontend` 实测为 **31 个**（含 `package-lock.json`）。
+
+**B7 变更文件（2026-09-27，C7 攻略接口就位之后）**
+
+| 文件 | 类型 | 改了什么 |
+| --- | --- | --- |
+| `frontend/src/api/guides.ts` | 新增 | §13.2 的四个接口客户端（`getGuide` / `confirmGuide` / `modifyGuide` / `reportIncident`）。`modifyGuide` 暂无页面入口，保留是为了整组签完契约 |
+| `frontend/src/components/guide/GuideChangePanel.vue` | 新增 | 「本轮改动」面板：谱系的保留/替换/移除节点 + 替换关系 + `conflicts`；双版查节点名 |
+| `frontend/src/stores/session.ts` | 修改 | `syncGuide` 改走真实接口；新增 `confirmCurrentGuide` / `reportIncidentNow` / `versionLineage` / `lineageBaseGuide`；持久化 `guideId`；删掉 `guide_id → stage='READY'` 的覆盖 |
+| `frontend/src/views/GuideView.vue` | 修改 | 挂载改动面板；新增「就按这份走」「上报突发」两个动作；本地 `pending` 区分按钮 loading |
+| `frontend/src/types/contract.ts` | 修改 | 补 `UserAction` / `VersionLineage` / `ChangeType` / `ScopeHint` / `ActionChangePayload` / `GuideChangeData` 等类型（照 `app/schemas/v04/` 原样抄，未新增字段） |
+| `frontend/src/api/client.ts` | 修改 | `ApiError` 改为后端 `message` 优先，`ERROR_TEXT` 降为兜底 |
+| `frontend/src/utils/labels.ts` | 修改 | 补 `CHANGE_NOTE` 的中文标题 |
+| `tools/check_b_flow.py` | 新增 | P0 链路演示脚本（逐步打印 stage，退出码三分） |
 
 **文档**
 

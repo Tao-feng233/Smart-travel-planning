@@ -11,7 +11,12 @@ import type { Envelope, ErrorDetail, WarningItem } from '@/types/contract'
  * 2. 前端**不持有任何服务端 Key**，请求只走同源代理（vite.config.ts）。
  */
 
-/** §13.3 的 8 个错误码 → 面向用户的中文说明。 */
+/**
+ * §13.3 的 8 个错误码 → 兜底中文说明。
+ *
+ * 只在后端**没给** `error.message` 时用。后端给了具体原因就用后端的，
+ * 因为同一个 code 在不同场景含义不同，通用文案会把真实原因盖掉（见下方构造函数）。
+ */
 const ERROR_TEXT: Record<string, string> = {
   CONTRACT_MISMATCH: '请求与契约不匹配，请联系开发排查。',
   VERSION_CONFLICT: '数据版本已过期，请刷新后重试。',
@@ -29,7 +34,12 @@ export class ApiError extends Error {
   readonly traceId: string | null
 
   constructor(detail: ErrorDetail, traceId: string | null) {
-    super(ERROR_TEXT[detail.code] ?? detail.message ?? '请求失败')
+    // 后端给的具体说明**优先**：同一个 code 会在多个场景复用，例如
+    // `DATA_MISSING` 既表示"攻略不存在"，也表示"素材缺失"，还表示
+    // "本轮没有需要调整的安排"（实测 `POST /guides/{id}/incident` 全锁时返回它）。
+    // 统一套一句"找不到对应的会话或数据"会把真实原因盖掉，用户就没法自救。
+    // ERROR_TEXT 只作兜底（后端没给 message 时用）。
+    super(detail.message?.trim() || ERROR_TEXT[detail.code] || '请求失败')
     this.name = 'ApiError'
     this.code = detail.code
     this.details = detail.details ?? {}

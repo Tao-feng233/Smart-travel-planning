@@ -9,6 +9,66 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**B线更新**：2026-09-27 · **B7 完成：攻略接口接进页面 + 「本轮改动」面板 + 端到端演示脚本**
+
+- **§13.2 四个攻略接口已接进前端**：`GET /api/guides/{id}`（含 `?version=`）、`/confirm`、`/modify`、`/incident`。
+  攻略正文**不再来自 fixture**；`guideOrigin='api'` 表示正文确实来自后端。
+- **攻略页新增「本轮改动」面板**：展示 `version_lineage` 的保留/替换/移除节点与替换关系，
+  并单独列出 `conflicts`（严重度 / 范围 / 受影响节点数 / 可选修法数）。页面同时新增两个动作：
+  「就按这份走」（`/confirm`）与「上报突发」（`/incident`）。
+- **新增 `tools/check_b_flow.py`**（逐步打印 stage，可直接当演示证据）：
+  - `--deps fake`（默认，测试替身）：`建会话 → 追问 → 推荐 → 确认 → 七部分攻略 → 确认攻略 → 报突发 → 新版本`，**退出码 0**
+  - `--deps real`（A 的 Mock Provider）：停在 `INSUFFICIENT_DATA` +「住宿候选数据还没有到位」，**退出码 2**
+  - 退出码三分：`0` 全通 / `1` 真失败（应报 bug）/ `2` 数据缺口（A 的待办）—— 它同时是演示材料和 A 的数据探针
+- **测试**：全量 **292 passed, 1 skipped**（skip = `test_a_mcp_server.py`，本机 venv 未装 `mcp` SDK）；
+  `vue-tsc --noEmit` 与 `vite build` 退出码 0。
+  与 main（`76f0e30`）的差值来源已**逐文件核实**：288 + B 线新增 4（`test_llm_request_parser.py` 25 → 29）= 292。
+- **B 自查修掉自己 5 处写错的东西**（不是改需求，是「前端替后端下结论 / 注释与实现不符」）：
+  1. `send()` 里 `if (data.guide_id) stage='READY'`（C7 之前的临时补丁）没随接口就位删掉 ——
+     实测 `reply_builder.py:121-133` 在 `PLANNING`/`REPAIRING` 时带的仍是**持久化的上一版** `current_guide_id`，
+     前端会把「正在修复冲突」谎报成「攻略已就绪」，并把旧攻略当本轮新产出展示。已改为 stage 只取后端值。
+  2. 确认攻略的注释称「后端从已 `locked` 的节点取」、提示称「被锁定的节点不再自动改动」——
+     实测 `session_service.py:227` 是 `locked = sorted({*lock_node_ids})`，**服务端不会自己挑节点**，
+     传 `[]` 时锁定数为 0。注释与提示已订正，按钮加 tooltip 说明。
+  3. `ApiError` 用通用文案盖掉后端具体原因（「2026-10-02 没有需要调整的安排」被显示成「找不到对应的会话或数据」）→ 改为后端 `message` 优先。
+  4. 谱系里 `removed_node_ids` / `replacement_relations.old_node_id` 是**旧版**节点、新版正文查不到名字 →
+     新增 `lineageBaseGuide` 存「改动前那一版」当索引，两版都查不到时如实标「名称不可得」。
+  5. 两个动作按钮都绑 `store.loading` 会同时转圈；组件用 `store.error` 判成败会把**上一轮**残留错误报成「本次失败」→ 已修（动作改为返回 `boolean`）。
+
+**需要 C 复核的三处接口缺口（B 用实测发现，B 未改 C 的任何文件）**
+
+- [ ] **`GET /api/guides/{id}?version=N` 取不到历史版本**：实测 `v2.parent_guide_version=1` 有值，
+      但 `GET /api/guides/{id}?version=1` → **404 `DATA_MISSING`**。
+      根因是 `services/guide_service.py:269` 的 `store_guide()` 按 `guide_id` 覆盖
+      （`kept = [item for item in extras.guides if item.guide_id != guide.guide_id]`），
+      同一个 `guide_id` 只留最新版，于是 `find_guide(..., version)` 的版本比对只可能命中当前版。
+      契约 §13.2 写了 `?version=`，**目前它是死参数且无测试覆盖**。影响：谱系里的旧节点名无法回查。
+      B 的前端已不依赖它（改用「改动前那一版」做本地索引）。
+- [ ] **`GET /api/sessions/{id}` 从不返回 `guide_id`**：`services/session_service.py:183-192` 的 `get_state()`
+      调 `build_reply()` 时没传 `guide_id=extras.current_guide_id`（而 `send_message` 那条路径传了，
+      `build_reply` 的 `PLANNING/READY/REPAIRING` 分支本来就会带上它）。
+      影响：前端刷新页面后拿不到攻略 ID，页面会从「有攻略」退回「攻略还没有生成」。**一行可修**；
+      B 的前端已先把 `guideId` 一并存进 localStorage 绕开，不阻塞合入。
+- [ ] **`/incident` 的谱系里攻略版本号恒为 `null`**：实测 `version_lineage.parent_guide_version` 与
+      `new_guide_version` **都是 `null`**，而同一次响应的 `travel_guide.guide_version` 正常递增（2 → 3）。
+      契约允许可空、不算违约，但**谱系因此少了一半信息**（前端只能显示计划版本变化）。
+      是否补值请定夺；B 的面板如实标注「谱系未带攻略版本号」，不猜数字。
+
+**B7 改动文件（8 个，全在 `frontend/` 与 `tools/`，共享文件零改动）**
+
+| 文件 | 类型 |
+| --- | --- |
+| `frontend/src/api/guides.ts` | 新增（§13.2 四个接口客户端） |
+| `frontend/src/components/guide/GuideChangePanel.vue` | 新增（「本轮改动」面板） |
+| `frontend/src/stores/session.ts` | 修改（走真实接口 + 三个动作 + 两把钥匙） |
+| `frontend/src/views/GuideView.vue` | 修改（挂面板 + 两个动作） |
+| `frontend/src/types/contract.ts` | 修改（照 `app/schemas/v04/` 补类型，未新增字段） |
+| `frontend/src/api/client.ts` | 修改（错误文案优先级） |
+| `frontend/src/utils/labels.ts` | 修改（`CHANGE_NOTE` 中文标题） |
+| `tools/check_b_flow.py` | 新增（P0 链路演示脚本） |
+
+（以下为上一轮 C7 / 端到端联调记录）
+
 **C线更新**：2026-09-27 · **端到端联调测试完成：C1–C7 全部交付，只剩 A 的数据**
 
 - **端到端测试就位**：`backend/tests/test_end_to_end.py` 用同一套数据替身跑完整条 P0 链路

@@ -17,6 +17,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { ApiError } from '@/api/client'
+import { confirmGuide, getGuide, reportIncident } from '@/api/guides'
 import { createSession, getSession, sendMessage } from '@/api/sessions'
 import type {
   ChatMessage,
@@ -26,10 +27,13 @@ import type {
   RunMode,
   TripProfile,
   TravelGuide,
+  UserAction,
+  VersionLineage,
   WarningItem,
 } from '@/types/contract'
 import { extractMissingFields, FIELD_ORDER } from '@/utils/clarification'
 import { fixtureEnabled, loadFixtureDraft, loadFixtureGuide } from '@/utils/fixtureLoader'
+import { stageLabel } from '@/utils/labels'
 
 export type GuideOrigin = 'api' | 'fixture' | 'none'
 
@@ -43,8 +47,14 @@ function nowLabel(): string {
 //
 // 为什么必须做：后端会话是有状态的（画像版本、Draft、候选都在服务端），
 // 用户刷新页面后如果重新 createSession，等于把正在进行的对话扔掉重开。
-// localStorage 只存"找得回会话的钥匙"，**不复制后端状态**——
+// localStorage 只存"找得回后端状态的钥匙"，**不复制后端状态**——
 // 恢复时用 GET /api/sessions/{id} 重新拉权威状态，前端不自己拼装。
+//
+// 关于 `guideId`：它也是一把"钥匙"（拿着它去 GET /api/guides/{id} 取权威正文），
+// 所以必须一起存。实测 `GET /api/sessions/{id}` **不返回** `guide_id`
+// （`session_service.get_state()` 没把 `extras.current_guide_id` 传给 `build_reply`），
+// 只靠刷新状态是找不回攻略的——刷新后页面会从"有攻略"退回"攻略还没有生成"。
+// 这条后端缺口已报给 C；前端先自行把钥匙存住，不等接口改。
 
 const STORAGE_KEY = 'travelsense.session.v1'
 
@@ -53,6 +63,8 @@ interface PersistedSession {
   runMode: RunMode
   messages: ChatMessage[]
   profileVersion: number | null
+  /** 当前攻略 ID；没有攻略时为 null。 */
+  guideId: string | null
 }
 
 function readSavedSession(): PersistedSession | null {
@@ -99,6 +111,19 @@ export const useSessionStore = defineStore('session', () => {
   const guide = ref<TravelGuide | null>(null)
   const guideOrigin = ref<GuideOrigin>('none')
   const guideNotice = ref<string | null>(null)
+  /** 上一次改攻略/报突发的版本谱系（哪些节点被保留、替换、移除）。 */
+  const versionLineage = ref<VersionLineage | null>(null)
+  /**
+   * 产出上面那份谱系的**改动前**那一版攻略。
+   *
+   * 为什么必须留着：谱系里的 `removed_node_ids` 与 `replacement_relations.old_node_id`
+   * 是**旧版**节点 ID，在新版正文里查不到。而 `GET /api/guides/{id}?version=N`
+   * 取不到历史版本——实测 v2 存在时 `?version=1` 返回 404 `DATA_MISSING`，
+   * 根因是 `guide_service.store_guide` 按 `guide_id` 覆盖（同 ID 只留最新版），
+   * 于是 `version` 参数实际是死的。好在改动前那一版就在页面上握着，
+   * 直接留作索引即可，不用再请求、也不用猜。已把 `?version=` 这条报给 C。
+   */
+  const lineageBaseGuide = ref<TravelGuide | null>(null)
   /** 演示通道的说明（本地造出来的界面状态，必须显式告知，不能冒充后端行为） */
   const demoNotice = ref<string | null>(null)
   /** 用户已手动关闭的提示。同一会话内不再打扰；内容变化时视为新提示。 */
@@ -177,6 +202,9 @@ export const useSessionStore = defineStore('session', () => {
       runMode: runMode.value,
       messages: messages.value,
       profileVersion: tripProfile.value?.profile_version ?? null,
+      // 只有后端来的正文才是"可再取的钥匙"；fixture 演示的攻略 ID 存下来
+      // 只会在下次打开时 404，徒增一条误导性提示。
+      guideId: guideOrigin.value === 'api' ? (guide.value?.guide_id ?? null) : null,
     })
   }
 
@@ -212,6 +240,8 @@ export const useSessionStore = defineStore('session', () => {
         absorbWarnings(result.warnings)
         loading.value = false
         await refreshState()
+        // 攻略正文靠 `guideId` 这把钥匙单独取回（GET /sessions 不给 guide_id）。
+        await syncGuide(saved.guideId ?? null)
         return
       } catch {
         writeSavedSession(null)
@@ -260,11 +290,17 @@ export const useSessionStore = defineStore('session', () => {
       degradedItems.value = data.degraded_items ?? []
       pushMessage('assistant', data.assistant_message, data.stage)
 
-      // 后端只给了 guide_id，正文要等 C7 的攻略接口
-      if (data.guide_id) {
-        stage.value = 'READY'
-      }
+      // 注意：`guide_id` 不能反过来决定 `stage`。
+      // 实测（`backend/app/services/reply_builder.py:121-133`）：当 stage 是
+      // `REPAIRING`/`INSUFFICIENT_DATA` 时，响应里带的仍是**持久化的上一版**
+      // `current_guide_id`。早先这里有一句 `if (data.guide_id) stage = 'READY'`，
+      // 会把"正在修复冲突"改写成"攻略已就绪"，等于前端替后端下结论。
+      // 现在 stage 只由后端给，前端不猜。
       await syncGuide(data.guide_id)
+      if (data.guide_id && data.stage !== 'READY') {
+        guideNotice.value =
+          `后端当前阶段是「${stageLabel(data.stage)}」，下面这份是已有的上一版攻略，不是本轮新产出的。`
+      }
       await refreshState()
       persist()
     } catch (cause) {
@@ -295,27 +331,140 @@ export const useSessionStore = defineStore('session', () => {
   /**
    * 攻略正文装配。
    *
-   * 后端攻略接口（C7）就绪前，只能在演示模式下读官方 fixture，
-   * 并在界面上**显式标注**这是示例数据。
+   * C7 就绪后走 `GET /api/guides/{id}`，`guideOrigin = 'api'` 表示正文来自后端。
+   * fixture 只留给「演示通道」（`loadFixtureDemo`），不再冒充真实产物。
    */
   async function syncGuide(guideId: string | null): Promise<void> {
     if (!guideId) {
       guide.value = null
       guideOrigin.value = 'none'
       guideNotice.value = null
+      versionLineage.value = null
+      lineageBaseGuide.value = null
       return
     }
-    // TODO(C7)：改为 GET /api/guides/{guide_id} 后直接使用接口返回的 TravelGuide
-    const fixture = loadFixtureGuide()
-    if (fixture) {
-      guide.value = fixture
-      guideOrigin.value = 'fixture'
-      guideNotice.value =
-        '后端攻略接口（C7）尚未实现，本页展示的是仓库官方 fixture（fixtures/valid/travel_guide.json），仅用于验证七部分组装与展示，不是本次会话的真实产物。'
-    } else {
-      guide.value = null
-      guideOrigin.value = 'none'
-      guideNotice.value = `后端已生成攻略 ${guideId}，但攻略接口尚未实现，暂时无法取回正文。`
+    try {
+      const result = await getGuide(guideId)
+      guide.value = result.data.travel_guide
+      guideOrigin.value = 'api'
+      guideNotice.value = null
+      // 重新取回的是一份全新的正文，上一次改动的谱系已无上下文，不能留在页面上。
+      versionLineage.value = null
+      lineageBaseGuide.value = null
+      absorbWarnings(result.warnings)
+    } catch (cause) {
+      // 取不回来时**不清空页面**：保留上一份可见的攻略，把后端给的原因如实标出来。
+      // 缺素材时 `error.details` 会写明缺什么（例如 LODGING_CANDIDATES），
+      // 用户据此去找数据方补，比一个空白页有用。
+      const described = describeError(cause)
+      guideNotice.value = `没能取回攻略 ${guideId}：${described.message}`
+      if (!guide.value) {
+        guideOrigin.value = 'none'
+      }
+    }
+  }
+
+  /**
+   * 确认当前攻略（`POST /api/guides/{id}/confirm`）。
+   *
+   * 后端语义（实测 `app/services/session_service.py:210-240`）：
+   * - `lifecycle_status` 置为 `CONFIRMED`、`guide_version` +1（内容不变）；
+   * - 只有 `lock_node_ids` 里**明确列出**的节点会被标记 `locked`，
+   *   服务端**不会**自己从攻略里挑已经 `locked` 的节点。
+   *
+   * 所以传空数组 = 确认但一个节点都不锁。这是 B7 的刻意取舍：
+   * 契约里的 `locked` 是"这条改动不了"的用户意图（例如已订好的酒店），
+   * 在页面还没有逐节点勾选之前，前端**不能替用户决定**锁哪些。
+   * 要真的锁，得先把勾选做出来——这条已登记给 C 定夺，不在这里猜。
+   *
+   * 返回 `true` 表示确认成功（理由同 `reportIncidentNow`：别让调用方读 `error`）。
+   */
+  async function confirmCurrentGuide(): Promise<boolean> {
+    const current = guide.value
+    if (!current || loading.value) return false
+    loading.value = true
+    error.value = null
+    try {
+      const result = await confirmGuide(current.guide_id, {
+        expected_guide_version: current.guide_version,
+        lock_node_ids: [],
+        idempotency_key: `confirm-${current.guide_id}-${current.guide_version}`,
+      })
+      guide.value = result.data.travel_guide
+      guideOrigin.value = 'api'
+      // confirm 只返回正文、不带谱系：上一轮改动记录对新版本已不适用。
+      versionLineage.value = null
+      lineageBaseGuide.value = null
+      absorbWarnings(result.warnings)
+      pushMessage(
+        'assistant',
+        `已确认这份攻略（版本 ${current.guide_version} → ${result.data.travel_guide.guide_version}）。`,
+        stage.value,
+      )
+      persist()
+      return true
+    } catch (cause) {
+      const described = describeError(cause)
+      error.value = described
+      pushMessage('assistant', `确认攻略没成功：${described.message}`)
+      if (described.code === 'VERSION_CONFLICT') {
+        await syncGuide(current.guide_id)
+      }
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * 上报突发（`POST /api/guides/{id}/incident`），触发重规划并拿回新版本。
+   *
+   * 与「聊天里直接说下雨了」是两条并行的入口：聊天那条由后端的
+   * `detect_incident` 节点自动识别；这条是用户显式点「报个突发」时走的结构化通道。
+   *
+   * 返回 `true` 表示这次动作成功。**不要**让调用方去读 `store.error` 判成败：
+   * `error` 可能残留自上一轮别的操作，读它会把旧错误当成本次失败报出来。
+   */
+  async function reportIncidentNow(rawText: string): Promise<boolean> {
+    const current = guide.value
+    const text = rawText.trim()
+    if (!current || !text || loading.value) return false
+    loading.value = true
+    error.value = null
+    const action: UserAction = {
+      action_id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      idempotency_key: `incident-${current.guide_id}-${current.guide_version}-${text}`,
+      action_type: 'REPORT_INCIDENT',
+      session_id: current.session_id,
+      guide_id: current.guide_id,
+      expected_guide_version: current.guide_version,
+      raw_text: text,
+    }
+    pushMessage('user', text)
+    try {
+      const result = await reportIncident(current.guide_id, action)
+      guide.value = result.data.travel_guide
+      guideOrigin.value = 'api'
+      versionLineage.value = result.data.version_lineage
+      // `current` 是改动前的那一版，正好拿来解析谱系里的旧节点 ID。
+      lineageBaseGuide.value = current
+      conflicts.value = result.data.conflicts ?? []
+      absorbWarnings(result.warnings)
+      pushMessage(
+        'assistant',
+        `已按突发重规划，攻略版本更新到 ${result.data.travel_guide.guide_version}。`,
+        stage.value,
+      )
+      await refreshState()
+      persist()
+      return true
+    } catch (cause) {
+      const described = describeError(cause)
+      error.value = described
+      pushMessage('assistant', `上报突发没走通：${described.message}`)
+      return false
+    } finally {
+      loading.value = false
     }
   }
 
@@ -398,6 +547,8 @@ export const useSessionStore = defineStore('session', () => {
     guide.value = null
     guideOrigin.value = 'none'
     guideNotice.value = null
+    versionLineage.value = null
+    lineageBaseGuide.value = null
     demoNotice.value = null
     dismissedKeys.value = new Set()
     persist()
@@ -421,6 +572,8 @@ export const useSessionStore = defineStore('session', () => {
     guide,
     guideOrigin,
     guideNotice,
+    versionLineage,
+    lineageBaseGuide,
     demoNotice,
     visibleWarnings,
     visibleDegradedItems,
@@ -435,6 +588,8 @@ export const useSessionStore = defineStore('session', () => {
     init,
     send,
     refreshState,
+    confirmCurrentGuide,
+    reportIncidentNow,
     loadFixtureDemo,
     loadFixtureClarificationDemo,
     dismissDemoNotice,
