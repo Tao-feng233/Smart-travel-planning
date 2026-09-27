@@ -617,11 +617,18 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             parent_guide_version=state.current_guide_version,
         )
         runtime.context.guide_outcome = outcome
-        update: NodeReturn = {"stage": PlanStage.READY.value, "awaiting_user_input": True}
-        if outcome.guide is not None:
-            update["current_guide_id"] = outcome.guide.guide_id
-            update["current_guide_version"] = outcome.guide.guide_version
-        return update
+        if outcome.guide is None:
+            # 计划有效但攻略组不出来：明确报"攻略不完整"，不谎报 READY
+            return {
+                "stage": PlanStage.GUIDE_INCOMPLETE.value,
+                "awaiting_user_input": True,
+            }
+        return {
+            "stage": PlanStage.READY.value,
+            "awaiting_user_input": True,
+            "current_guide_id": outcome.guide.guide_id,
+            "current_guide_version": outcome.guide.guide_version,
+        }
 
     return {
         PARSE_REQUEST: parse_request,

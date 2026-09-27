@@ -122,6 +122,7 @@ def build_reply(
         PlanStage.PLANNING.value,
         PlanStage.READY.value,
         PlanStage.REPAIRING.value,
+        PlanStage.GUIDE_INCOMPLETE.value,
     ) and plan is not None:
         return SendMessageData(
             stage=stage,

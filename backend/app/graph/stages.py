@@ -42,6 +42,9 @@ class PlanStage(str, Enum):
     REPAIRING = "REPAIRING"
     #: 突发事件触发的重规划（`CONTRACTS.md` §14 状态链里的 REPLANNING）
     REPLANNING = "REPLANNING"
+    #: 计划已验证通过，但攻略组装缺素材（例如缺车站↔住宿路线）：
+    #: 不能报 READY，否则前端会把"没有攻略"当成"攻略已就绪"
+    GUIDE_INCOMPLETE = "GUIDE_INCOMPLETE"
     READY = "READY"
 
     def __str__(self) -> str:  # pragma: no cover - 仅用于可读输出

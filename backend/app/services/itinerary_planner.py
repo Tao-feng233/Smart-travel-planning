@@ -521,12 +521,17 @@ def _fetch_intercity(
     """取去程与返程的城际候选；Provider 没有数据时只记 note，不编班次。"""
 
     collected: list[IntercityOption] = []
-    for moment, label in ((profile.start_date, "去程"), (profile.end_date, "返程")):
+    # 去程：出发地 → 目的地；返程：**目的地 → 出发地**（方向必须交换，
+    # 否则返程永远查不到数据）
+    for moment, label, origin, target in (
+        (profile.start_date, "去程", profile.departure_city, destination_id),
+        (profile.end_date, "返程", destination_id, profile.departure_city),
+    ):
         try:
             response = mcp.get_intercity_options(
                 GetIntercityOptionsRequest(
-                    origin_city=profile.departure_city,
-                    destination_id=destination_id,
+                    origin_city=origin,
+                    destination_id=target,
                     arrival_or_departure_date=moment,
                 )
             )
