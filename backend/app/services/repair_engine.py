@@ -98,6 +98,111 @@ def detect_incident(text: str) -> str | None:
     return None
 
 
+def apply_user_action(
+    plan: ItineraryPlan,
+    *,
+    change_type: str,
+    target_node_ids: Sequence[str],
+    profile: TripProfile,
+    candidates: Sequence[ResourceCandidateBase],
+    mcp,
+    filter_result: TripFilterResult | None = None,
+    locked_node_ids: Sequence[str] = (),
+    completed_node_ids: Sequence[str] = (),
+    intercity_options: Sequence[IntercityOption] = (),
+    change_request_id: str | None = None,
+    run_mode: RunMode = RunMode.DEMO,
+) -> RepairOutcome:
+    """执行用户的显式修改动作（C7 的 `/api/guides/{id}/modify`）。
+
+    P0 只支持两种能确定性执行、且不替用户做决定的动作：
+
+    ```text
+    REPLACE_NODE  把指定节点换成同日可用的替代资源
+    REMOVE_NODE   删掉指定节点（用户明确要求，不是系统自动删）
+    ```
+
+    其余 change_type（改日期 / 改预算 / 降强度 / 换住宿等）需要重新排程或改画像，
+    属于 P1，这里**明确报不支持**，不假装做了。
+    """
+
+    if change_type not in ("REPLACE_NODE", "REMOVE_NODE"):
+        return RepairOutcome(
+            notes=[f"P0 暂不支持该修改动作：{change_type}（需要重新排程，属于 P1）。"],
+        )
+    protected = {*locked_node_ids, *completed_node_ids}
+    targets = [node_id for node_id in target_node_ids if node_id not in protected]
+    if not targets:
+        return RepairOutcome(
+            notes=["目标节点不存在、或已被锁定/已完成，未做任何修改。"],
+        )
+
+    nodes = {node.node_id: node for node in plan.nodes}
+    days = {day.date: day for day in plan.days}
+    stay = plan.stay_segments[0] if plan.stay_segments else None
+    lodging = _lodging_of(plan, candidates)
+    relations: list[ReplacementRelation] = []
+    removed: list[str] = []
+    changed: list[str] = []
+    applied: list[str] = []
+    touched: set[date] = set()
+
+    for node_id in targets:
+        node = nodes.get(node_id)
+        if node is None:
+            continue
+        day = node.start_at.date()
+        if change_type == "REMOVE_NODE":
+            days[day] = days[day].model_copy(
+                update={"node_ids": [item for item in days[day].node_ids if item != node_id]}
+            )
+            nodes.pop(node_id, None)
+            removed.append(node_id)
+            applied.append(f"按用户要求删除节点 {node_id}")
+            touched.add(day)
+            continue
+        replacement = _pick_replacement(
+            node,
+            day,
+            candidates,
+            plan_nodes=list(nodes.values()),
+            filter_result=filter_result,
+        )
+        if replacement is None:
+            continue
+        relation = _swap_resource(node, replacement, nodes, days)
+        relations.append(relation)
+        removed.append(relation.old_node_id)
+        changed.append(relation.new_node_id)
+        applied.append(f"{relation.old_node_id} → {relation.new_node_id}")
+        touched.add(day)
+
+    if not applied:
+        return RepairOutcome(
+            notes=[f"没有找到可用的替代资源（动作 {change_type}）。"],
+        )
+    return _rebuild(
+        plan,
+        nodes=list(nodes.values()),
+        days=days,
+        touched_days=touched,
+        profile=profile,
+        candidates=candidates,
+        mcp=mcp,
+        lodging=lodging,
+        stay=stay,
+        intercity_options=intercity_options,
+        relations=relations,
+        removed_ids=removed,
+        changed_ids=changed,
+        applied=applied,
+        unresolved=[],
+        change_request_id=change_request_id or f"change_{uuid.uuid4().hex[:8]}",
+        run_mode=run_mode,
+        notes=["已按用户要求修改，其他安排保持原样。"],
+    )
+
+
 # --- 入口 1：自动修复 -------------------------------------------------------
 
 

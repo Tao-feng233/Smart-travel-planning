@@ -104,6 +104,26 @@ def main() -> int:
     required.append(("城际交通·去程", len(outbound) > 0, f"{len(outbound)} 条"))
     required.append(("城际交通·返程", len(inbound) > 0, f"{len(inbound)} 条"))
 
+    # 3.5) 车站 ↔ 住宿 的路线（C7 的抵达/返程衔接要用真实时长与费用）
+    if lodgings and outbound:
+        station = outbound[0].destination_station
+        lodging_id = lodgings[0].resource_id
+        to_lodging = provider.get_route(
+            GetRouteRequest(origin=station, destination=lodging_id)
+        ).routes
+        from_lodging = provider.get_route(
+            GetRouteRequest(origin=lodging_id, destination=station)
+        ).routes
+        required.append(
+            (
+                "车站-住宿 路线（C7）",
+                bool(to_lodging) and bool(from_lodging),
+                f"去 {len(to_lodging)} 条 / 回 {len(from_lodging)} 条",
+            )
+        )
+    else:
+        required.append(("车站-住宿 路线（C7）", False, "缺住宿或去程数据，无法检查"))
+
     # 4) 天气覆盖整段行程（B6 的准备提醒要用；缺日会抛 DataMissingError）
     try:
         weather = provider.get_weather(

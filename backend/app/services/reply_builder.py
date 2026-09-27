@@ -61,6 +61,8 @@ def build_reply(
     plan: ItineraryPlan | None = None,
     plan_conflicts: Sequence[Conflict] = (),
     missing_inputs: Sequence[str] = (),
+    guide_id: str | None = None,
+    guide_notes: Sequence[str] = (),
     name_lookup: Callable[[str], str | None] | None = None,
     data_is_mock: bool = False,
 ) -> SendMessageData:
@@ -126,7 +128,8 @@ def build_reply(
             assistant_message=_plan_text(plan, plan_conflicts),
             trip_profile=profile,
             conflicts=list(plan_conflicts),
-            degraded_items=degraded,
+            guide_id=guide_id,
+            degraded_items=[*degraded, *guide_notes],
         )
 
     if stage == PlanStage.INSUFFICIENT_DATA.value:

@@ -3,14 +3,14 @@
 > 三条开发线的共享进度台账见仓库根目录的 `PROGRESS_REPORT.md`；
 > 契约待确认项见 `docs/contract-open-questions.md`。
 
-## 当前状态（步骤 9 完成）
+## 当前状态（步骤 10 完成）
 
 已实现共享契约对象（v0.4，旧 v0.3 已删除）、LangGraph 追问/推荐回路、
 **C3 前置过滤**、**C4 行程生成（确认目的地 → 排行程 + 费用预算）**、
 **C5 计划验证器（10 类检查 + 修复选项 → READY / REPAIRING）**、
 **C6 修复引擎（闭馆替换 / 超预算换住宿 / 下雨只重排当天 + VersionLineage）**
+、**C7 攻略接口（`/api/guides/...` 四个 + 七部分攻略组装）**
 和会话 REST 接口（统一响应信封）。
-尚未实现攻略接口（C7）。
 
 ```text
 backend/
@@ -26,7 +26,7 @@ backend/
 │   └── services/      缺失字段判定、提取、推荐、前置过滤、行程生成、计划验证、
 │                      修复引擎、Mock Provider、会话存储
 ├── tests/
-│   └── ...            279 个用例（安装完整 requirements；未装 MCP SDK 时 278 passed, 1 skipped）
+│   └── ...            285 个用例（装齐 requirements；未装 MCP SDK 时 284 passed, 1 skipped）
 └── requirements.txt
 ```
 
@@ -57,6 +57,10 @@ python -m uvicorn app.main:app --reload
 POST /api/sessions                  创建会话
 POST /api/sessions/{id}/messages    输入自然语言，推进 LangGraph
 GET  /api/sessions/{id}             获取当前 PlanState
+GET  /api/guides/{id}?version=      取攻略（七部分）
+POST /api/guides/{id}/confirm       确认攻略（锁定节点）
+POST /api/guides/{id}/modify        用户修改（P0：换资源 / 删节点）
+POST /api/guides/{id}/incident      突发事件重规划（例如「今天下雨了」）
 GET  /health                        健康检查
 ```
 

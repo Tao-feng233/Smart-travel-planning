@@ -34,6 +34,7 @@ from app.services.availability_filter import TripFilterResult
 from app.services.itinerary_planner import PlanBuildOutcome
 from app.services.plan_validator import ValidationResult
 from app.services.repair_engine import RepairOutcome
+from app.services.guide_service import GuideBuildOutcome
 
 
 @dataclass
@@ -72,3 +73,5 @@ class TurnContext:
     repair_outcome: RepairOutcome | None = None
     #: 本轮取到的城际候选（C6 重算费用时要用）
     intercity_options: list[IntercityOption] = field(default_factory=list)
+    #: C7 组装攻略的结果（缺素材时 guide 为 None，但计划仍然有效）
+    guide_outcome: GuideBuildOutcome | None = None
