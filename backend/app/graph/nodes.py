@@ -557,11 +557,15 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             run_mode=runtime.context.run_mode,
         )
         runtime.context.repair_outcome = outcome
+        # 无论修没修成都要递增：否则"有计划但修不动"会在
+        # validate_plan ↔ repair_plan 之间无限循环（B 在真实数据上踩到过）。
+        attempts = state.repair_attempts + 1
         if outcome.plan is None:
             return {
                 "stage": PlanStage.REPAIRING.value,
                 "awaiting_user_input": True,
                 "conflict_ids": [item.conflict_id for item in outcome.unresolved],
+                "repair_attempts": attempts,
             }
         runtime.context.validated_plan = outcome.plan
         runtime.context.validation_result = None
@@ -570,7 +574,7 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             "awaiting_user_input": False,
             "current_plan_id": outcome.plan.plan_id,
             "current_plan_version": outcome.plan.plan_version,
-            "repair_attempts": state.repair_attempts + 1,
+            "repair_attempts": attempts,
         }
 
     def compose_guide_node(
@@ -692,6 +696,8 @@ def route_after_validation(state: PlanState) -> str:
         # 根本没生成计划（例如缺住宿数据 → INSUFFICIENT_DATA）：
         # 这时候去"修复"没有任何对象可修，必须结束本轮，否则会无限循环。
         return FINISH_TURN
+    # 只自动修一轮：`repair_plan_node` 无论成败都会递增 repair_attempts，
+    # 所以"修不动"的冲突最多让循环跑一圈就交给用户。
     if state.repair_attempts >= 1:
         return FINISH_TURN
     return REPAIR_PLAN

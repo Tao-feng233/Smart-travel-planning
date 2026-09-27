@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from app.graph import PlanStage, build_graph, run_turn
+from app.graph import PlanStage, build_graph, route_after_validation, run_turn
 from app.graph.nodes import NodeDeps
 from app.schemas import (
     GetIntercityOptionsResponse,
@@ -192,6 +192,33 @@ def _run(repository: InMemorySessionRepository, session_id: str, text: str):
 
 def _session(repository: InMemorySessionRepository, session_id: str) -> None:
     repository.create(session_id)
+
+
+# --- 修复回路必须有界（B 在真实数据上踩到过无限循环） ----------------------
+
+
+def test_repair_loop_is_bounded() -> None:
+    """验证↔修复之间只允许跑一轮自动修复，且没生成计划时不进修复。"""
+
+    from app.schemas import PlanState
+
+    ready = PlanState(session_id="s", stage=PlanStage.READY.value)
+    assert route_after_validation(ready) == "compose_guide"
+
+    insufficient = PlanState(
+        session_id="s", stage=PlanStage.INSUFFICIENT_DATA.value
+    )
+    assert route_after_validation(insufficient) == "finish_turn"
+
+    first_round = PlanState(
+        session_id="s", stage=PlanStage.REPAIRING.value, repair_attempts=0
+    )
+    assert route_after_validation(first_round) == "repair_plan"
+
+    exhausted = PlanState(
+        session_id="s", stage=PlanStage.REPAIRING.value, repair_attempts=1
+    )
+    assert route_after_validation(exhausted) == "finish_turn"
 
 
 def test_confirmation_turn_builds_the_itinerary() -> None:
