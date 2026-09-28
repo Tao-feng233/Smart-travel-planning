@@ -24,7 +24,7 @@ from app.schemas import (
     TripProfile,
 )
 from app.services.v04_mock_provider import (
-    DESTINATIONS,
+    CLOSED_DATES,
     DataMissingError,
     V04MockMCPProvider,
 )
@@ -71,17 +71,63 @@ def test_coverage_is_recomputed_for_longer_trips() -> None:
     assert "dest_chengdu" in long
 
 
-def test_chengdu_coverage_count_matches_searchable_places() -> None:
-    resources = client.search_resources(
-        SearchResourcesRequest(
-            resource_type="VISIT_PLACE",
-            destination_id="dest_chengdu",
-            date_range=DateRange(
-                start_date=date(2026, 10, 2), end_date=date(2026, 10, 6)
-            ),
-        )
-    ).resources
-    assert DESTINATIONS["dest_chengdu"]["visit_place_count"] == len(resources)
+def test_v2_readiness_threshold_supports_six_day_trip() -> None:
+    output = _search(days=6)
+    evaluation = next(
+        item
+        for item in output.readiness_evaluations
+        if item.destination_id == "dest_chengdu"
+    )
+
+    assert evaluation.ruleset_version == "rules-2026-09-27-v2"
+    assert evaluation.planning_ready is True
+    assert "VISIT_PLACE_COVERAGE" not in evaluation.failed_requirements
+
+
+def test_visit_place_coverage_matches_public_search_for_every_destination() -> None:
+    expected_available_counts = {
+        "dest_chengdu": 10,
+        "dest_leshan": 0,
+        "dest_dujiangyan": 0,
+    }
+    evaluations = {
+        item.destination_id: item for item in _search(days=5).readiness_evaluations
+    }
+    assert set(evaluations) == set(expected_available_counts)
+
+    for destination_id, evaluation in evaluations.items():
+        resources = client.search_resources(
+            SearchResourcesRequest(
+                resource_type="VISIT_PLACE",
+                destination_id=destination_id,
+                date_range=DateRange(
+                    start_date=date(2026, 10, 2), end_date=date(2026, 10, 6)
+                ),
+            )
+        ).resources
+        available = [
+            item
+            for item in resources
+            if item.availability_status in ("AVAILABLE", "CONDITIONAL")
+        ]
+        expected_count = expected_available_counts[destination_id]
+        assert len(available) == expected_count
+        assert (
+            "VISIT_PLACE_COVERAGE" in evaluation.failed_requirements
+        ) is (expected_count < 9)
+
+
+def test_readiness_does_not_count_unavailable_places(monkeypatch) -> None:
+    closed_for_trip = {date(2026, 10, day) for day in range(2, 7)}
+    monkeypatch.setitem(CLOSED_DATES, "poi_1001", closed_for_trip)
+    monkeypatch.setitem(CLOSED_DATES, "poi_1003", closed_for_trip)
+
+    evaluation = next(
+        item
+        for item in _search(days=5).readiness_evaluations
+        if item.destination_id == "dest_chengdu"
+    )
+    assert "VISIT_PLACE_COVERAGE" in evaluation.failed_requirements
 
 
 def test_readiness_evaluation_is_always_returned() -> None:
@@ -99,6 +145,24 @@ def test_recommendation_carries_readiness_and_reason() -> None:
     assert item.readiness_id
     assert item.suggested_days >= 1
     assert item.reason
+
+
+def test_recommendation_days_follow_destination_range() -> None:
+    item = next(
+        item
+        for item in _search(days=5).recommendations
+        if item.destination_id == "dest_chengdu"
+    )
+    assert item.suggested_days == 5
+
+
+def test_recommendation_days_respect_destination_minimum() -> None:
+    item = next(
+        item
+        for item in _search(days=1).recommendations
+        if item.destination_id == "dest_chengdu"
+    )
+    assert item.suggested_days == 2
 
 
 def test_resource_search_returns_contract_candidates() -> None:

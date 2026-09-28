@@ -103,6 +103,39 @@ python -m pytest
 - 住宿价格、路线耗时、开放信息、天气等均为 `MOCK` / `ESTIMATED` 演示数据，
   不表示实时库存或真实可预订状态。
 
+### 高德实时路线混合模式（`DATA_MODE=HYBRID`）
+
+默认 `DATA_MODE=MOCK` 行为不变：9 个工具全部返回 Mock 数据。
+设置 `DATA_MODE=HYBRID` 后：
+
+- `get_route` 优先调用高德 Web 服务「路径规划 2.0」：短距离走
+  `/v5/direction/walking`，较远距离走 `/v5/direction/transit/integrated`
+  （可含地铁，带成都城市参数；有 `depart_at` 时传日期和时间）。
+  成功返回的路线 `source=PLATFORM`、`is_estimated=true`（时长仍是预测值），
+  并做确定性排序让规划器取第一条即主方案。
+- 其余 8 个工具（景点、住宿、餐厅、天气、城际交通、准备规则等）仍由
+  `V04MockMCPProvider` 提供，签名不变。
+- 网络超时、高德业务错误、空结果或未配置 Key 时自动回退现有 Mock 路线，
+  回退结果保持 `source=MOCK`，**不会**标成高德真实数据。
+- Key 只从环境变量读取：优先 `AMAP_API_KEY`，兼容旧名 `MAP_API_KEY`；
+  两者都为空时不发任何 HTTP 请求，直接回退。
+- 进程内缓存按「起点 / 终点 / 出发时间 / 允许方式」缓存成功的高德结果，
+  规划与攻略阶段对完全相同的路线只请求一次。
+- Provider 只把地理坐标发给高德：先用当前成都 Mock 资源目录把资源 ID
+  解析成经纬度，解析不到就不发请求（绝不把资源 ID 当坐标）。
+
+```powershell
+cd backend
+$env:DATA_MODE="HYBRID"
+$env:AMAP_API_KEY="你的高德Web服务Key"   # 只放环境变量，不要写进代码或提交
+python -m app.mcp_server
+```
+
+**数据真实性边界**：HYBRID 模式下只有本地路线可能来自高德，
+景点 / 住宿 / 餐饮 / 天气 / 城际 / 准备规则仍是 Mock；整体仍是含 Mock 的
+DEMO，前端必须继续显示 Mock 警告（`MOCK_DATA_IN_DEMO`），
+单条路线来源看 `RouteOption.source`。
+
 ## 运行 A 线 MCP Server
 
 P0 默认使用 Mock 数据，不需要地图、天气或 LLM API Key：

@@ -45,7 +45,7 @@ cd backend && python -m pytest                → 302 passed, 1 skipped
 - `mcp[cli]` 已处理成「缺 SDK 自动 skip」，不要再改回强制导入。
 - 自查：`python tools/check_a_data.py`（退出码 0 = 全齐）。
 
-## 六、2026-09-27 追加：Q9 落地要求（请你实现）
+## 六、2026-09-27 追加：Q9 落地要求（已完成）
 
 契约已按三人结论更新（`CONTRACTS.md` §3.3），请同步 Provider：
 
@@ -56,5 +56,16 @@ cd backend && python -m pytest                → 302 passed, 1 skipped
 3. 测试从"成都相等"扩到"所有目的地恒等"（乐山/都江堰 0=0 也要锁住）
 ```
 
-效果：5 天需 9 个、6 天需 10 个；成都现有 11 个候选，余量从 0 变成 2，
-不会再因为 ±1 天的解析误差翻转 readiness。
+效果：5 天需 9 个、6 天需 10 个；成都 5 天演示范围有 10 个可用候选，余量为 1。
+原始候选共 11 个，其中 1 个在演示日期内全程闭馆，不参与 readiness 计数。
+
+### A 线完成状态
+
+已完成：
+
+- Provider 已使用 `ceil(duration_days × 1.5) + 1`；
+- `ruleset_version` 已统一为 `rules-2026-09-27-v2`；
+- 删除 `DESTINATIONS` 中重复维护的 `visit_place_count`，就绪判断从资源搜索的真实候选中统计当前日期范围内可用的地点；
+- 测试已覆盖成都、乐山、都江堰全部目的地；
+- 修复 5 天请求仍显示“建议 3 天”的问题，建议天数改由目的地建议范围约束；
+- `check_a_data.py` 7/7、全量 pytest、`check_b_flow.py --deps real` 均通过。
