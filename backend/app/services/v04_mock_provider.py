@@ -1027,6 +1027,17 @@ for _origin_id, _origin_coordinate in _LOCAL_ROUTE_POINTS.items():
             _mock_route_between(_origin_coordinate, _destination_coordinate),
         )
 
+
+def route_coordinate(point_id: str) -> tuple[float, float] | None:
+    """把当前 Mock 资源/车站 ID 解析成 `(latitude, longitude)`。
+
+    混合 Provider 在调用高德等真实地图 API 前用它做坐标解析；
+    返回 `None` 表示不在当前成都 Mock 目录中，此时不得把资源 ID 当坐标发出。
+    """
+
+    return _LOCAL_ROUTE_POINTS.get(point_id)
+
+
 WEATHER: dict[tuple[str, date], WeatherFact] = {
     ("dest_chengdu", date(2026, 10, 2)): WeatherFact(
         date=date(2026, 10, 2),

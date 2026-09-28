@@ -6,7 +6,9 @@
   未配置模型接口或调用失败时自动降级回 C 线的 `StubTripProfileParser`）
 * `DestinationRecommender`   → **B4 已替换为 `LLMDestinationRecommender`**
   （降级口径同 B2，回落到 `StubDestinationRecommender`）
-* `MCPProvider`（9 个工具）  → 现在 `V04MockMCPProvider`，A4 完成后替换
+* `MCPProvider`（9 个工具）  → 由 `build_mcp_provider()` 按 `DATA_MODE` 装配：
+  `MOCK`（默认）全部走 `V04MockMCPProvider`；`HYBRID` 仅 `get_route` 走高德优先
+  + Mock 回退（见 `app/providers/hybrid.py`）
 * `SessionRepository`        → 现在内存 + JSON 快照，P1 可换成 MySQL
 
 **B 线改动说明**：只改了 `build_node_deps()` 里的两行装配，
@@ -24,10 +26,10 @@ from app.llm import (
     LLMTripProfileParser,
     get_llm_provider,
 )
+from app.providers import build_mcp_provider
 from app.services import v04_mock_provider
 from app.services.session_service import SessionService
 from app.services.session_store import InMemorySessionRepository
-from app.services.v04_mock_provider import V04MockMCPProvider
 
 
 def build_repository() -> InMemorySessionRepository:
@@ -41,7 +43,7 @@ def build_node_deps() -> NodeDeps:
     provider = get_llm_provider()
     return NodeDeps(
         parser=LLMTripProfileParser(provider=provider),
-        mcp=V04MockMCPProvider(),
+        mcp=build_mcp_provider(),
         recommender=LLMDestinationRecommender(provider=provider),
         known_destinations=v04_mock_provider.known_destinations(),
     )

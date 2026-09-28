@@ -1,5 +1,32 @@
 # 项目进度报告（三人协作版）
 
+## 2026-09-28 · A 线：高德实时路线 + 其余 Mock 的混合链路（`DATA_MODE=HYBRID`）
+
+- 新增 `backend/app/providers/amap_route.py`：高德 Web 服务「路径规划 2.0」
+  客户端（短距离 `/v5/direction/walking`，较远 `/v5/direction/transit/integrated`），
+  把资源 ID 经当前成都 Mock 资源目录解析成经纬度后请求，规范化成共享
+  `GetRouteResponse` / `RouteOption`（`source=PLATFORM`、确定性排序、进程内缓存、
+  可注入 transport）。
+- 新增 `backend/app/providers/hybrid.py`：`HybridMCPProvider` 的 `get_route`
+  走高德优先 + Mock 回退（回退保持 `source=MOCK`），其余 8 个工具委托
+  `V04MockMCPProvider`；`is_mock_only=True`，Mock 警告继续显示。
+- `build_mcp_provider()` 支持 `MOCK`（默认，行为不变）与 `HYBRID`；
+  `backend/app/api/deps.py` 改为调用 factory 装配。
+- `v04_mock_provider.py` 新增只读 `route_coordinate()`，供坐标解析；
+  未修改任何共享 Schema。
+- 新增 `backend/tests/test_a_hybrid_provider.py` 15 个用例（步行/公交地铁转换、
+  业务错误与空结果回退、缺 Key 不发 HTTP、缓存、factory/deps、8 工具委托），
+  全部使用假 transport、不访问网络。
+- 测试：`cd backend && python -m pytest` → **325 passed**；
+  `python contracts/validate_fixtures.py` → 7 valid + 7 invalid + 3 business 全过。
+- 使用真实高德 Key 做了两次受控验证：步行方案返回 0.37 km / 5 分钟，
+  公交方案返回 3.21 km / 22 分钟 / 2 元，均规范化为 `source=PLATFORM`。
+- `DATA_MODE=HYBRID` 已实际跑到 5 天攻略生成与攻略确认（v1 → v2）；
+  后续“下雨突发重规划”在真实路线耗时下返回 409，而相同流程用纯 Mock 路线可到 v3，
+  已定位为 C6 动态重规划对真实路线时长的兼容问题，不影响首次攻略生成。
+- 仍为 Mock：景点、住宿、餐厅、天气、城际交通、准备规则；无 Key 或高德失败时
+  本地路线也回退 Mock。未接入 MySQL/Chroma/Snapshot/Live。
+
 ## 2026-09-27 · A 线 Mock 联调更新
 
 - 已补齐 11 个可检索游玩地点、2 个住宿区域、4 个住宿候选、成都演示日期
