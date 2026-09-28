@@ -43,6 +43,7 @@ from app.schemas import (
     Conflict,
     DateRange,
     DestinationRecommendation,
+    DestinationRequest,
     GetResourceAvailabilityRequest,
     GetResourceAvailabilityResponse,
     GetWeatherRequest,
@@ -191,6 +192,11 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
             profile = profile.model_copy(
                 update={"profile_version": previous.profile_version + 1}
             )
+        # 用户没点名目的地、只是确认了系统推荐时，这里把候选采纳为目的地
+        if _fixed_destination_id(profile) is None:
+            adopted = _adopt_confirmed_candidate(deps, runtime, profile)
+            if adopted is not None:
+                profile = adopted
         runtime.context.profile = profile
         update["trip_profile_version"] = profile.profile_version
         return update
@@ -762,6 +768,65 @@ def _destination_name(deps: NodeDeps, destination_id: str) -> str | None:
         if value == destination_id:
             return name
     return None
+
+
+def _adopt_confirmed_candidate(
+    deps: NodeDeps, runtime: Runtime[TurnContext], profile: TripProfile
+) -> TripProfile | None:
+    """把"用户确认的系统推荐"写进画像（`destination_requests`，fixed=True）。
+
+    场景：用户只说了需求（没有点名目的地），系统推荐了候选，用户回「确认」。
+    这时目的地是**用户选定**的（不是模型编的），因此可以写进画像。
+
+    只有以下情况才采纳，其余一律继续等用户说清楚（不猜）：
+
+    * 上一轮确实在等确认；
+    * 用户点了名（消息里出现候选的中文名/ID），或只有一个候选且用户说了确认用语。
+    """
+
+    if runtime.context.previous_stage != PlanStage.AWAITING_DESTINATION_CONFIRMATION.value:
+        return None
+    text = (runtime.context.user_message or "").strip()
+    candidates = runtime.context.previous_recommendations
+    if not text or not candidates:
+        return None
+
+    picked = None
+    for item in candidates:
+        if item.destination_id in text or any(
+            name in text and value == item.destination_id
+            for name, value in deps.known_destinations.items()
+        ):
+            picked = item
+            break
+    if picked is None:
+        if not any(word in text for word in _CONFIRM_WORDS) or len(candidates) != 1:
+            return None  # 多个候选又没说清是哪一个 → 不猜
+        picked = candidates[0]
+
+    requests = [item.model_copy(deep=True) for item in profile.destination_requests]
+    for item in requests:
+        if item.destination_id == picked.destination_id:
+            item.fixed = True
+            break
+    else:
+        requests.append(
+            DestinationRequest(
+                destination_id=picked.destination_id,
+                name=_destination_name(deps, picked.destination_id)
+                or picked.destination_id,
+                priority="HIGH",
+                fixed=True,
+                user_reason="用户确认了系统推荐的目的地",
+            )
+        )
+    return profile.model_copy(
+        update={
+            "destination_requests": requests,
+            "destination_mode": "MULTIPLE" if len(requests) > 1 else "SINGLE",
+            "profile_version": profile.profile_version + 1,
+        }
+    )
 
 
 def _evidence(deps: NodeDeps, destination_id: str):

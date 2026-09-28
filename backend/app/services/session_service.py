@@ -122,6 +122,7 @@ class SessionService:
             draft=extras.draft,
             profile=extras.profile,
             previous_plan=extras.current_plan,
+            previous_recommendations=extras.last_recommendations,
             run_mode=extras.run_mode,
         )
         extras.draft = context.draft
@@ -144,6 +145,8 @@ class SessionService:
             extras.current_plan = context.validated_plan
         if context.validation_result is not None:
             extras.plan_conflicts = list(context.validation_result.conflicts)
+        if context.recommendations:
+            extras.last_recommendations = list(context.recommendations)
         guide_notes: list[str] = []
         if context.guide_outcome is not None:
             if context.guide_outcome.guide is not None:
