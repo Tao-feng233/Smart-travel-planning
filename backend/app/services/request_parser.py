@@ -66,14 +66,36 @@ _BUDGET_FILLER = (
 )
 
 
-def _scale_amount(value: float, unit: str | None) -> float:
-    if unit == "万":
-        return value * 10_000
-    if unit in ("千", "k", "K"):
-        return value * 1_000
-    if unit == "百":
-        return value * 100
-    return value
+#: 单位 → (本级倍数, 缺省尾数位)。「1万5」的 5 落在千位，「两千五」的 5 落在百位。
+_UNIT_SCALE: dict[str, tuple[float, float]] = {
+    "万": (10_000, 1_000),
+    "千": (1_000, 100),
+    "k": (1_000, 100),
+    "K": (1_000, 100),
+    "百": (100, 10),
+}
+
+
+def _scale_amount(
+    value: float,
+    unit: str | None,
+    tail: float | None = None,
+    tail_unit: str | None = None,
+) -> float:
+    """把「数字 + 单位 + 可选尾数」拼成金额。
+
+    「预算1万5」= 15000、「预算一万五」= 15000、「预算两千五」= 2500、
+    「预算1万5千」= 15000——尾数带显式单位时以它为准，否则按下一级单位折算。
+    """
+
+    if unit is None:
+        return value
+    base_scale, tail_step = _UNIT_SCALE.get(unit, (1.0, 1.0))
+    total = value * base_scale
+    if tail is not None:
+        step = _UNIT_SCALE.get(tail_unit, (tail_step, 0.0))[0] if tail_unit else tail_step
+        total += tail * step
+    return total
 
 #: 日期片段（"2026-10-06 / 2026年10月6日 / 10月6号 / 10/06"）。
 #: 供"出发日期：X""返回日期：X""X 回来"这类**带标签**的表达复用。
@@ -317,20 +339,29 @@ class StubTripProfileParser:
 
         # ① 标签 + 阿拉伯数字（可带 万/千/k/百）
         match = re.search(
-            rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}(\d+(?:\.\d+)?)\s*(万|千|k|K|百)?",
+            rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}(\d+(?:\.\d+)?)\s*(万|千|k|K|百)?"
+            r"(?:\s*(\d|[一二两三四五六七八九十])\s*(万|千|k|K|百)?)?",
             text,
         )
         if match:
-            amount = _scale_amount(float(match.group(1)), match.group(2))
+            tail_raw = match.group(3)
+            tail = None
+            if tail_raw:
+                tail = float(tail_raw) if tail_raw.isdigit() else float(_CN_NUM[tail_raw])
+            amount = _scale_amount(float(match.group(1)), match.group(2), tail, match.group(4))
 
         # ② 标签 + 中文数字（"预算大概是三万" / "预算五千"）
         if amount is None:
             cn = re.search(
-                rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}([一二两三四五六七八九十])\s*(万|千|百)",
+                rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}([一二两三四五六七八九十])\s*(万|千|百)"
+                r"(?:\s*([一二两三四五六七八九十])\s*(万|千|百)?)?",
                 text,
             )
             if cn:
-                amount = _scale_amount(float(_CN_NUM[cn.group(1)]), cn.group(2))
+                tail = float(_CN_NUM[cn.group(3)]) if cn.group(3) else None
+                amount = _scale_amount(
+                    float(_CN_NUM[cn.group(1)]), cn.group(2), tail, cn.group(4)
+                )
 
         # ③ 裸数字 + 金额单位（"总共12000块"）
         if amount is None:

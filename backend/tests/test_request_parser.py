@@ -134,6 +134,24 @@ def test_bare_digits_without_unit_are_still_not_money() -> None:
     assert parse("10月2号到10月6号出发").budget is None
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("预算1万5", 15_000),
+        ("预算1万5千", 15_000),
+        ("预算一万五", 15_000),
+        ("预算3万2", 32_000),
+        ("预算两千五", 2_500),
+        ("预算1千5", 1_500),
+    ],
+)
+def test_budget_with_trailing_digit(text: str, expected: float) -> None:
+    """「X万Y」「X千Y」这类省略末位单位的写法（手动试用发现的残留）。"""
+
+    profile = parse(text)
+    assert profile.budget is not None and profile.budget.amount == expected
+
+
 def test_fixed_budget_is_marked_inflexible() -> None:
     """“预算不能超 5000” 属于不可协商的预算上限（v0.4 拆成独立字段）。"""
 
