@@ -56,6 +56,25 @@ _SOFT_PREFERENCE_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 #: 预算"不能超"的表达 → `budget_flexibility = FIXED`。
 _FIXED_BUDGET_WORDS = ("预算固定", "不能超过", "不能超", "最多", "上限")
 
+#: 预算标签（"我的预算…" "总预算…" "花费…"）
+_BUDGET_LABEL = r"(?:总预算|整体预算|全部预算|预算|花费|开销|费用)"
+#: 金额前的语气词/标点，**允许连续出现**（"大概是" "差不多是"）——
+#: 旧实现只允许一个，导致「我的预算大概是三万」解析不到（手动试用时报的缺口）。
+_BUDGET_FILLER = (
+    r"(?:大概|大约|差不多|预计|估计|是|在|有|为|要|就|应该|可能|"
+    r"争取|控制|不超过|不能超|最多|[:：\s])*"
+)
+
+
+def _scale_amount(value: float, unit: str | None) -> float:
+    if unit == "万":
+        return value * 10_000
+    if unit in ("千", "k", "K"):
+        return value * 1_000
+    if unit == "百":
+        return value * 100
+    return value
+
 #: 日期片段（"2026-10-06 / 2026年10月6日 / 10月6号 / 10/06"）。
 #: 供"出发日期：X""返回日期：X""X 回来"这类**带标签**的表达复用。
 _DATE_TOKEN = r"(?:\d{4}[-/年])?\d{1,2}[-/月]\d{1,2}[日号]?"
@@ -286,32 +305,40 @@ class StubTripProfileParser:
 
     @staticmethod
     def _extract_budget(profile: TripProfileDraft, text: str) -> None:
+        """抽预算金额。
+
+        覆盖三类真实写法：带标签 + 阿拉伯数字（"预算 3000"）、
+        带标签 + 中文数字（"我的预算大概是三万"）、
+        裸数字 + 金额单位（"总共12000块"）。
+        **没有金额单位时不认裸数字**，避免把「10月2号」里的数字当预算。
+        """
+
         amount: float | None = None
+
+        # ① 标签 + 阿拉伯数字（可带 万/千/k/百）
         match = re.search(
-            r"预算\s*(?:大概|大约|是|在|有|为)?\s*(\d+(?:\.\d+)?)\s*(万|千|k|K)?", text
+            rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}(\d+(?:\.\d+)?)\s*(万|千|k|K|百)?",
+            text,
         )
-        if not match:
-            match = re.search(
-                r"(\d+(?:\.\d+)?)\s*(万|千)?\s*(?:元|块钱|块|人民币)", text
-            )
         if match:
-            value = float(match.group(1))
-            unit = match.group(2)
-            if unit in ("万",):
-                value *= 10_000
-            elif unit in ("千", "k", "K"):
-                value *= 1_000
-            amount = value
-        else:
-            # 中文数字金额："预算一万""预算五千"这类写法上面两条正则都吃不到
+            amount = _scale_amount(float(match.group(1)), match.group(2))
+
+        # ② 标签 + 中文数字（"预算大概是三万" / "预算五千"）
+        if amount is None:
             cn = re.search(
-                r"预算\s*(?:大概|大约|是|在|有|为)?\s*([一二两三四五六七八九十])\s*(万|千|百)",
+                rf"{_BUDGET_LABEL}\s*{_BUDGET_FILLER}([一二两三四五六七八九十])\s*(万|千|百)",
                 text,
             )
             if cn:
-                base = _CN_NUM[cn.group(1)]
-                unit = cn.group(2)
-                amount = float(base * {"万": 10_000, "千": 1_000, "百": 100}[unit])
+                amount = _scale_amount(float(_CN_NUM[cn.group(1)]), cn.group(2))
+
+        # ③ 裸数字 + 金额单位（"总共12000块"）
+        if amount is None:
+            match = re.search(
+                r"(\d+(?:\.\d+)?)\s*(万|千)?\s*(?:元|块钱|块|人民币)", text
+            )
+            if match:
+                amount = _scale_amount(float(match.group(1)), match.group(2))
 
         if amount is not None:
             # v0.4：金额与"是否可协商"是两个字段（`Money` + `budget_flexibility`）
