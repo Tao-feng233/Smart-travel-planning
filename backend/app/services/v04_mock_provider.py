@@ -8,7 +8,7 @@ injection continue to work while A later swaps in Snapshot/Live providers.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from math import hypot
+from math import ceil, hypot
 
 from app.schemas import (
     DataSnapshot,
@@ -58,6 +58,7 @@ from app.schemas.v04.mcp import (
 _TZ = timezone(timedelta(hours=8))
 _NOW = datetime(2026, 9, 27, 10, 0, tzinfo=_TZ)
 _COVERAGE_VERSION = "2026-09-27-mock-v3"
+_RULESET_VERSION = "rules-2026-09-27-v2"
 
 
 class DataMissingError(RuntimeError):
@@ -99,7 +100,6 @@ DESTINATIONS: dict[str, dict] = {
             "ROUTE": "MOCK_ONLY",
             "LODGING": "MOCK_ONLY",
         },
-        "visit_place_count": 11,
     },
     "dest_leshan": {
         "name": "乐山",
@@ -113,7 +113,6 @@ DESTINATIONS: dict[str, dict] = {
             "ROUTE": "LIMITED",
             "LODGING": "LIMITED",
         },
-        "visit_place_count": 0,
     },
     "dest_dujiangyan": {
         "name": "都江堰",
@@ -127,7 +126,6 @@ DESTINATIONS: dict[str, dict] = {
             "ROUTE": "UNASSESSED",
             "LODGING": "UNASSESSED",
         },
-        "visit_place_count": 0,
     },
 }
 
@@ -158,9 +156,16 @@ def readiness_evaluation(
 ) -> PlanningReadinessEvaluation:
     meta = DESTINATIONS[destination_id]
     status = meta["category_status"]
-    required = profile.duration_days * 2 + 1
+    visit_place_count = sum(
+        candidate.availability_status in ("AVAILABLE", "CONDITIONAL")
+        for candidate in _visit_place_candidates(
+            destination_id,
+            DateRange(start_date=profile.start_date, end_date=profile.end_date),
+        )
+    )
+    required = ceil(profile.duration_days * 1.5) + 1
     failed: list[str] = []
-    if meta["visit_place_count"] < required:
+    if visit_place_count < required:
         failed.append("VISIT_PLACE_COVERAGE")
     for capability in ("OPENING_RULE", "ROUTE", "LODGING"):
         if status.get(capability) in ("UNAVAILABLE", "UNASSESSED"):
@@ -184,7 +189,7 @@ def readiness_evaluation(
         ],
         failed_requirements=failed,
         coverage_snapshot_id=f"cov_{destination_id}",
-        ruleset_version="mock-rules-2026-09-24-v2",
+        ruleset_version=_RULESET_VERSION,
         planning_ready=not failed,
         evaluated_at=_NOW,
     )
@@ -654,6 +659,22 @@ def _visit_place(resource_id: str, date_range: DateRange) -> VisitPlaceCandidate
     )
 
 
+def _visit_place_candidates(
+    destination_id: str,
+    date_range: DateRange,
+    area_ids: list[str] | None = None,
+) -> list[VisitPlaceCandidate]:
+    """Build the same real candidate set used by search and readiness checks."""
+
+    selected_areas = set(area_ids or [])
+    return [
+        _visit_place(resource_id, date_range)
+        for resource_id, meta in RESOURCE_META.items()
+        if meta["destination_id"] == destination_id
+        and (not selected_areas or meta["area_id"] in selected_areas)
+    ]
+
+
 def _restaurant(resource_id: str, date_range: DateRange) -> RestaurantCandidate:
     meta = RESTAURANT_META[resource_id]
     return RestaurantCandidate(
@@ -1006,6 +1027,17 @@ for _origin_id, _origin_coordinate in _LOCAL_ROUTE_POINTS.items():
             _mock_route_between(_origin_coordinate, _destination_coordinate),
         )
 
+
+def route_coordinate(point_id: str) -> tuple[float, float] | None:
+    """把当前 Mock 资源/车站 ID 解析成 `(latitude, longitude)`。
+
+    混合 Provider 在调用高德等真实地图 API 前用它做坐标解析；
+    返回 `None` 表示不在当前成都 Mock 目录中，此时不得把资源 ID 当坐标发出。
+    """
+
+    return _LOCAL_ROUTE_POINTS.get(point_id)
+
+
 WEATHER: dict[tuple[str, date], WeatherFact] = {
     ("dest_chengdu", date(2026, 10, 2)): WeatherFact(
         date=date(2026, 10, 2),
@@ -1123,9 +1155,12 @@ class V04MockMCPProvider:
                 DestinationRecommendation(
                     destination_id=destination_id,
                     readiness_id=evaluation.readiness_id,
-                    suggested_days=min(
-                        profile.duration_days,
-                        max(1, DESTINATIONS[destination_id]["visit_place_count"] // 3),
+                    suggested_days=max(
+                        DESTINATIONS[destination_id]["recommended_min_days"],
+                        min(
+                            profile.duration_days,
+                            DESTINATIONS[destination_id]["recommended_max_days"],
+                        ),
                     ),
                     reason=f"{DESTINATIONS[destination_id]['name']}覆盖达标（{_COVERAGE_VERSION}）",
                     evidence_ids=["ev_101"],
@@ -1179,12 +1214,9 @@ class V04MockMCPProvider:
     def search_resources(self, request: SearchResourcesRequest) -> SearchResourcesResponse:
         resources = []
         if request.resource_type == "VISIT_PLACE":
-            resources = [
-                _visit_place(resource_id, request.date_range)
-                for resource_id, meta in RESOURCE_META.items()
-                if meta["destination_id"] == request.destination_id
-                and (not request.area_ids or meta["area_id"] in request.area_ids)
-            ]
+            resources = _visit_place_candidates(
+                request.destination_id, request.date_range, request.area_ids
+            )
         elif request.resource_type == "RESTAURANT":
             resources = [
                 _restaurant(resource_id, request.date_range)
@@ -1363,7 +1395,7 @@ def build_data_snapshot(profile: TripProfile) -> DataSnapshot:
         planning_fact_ids=[item.planning_fact_id for item in PLANNING_FACTS],
         evidence_ids=[item.evidence_id for item in EVIDENCE],
         provider_versions=["a-mock-provider-2026-09-27-v3"],
-        ruleset_versions=["mock-rules-2026-09-24-v2"],
+        ruleset_versions=[_RULESET_VERSION],
         expired_items=[],
         degraded_items=[],
         mock_items=[

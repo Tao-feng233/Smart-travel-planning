@@ -58,6 +58,7 @@ from app.schemas import (
     TripProfile,
     TripSegment,
     VisitPlaceCandidate,
+    WeatherFact,
 )
 from app.services.availability_filter import TripFilterResult
 
@@ -71,6 +72,12 @@ _CHECK_IN_MINUTES = 30
 _ARRIVAL_MINUTES = 30
 #: 景点没有时长数据时的兜底游览时长（分钟）
 _DEFAULT_VISIT_MINUTES = 120
+
+#: 天气判定阈值（A 的 QWeather / Mock 都通过 WeatherFact 提供这些字段）
+_WET_PROBABILITY = 0.5
+_SEVERE_PROBABILITY = 0.8
+_WET_KEYWORDS = ("雨", "雪", "雷", "台风")
+_SEVERE_KEYWORDS = ("暴雨", "大雨", "雷暴", "台风", "暴雪", "冰雹", "沙尘")
 
 
 class PlanningProvider(Protocol):
@@ -104,6 +111,7 @@ def build_itinerary(
     candidates: Sequence[ResourceCandidateBase],
     filter_result: TripFilterResult | None = None,
     mcp: PlanningProvider,
+    weather_facts: Sequence[WeatherFact] = (),
     run_mode: RunMode = RunMode.DEMO,
     plan_version: int = 1,
     parent_plan_version: int | None = None,
@@ -155,7 +163,11 @@ def build_itinerary(
     leg_costs: list[CostItem] = []
     day_plans: list[DayPlan] = []
 
-    schedule = _assign_places(visits, days, profile.pace, blocked, notes)
+    weather_by_date = {item.date: item for item in weather_facts}
+    _check_weather_coverage(days, weather_by_date, notes, conflicts)
+    schedule = _assign_places(
+        visits, days, profile.pace, blocked, notes, conflicts, weather_by_date
+    )
     meals_used = 0
 
     for index, day in enumerate(days):
@@ -335,30 +347,151 @@ def _build_stay_segment(
 # --- 每天排什么 -------------------------------------------------------------
 
 
+#: 天气参与排程的规则（A 的对接文档；属于 P1 能力，见 PROGRESS_REPORT）
+def _weather_of(
+    weather_by_date: dict[date, WeatherFact], day: date
+) -> WeatherFact | None:
+    return weather_by_date.get(day)
+
+
+def _is_wet(fact: WeatherFact | None) -> bool:
+    if fact is None:
+        return False
+    probability = fact.precipitation_probability or 0.0
+    return probability >= _WET_PROBABILITY or any(
+        word in fact.condition for word in _WET_KEYWORDS
+    )
+
+
+def _is_severe(fact: WeatherFact | None) -> bool:
+    if fact is None:
+        return False
+    probability = fact.precipitation_probability or 0.0
+    return probability >= _SEVERE_PROBABILITY or any(
+        word in fact.condition for word in _SEVERE_KEYWORDS
+    )
+
+
+def _is_indoor_safe(candidate: VisitPlaceCandidate) -> bool:
+    return bool(candidate.indoor) or candidate.weather_sensitivity == "LOW"
+
+
+def _weather_fit_score(candidate: VisitPlaceCandidate, *, wet: bool) -> int:
+    """下雨优先室内/低敏感度；晴好优先户外。"""
+
+    indoor = bool(candidate.indoor)
+    sensitivity = candidate.weather_sensitivity
+    if wet:
+        return (2 if indoor else 0) + {"LOW": 2, "MEDIUM": 1}.get(sensitivity, 0)
+    return (2 if not indoor else 0) + {"HIGH": 2, "MEDIUM": 1}.get(sensitivity, 0)
+
+
+def _check_weather_coverage(
+    days: Sequence[date],
+    weather_by_date: dict[date, WeatherFact],
+    notes: list[str],
+    conflicts: list[Conflict],
+) -> None:
+    """天气缺日必须显式降级，不能静默、也不能用模型补（A 的对接文档第 4 条）。"""
+
+    missing = [day for day in days if day not in weather_by_date]
+    if not missing and weather_by_date:
+        if all(
+            (fact.data_assurance_status or "") == "MOCK"
+            for fact in weather_by_date.values()
+        ):
+            notes.append("天气数据为模拟数据（MOCK_ONLY），仅用于流程验证，不代表真实天气。")
+        return
+    if not weather_by_date:
+        notes.append("没有得到任何天气数据，本次排程未按天气优化；建议出发前复查天气预报。")
+    else:
+        notes.append(
+            "以下日期缺少天气数据，未按天气优化："
+            + "、".join(day.isoformat() for day in missing)
+            + "。建议出发前复查天气预报。"
+        )
+    conflicts.append(
+        Conflict(
+            conflict_id="conflict_weather_missing",
+            type="DATA_UNKNOWN",
+            severity="WARNING",
+            scope="WHOLE_GUIDE",
+            message=(
+                "天气数据不完整（缺 "
+                + ("全部日期" if not weather_by_date else "、".join(d.isoformat() for d in missing))
+                + "）：未按天气优化安排，出发前请复查天气预报。"
+            ),
+            status="OPEN",
+        )
+    )
+
+
 def _assign_places(
     visits: Sequence[VisitPlaceCandidate],
     days: Sequence[date],
     pace: str,
     blocked: dict[str, list[date]],
     notes: list[str],
+    conflicts: list[Conflict],
+    weather_by_date: dict[date, WeatherFact],
 ) -> dict[date, list[VisitPlaceCandidate]]:
-    """把景点轮流分到每天，跳过 C3 标记为"当天不可用"的日期。"""
+    """把景点分到每天：跳过 C3 标记的不可用日期，并按当天天气挑室内/户外。"""
 
     per_day = _PLACES_PER_DAY.get(pace, 2)
     queue = list(visits)
     schedule: dict[date, list[VisitPlaceCandidate]] = {day: [] for day in days}
     for day in days:
+        fact = _weather_of(weather_by_date, day)
+        wet = _is_wet(fact)
+        severe = _is_severe(fact)
+        pool = list(queue)
+        if severe:
+            # 严重天气：只排室内或低天气敏感度的地点，绝不把户外活动静默排进去
+            safe = [item for item in pool if _is_indoor_safe(item)]
+            if safe:
+                pool = safe
+            else:
+                pool = []
+        pool.sort(key=lambda item: _weather_fit_score(item, wet=wet), reverse=True)
+
         placed = 0
-        scanned = 0
-        while queue and placed < per_day and scanned < len(queue):
-            candidate = queue.pop(0)
-            scanned += 1
+        for candidate in pool:
+            if placed >= per_day:
+                break
             if day in blocked.get(candidate.resource_id, ()):
-                queue.append(candidate)  # 今天不能用，留给后面的日期
                 continue
             schedule[day].append(candidate)
+            queue.remove(candidate)
             placed += 1
-        if placed == 0 and queue:
+
+        if severe:
+            conflicts.extend(
+                [
+                    Conflict(
+                        conflict_id=f"conflict_weather_severe_{day.isoformat()}",
+                        type="WEATHER_UNSUITABLE",
+                        severity="WARNING",
+                        scope="DAY",
+                        message=(
+                            f"{day.isoformat()} 天气较差（{fact.condition}，"
+                            f"降水概率 {fact.precipitation_probability}）："
+                            "已只安排室内/低天气敏感度活动，建议考虑调整到天气更好的日期。"
+                        ),
+                        affected_node_ids=[],
+                        status="OPEN",
+                    )
+                ]
+            )
+            notes.append(
+                f"{day.isoformat()} 天气较差（{fact.condition}），建议调整日期；"
+                "当天只安排了室内或低天气敏感度活动。"
+            )
+        elif wet and placed:
+            notes.append(
+                f"{day.isoformat()} 有降雨（{fact.condition}），已优先安排室内/低敏感度活动；"
+                "记得带雨具。"
+            )
+        if placed == 0 and queue and not severe:
             notes.append(f"{day.isoformat()} 没有可用的游玩地点（当天全被过滤）。")
     if queue:
         notes.append(f"还有 {len(queue)} 个候选地点没排进 {len(days)} 天的行程。")

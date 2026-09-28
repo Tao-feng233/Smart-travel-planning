@@ -253,6 +253,28 @@ destination_mode       未说明时取 UNKNOWN
 
 LLM只能推荐`planning_ready=true`的候选ID。
 
+### 3.3 规划就绪门槛（ruleset，三人确认 2026-09-27，Q9）
+
+```text
+required_visit_places = ceil(duration_days × 1.5) + 1
+ruleset_version       = "rules-2026-09-27-v2"（取代 rules-2026-09-24-v1）
+```
+
+判定口径：
+
+```text
+planning_ready = 游玩地点数 >= required_visit_places
+                 且 OPENING_RULE / ROUTE / LODGING 三项目覆盖率不低于 LIMITED
+```
+
+硬性要求：`visit_place_count` **必须由 Provider 从真实候选集推导**，禁止硬编码常量；
+测试要覆盖**所有目的地**（不能只锁一个演示目的地）。
+
+改动原因：原公式 `duration_days × 2 + 1` 按"每天两个完整景点"计算，
+但行程首尾通常包含抵达、入住与返程，实际可安排天数更少；
+且在该公式下演示目的地只剩 0 余量，任何 ±1 天的解析误差都会翻转就绪度。
+新公式下 5 天需 9 个、6 天需 10 个，与"每天约 1.5 个景点 + 1 个替代"的实际节奏一致。
+
 ## 4. 来源、事实、证据与数据快照
 
 ### 4.1 FactRecord
@@ -390,6 +412,7 @@ ResourceCandidateUnion = VisitPlaceCandidate | LodgingCandidate
 ```json
 {
   "destination_id": "dest_001",
+  "name": "成都",
   "readiness_id": "ready_001",
   "suggested_days": 4,
   "suitable": true,
@@ -401,6 +424,10 @@ ResourceCandidateUnion = VisitPlaceCandidate | LodgingCandidate
 ```
 
 推荐对象必须来自`search_planning_ready_destinations`返回集合。
+
+`name` 为可选字段（三人确认 2026-09-27，Q8）：目的地中文名，供前端展示；
+**必须来自目的地数据表/Provider，不得由 LLM 编造**。前端优先显示 `name`，
+缺失时回退显示 `destination_id`。
 
 ## 7. 行程规划与费用
 

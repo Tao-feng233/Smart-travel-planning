@@ -111,6 +111,47 @@ def test_budget_with_wan_unit() -> None:
     assert parse("总共8000元").budget.amount == 8000
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("我的预算大概是三万", 30_000),
+        ("预算大概是3000", 3000),
+        ("总预算差不多两万", 20_000),
+        ("预算差不多是五千", 5000),
+        ("我的预算：三千", 3000),
+    ],
+)
+def test_budget_with_consecutive_particles(text: str, expected: float) -> None:
+    """语气词可以连续出现（"大概"+"是"）——旧实现只允许一个，这是手动试用报的缺口。"""
+
+    profile = parse(text)
+    assert profile.budget is not None and profile.budget.amount == expected
+
+
+def test_bare_digits_without_unit_are_still_not_money() -> None:
+    """没有金额单位时不能把日期数字当预算（回归保护）。"""
+
+    assert parse("10月2号到10月6号出发").budget is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("预算1万5", 15_000),
+        ("预算1万5千", 15_000),
+        ("预算一万五", 15_000),
+        ("预算3万2", 32_000),
+        ("预算两千五", 2_500),
+        ("预算1千5", 1_500),
+    ],
+)
+def test_budget_with_trailing_digit(text: str, expected: float) -> None:
+    """「X万Y」「X千Y」这类省略末位单位的写法（手动试用发现的残留）。"""
+
+    profile = parse(text)
+    assert profile.budget is not None and profile.budget.amount == expected
+
+
 def test_fixed_budget_is_marked_inflexible() -> None:
     """“预算不能超 5000” 属于不可协商的预算上限（v0.4 拆成独立字段）。"""
 

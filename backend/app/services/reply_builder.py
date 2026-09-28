@@ -114,7 +114,16 @@ def build_reply(
             stage=stage,
             assistant_message="\n".join(lines),
             trip_profile=profile,
-            destination_candidates=list(recommendations),
+            # 候选卡片的标题用目的地中文名（Q8）：后端统一在这里兜一次，
+            # LLM 推荐与规则式推荐都会带上，前端优先显示 name、缺失时回退 ID。
+            destination_candidates=[
+                item
+                if item.name
+                else item.model_copy(
+                    update={"name": _resolve_name(item.destination_id, name_lookup)}
+                )
+                for item in recommendations
+            ],
             degraded_items=degraded,
         )
 
@@ -174,6 +183,7 @@ def build_warnings(
     *,
     draft: TripProfileDraft | None = None,
     data_is_mock: bool = False,
+    guide_missing: Sequence[str] = (),
 ) -> list[WarningItem]:
     """统一信封里的 `warnings`：模拟数据与非阻塞的缺失字段提示。
 
@@ -201,6 +211,10 @@ def build_warnings(
                 message="该需求超出当前知识库覆盖范围。",
             )
         )
+    # 攻略缺素材：`GET /api/sessions/{id}` 只返回 PlanState，刷新后
+    # 只能靠信封 warnings 把"缺什么"带给前端（不新增契约字段）。
+    for note in guide_missing:
+        warnings.append(WarningItem(code="GUIDE_MATERIAL_MISSING", message=note))
     return warnings
 
 

@@ -281,6 +281,40 @@ C 的当前做法：不改契约。C 这边的 `SendMessageData.assistant_messag
 4. 无论选哪个，都请把「门槛公式 + 规则版本号」写进契约文档，
    避免 A/C 两侧各实现一份。
 
+### 5.5 三人结论（2026-09-27）
+
+**Q6 追问结构化：不新增字段（决定权在 A，C 记录并更正此前的错误描述）。**
+
+```text
+结论：不新增 questions 字段，也不冻结 assistant_message 的文案格式。
+依据：结构化通道早就在信封里——前端读 warnings[MISSING_PROFILE_FIELDS].details
+      的字段名生成追问表单（B 实测 frontend/src/utils/clarification.ts），
+      不解析「1. 2. 3.」编号文本。
+C 的更正：此前本文件写「B 的前端解析 C 写的追问文本」是错的，已更正。
+遗留（非阻塞、非契约）：后端 services/missing_fields.py 与前端 clarification.ts
+      各有一份追问文案，5 条里 3 条措辞不同；属于展示层差异，由 B 自行决定是否对齐。
+```
+
+**Q8 `DestinationRecommendation.name`：已同意新增（A、B、C 一致）。**
+
+```text
+实现：C 已在 backend/app/schemas/v04/recommendation.py 加可选字段 name: str | None = None，
+      并在 reply_builder 用已有 name_lookup 统一填充；CONTRACTS.md §6 示例与说明已更新。
+前端：优先显示 name，缺失时回退 destination_id（B 按此处理）。
+约束：name 必须来自目的地数据表/Provider，不得由 LLM 编造。
+```
+
+**Q9 覆盖门槛：先修数据真实性，公式同步改为新 ruleset。**
+
+```text
+1. visit_place_count 必须由 Provider 从真实候选集推导，禁止硬编码；
+   测试从"单一目的地相等"扩到"所有目的地恒等"（A 实现）。
+2. 门槛公式改为 ceil(duration_days × 1.5) + 1，
+   ruleset_version = "rules-2026-09-27-v2"（已写入 CONTRACTS.md §3.3；A 按此同步 Provider）。
+   5 天需 9 个、6 天需 10 个；演示目的地现有 11 个候选，余量从 0 变成 2。
+3. 原公式 duration_days × 2 + 1 作废，仅作为历史记录保留在本文件里。
+```
+
 **Q4（已解决 2026-09-24）：§5.1 的公共字段与基线模型不一致。**
 
 **三人确认的处理方式**（已写回 `CONTRACTS.md` §5.2）：

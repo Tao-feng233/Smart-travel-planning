@@ -124,6 +124,7 @@ def run_turn(
     draft: TripProfileDraft | None = None,
     profile: TripProfile | None = None,
     previous_plan: ItineraryPlan | None = None,
+    previous_recommendations=(),
     run_mode: RunMode = RunMode.DEMO,
 ) -> tuple[PlanState, TurnContext]:
     """推进一轮对话，返回新的 `PlanState` 与本轮上下文。
@@ -141,6 +142,7 @@ def run_turn(
         run_mode=run_mode,
         previous_stage=state.stage,
         previous_plan=previous_plan,
+        previous_recommendations=list(previous_recommendations),
     )
     raw = graph.invoke(state.model_copy(deep=True), context=context)
     return PlanState.model_validate(raw), context
