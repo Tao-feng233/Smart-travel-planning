@@ -3,8 +3,16 @@
  *
  * 数据来源是**统一信封里的 warning**，不是新增接口字段——
  * `CONTRACTS.md` §13.1 的 `SendMessageData` 里没有结构化追问字段，
- * 追问项由 `WarningItem{code:"MISSING_PROFILE_FIELDS", details:{字段名: 字段名}}` 携带
+ * 追问项由 `WarningItem{code:"MISSING_PROFILE_FIELDS", details:{字段名: ...}}` 携带
  * （`backend/app/services/reply_builder.py`）。
+ *
+ * 关于「文案」（Q6 结论，2026-09-27 三人拍板，见 `docs/Q6-Q8-Q9-决策材料.md`）：
+ * - `assistant_message` 是**给人看的展示文本，永不被程序解析**，前端不从中拆字段；
+ * - 追问文案的权威来源是后端 `details` 的 **value**（Q6 方案 B 已把该结构写进契约，
+ *   后端 `build_questions()` 的输出就是它）。下面 `META` 里的 question 是**兜底副本**，
+ *   只在后端还没给文案（value 仍等于字段名）时使用；
+ * - 所以这里不再自称"与后端保持一致"——历史上那句注释是错的，
+ *   5 个字段里曾有 3 个已经漂移，现在改为「后端优先、本地兜底」的取值顺序。
  *
  * 字段名与顺序跟后端 `FINALIZE_REQUIRED_FIELDS` 对齐
  * （`backend/app/schemas/v04/models.py`）。前端**只负责收集**，
@@ -21,13 +29,23 @@ export type FieldName = (typeof FIELD_ORDER)[number]
 export interface FieldMeta {
   name: string
   label: string
-  /** 与后端 `build_questions()` 的追问文案保持一致，用户看到的问题两端口径统一 */
+  /**
+   * 追问文案的**兜底副本**：后端在 `details` 里给了文案就用后端的（见 `resolveMeta`），
+   * 没给才用这里的。不要在这里追求与后端逐字一致，那正是 Q6 要修掉的漂移。
+   */
   question: string
   kind: 'text' | 'date' | 'number' | 'budget'
   placeholder?: string
   quickPicks?: string[]
 }
 
+/**
+ * 本地兜底副本。question 与后端 `services/missing_fields.py:_TEXT` **逐字对齐**
+ * （2026-09-28 对齐：此前 5 个字段里有 3 个漂移，正是 Q6 要修的问题）。
+ *
+ * 改动约定：这里只填"后端还没给文案时"的兜底；后端一旦通过 `details` 下发文案，
+ * 展示的就是后端的（见 `resolveMeta`）。真要改文案，优先改后端，别在这里长期维护第二份。
+ */
 const META: Record<string, FieldMeta> = {
   departure_city: {
     name: 'departure_city',
@@ -40,13 +58,13 @@ const META: Record<string, FieldMeta> = {
   start_date: {
     name: 'start_date',
     label: '出发日期',
-    question: '大概哪天出发？',
+    question: '大概哪天出发？（例如：10月2号）',
     kind: 'date',
   },
   end_date: {
     name: 'end_date',
     label: '返回日期',
-    question: '哪天回来？',
+    question: '哪天回来？（例如：10月6号；也可以直接说玩几天）',
     kind: 'date',
   },
   traveler_count: {
@@ -59,7 +77,7 @@ const META: Record<string, FieldMeta> = {
   budget: {
     name: 'budget',
     label: '总预算',
-    question: '这趟旅行总预算大概多少？',
+    question: '这趟旅行总预算大概多少？（例如：5000 元）',
     kind: 'budget',
   },
 }
@@ -74,10 +92,41 @@ export function fieldMeta(name: string): FieldMeta {
 }
 
 /**
- * 从信封 `warnings` 里取出仍然缺失的字段。
+ * 从信封 `warnings` 取出**后端给的追问文案**（`details` 的 value）。
  *
- * 注意：`details` 的 value 后端填的是字段名本身（`{name: name}`），
- * 所以这里**只看 key**，不要依赖 value 的语义。
+ * Q6 之前 value 就是字段名本身（`{name: name}`），那种情况不算文案，直接跳过；
+ * Q6 方案 B 落地后 value 是 `build_questions()` 的输出，这里就会拿到真正的文案，
+ * 追问卡优先用它 —— 文案变成单一来源，前端 `META` 退回兜底位。
+ */
+export function backendQuestions(warnings: WarningItem[]): Record<string, string> {
+  const warning = warnings.find((item) => item.code === 'MISSING_PROFILE_FIELDS')
+  const details = warning?.details
+  if (!details) return {}
+  const result: Record<string, string> = {}
+  for (const [name, value] of Object.entries(details)) {
+    const text = typeof value === 'string' ? value.trim() : ''
+    if (text && text !== name) result[name] = text
+  }
+  return result
+}
+
+/**
+ * 解析一个字段的展示信息：**后端文案优先，本地 `META` 兜底**。
+ *
+ * 顺序不能反：本地副本只是 UI 骨架（label / 输入控件类型 / 快捷选项），
+ * 文案一旦有了单一来源就不该再让两套措辞同时出现在同一屏。
+ */
+export function resolveMeta(name: string, backend: Record<string, string> = {}): FieldMeta {
+  const meta = fieldMeta(name)
+  const question = backend[name]
+  return question ? { ...meta, question } : meta
+}
+
+/**
+ * 从信封 `warnings` 里取出仍然缺失的字段名（**只看 key**）。
+ *
+ * value 的语义是「追问文案」，由 `backendQuestions()` 单独取用 —— 两个用途分开，
+ * 免得有人顺手拿 value 当字段名（Q6 之前那个形态下会"刚好对"，之后就会错）。
  */
 export function extractMissingFields(warnings: WarningItem[]): string[] {
   const warning = warnings.find((item) => item.code === 'MISSING_PROFILE_FIELDS')

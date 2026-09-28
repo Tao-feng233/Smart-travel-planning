@@ -13,23 +13,33 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import { useSessionStore } from '@/stores/session'
 import {
   BUDGET_LOW_TIERS,
   BUDGET_TIERS,
+  backendQuestions,
   buildClarificationMessage,
   emptyForm,
-  fieldMeta,
   isFormEmpty,
+  resolveMeta,
   type ClarificationForm,
 } from '@/utils/clarification'
 
 const props = defineProps<{ fields: string[]; loading?: boolean }>()
 const emit = defineEmits<{ (e: 'submit', text: string): void }>()
 
+const store = useSessionStore()
 const form = reactive<ClarificationForm>(emptyForm())
 const submitting = ref(false)
 
-const metas = computed(() => props.fields.map((name) => fieldMeta(name)))
+/**
+ * 文案取值顺序：**后端 `details` 的 value 优先**，本地 `META` 兜底（Q6 结论）。
+ * 后端还没给文案时（value 仍是字段名）自动回退，行为与改前一致。
+ */
+const metas = computed(() => {
+  const backend = backendQuestions(store.warnings)
+  return props.fields.map((name) => resolveMeta(name, backend))
+})
 const budgetSelected = computed(() => form.budget)
 const canSubmit = computed(() => !isFormEmpty(form) && !submitting.value && !props.loading)
 
