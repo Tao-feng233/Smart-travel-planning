@@ -23,7 +23,7 @@
  */
 import { computed } from 'vue'
 
-import type { Conflict, TravelGuide, VersionLineage } from '@/types/contract'
+import type { Conflict, RunMode, TravelGuide, VersionLineage } from '@/types/contract'
 import { severityLabel } from '@/utils/labels'
 
 const props = defineProps<{
@@ -33,6 +33,8 @@ const props = defineProps<{
   previousGuide: TravelGuide | null
   lineage: VersionLineage | null
   conflicts: Conflict[]
+  /** 演示模式保留内部口径（方便对照后端），真实模式只留用户关心的那两件事。 */
+  runMode: RunMode
 }>()
 
 /** node_id → 节点名称。新版优先，旧版兜住被移除/被替换的那些。 */
@@ -104,9 +106,28 @@ const conflictsTitle = computed(() =>
   props.lineage ? `还没解决的问题（${props.conflicts.length}）` : `共 ${props.conflicts.length} 个`,
 )
 
-/** 冲突的元信息。修法单独列在下面，不塞进这一行里挤成一团。 */
+/**
+ * 冲突的元信息。修法单独列在下面，不塞进这一行里挤成一团。
+ *
+ * `scope` 在契约里是**自由字符串**（`schemas/v04/planning.py` 里
+ * `Conflict.scope: str`，没有定义取值集合），后端现在填的是 `WHOLE_GUIDE` /
+ * `COST` 这类内部口径。所以这里不做枚举映射——映射表一旦和后端漂移就会
+ * 显示错的中文名，比显示原始值更糟。演示模式原样保留（对照后端用），
+ * 真实模式改成说用户真正关心的两件事：影响面有多大、这项能不能自动修。
+ */
 function conflictMeta(conflict: Conflict): string {
-  return `严重度：${severityLabel(conflict.severity)}｜范围：${conflict.scope}｜受影响节点 ${conflict.affected_node_ids.length} 个`
+  if (props.runMode === 'DEMO') {
+    return `严重度：${severityLabel(conflict.severity)}｜范围：${conflict.scope}｜受影响节点 ${conflict.affected_node_ids.length} 个`
+  }
+  const scopeText =
+    conflict.affected_node_ids.length > 0
+      ? `影响 ${conflict.affected_node_ids.length} 处安排`
+      : '影响整份行程'
+  const fixText =
+    conflict.repair_options.length > 0
+      ? `可以自动调整（${conflict.repair_options.length} 种改法，见下）`
+      : '这项暂时无法自动调整，需要你出发前自行确认'
+  return `${severityLabel(conflict.severity)}｜${scopeText}｜${fixText}`
 }
 </script>
 

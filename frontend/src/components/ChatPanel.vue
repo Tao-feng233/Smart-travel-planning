@@ -11,9 +11,9 @@ import { ElMessage } from 'element-plus'
 
 import ClarificationCard from '@/components/ClarificationCard.vue'
 import { useSessionStore } from '@/stores/session'
-import type { DestinationRecommendation } from '@/types/contract'
+import type { Conflict, DestinationRecommendation } from '@/types/contract'
 import { formatDateRange } from '@/utils/format'
-import { stageLabel } from '@/utils/labels'
+import { stageLabel, stageProgress } from '@/utils/labels'
 
 const emit = defineEmits<{ (e: 'goto-result', tab: 'guide' | 'state'): void }>()
 
@@ -105,6 +105,39 @@ function evidenceHint(ids: string[]): string {
 function candidateTitle(candidate: DestinationRecommendation): string {
   return candidate.name?.trim() || candidate.destination_id
 }
+
+/**
+ * 「就去这个」。
+ *
+ * 候选卡以前只有文字（后端提示"回复「确认」即可"），用户得自己手打两个字；
+ * 多候选时更要去翻候选的中文名再照着打。这里点一下就把**候选自己的名字**
+ * 发出去——不新增接口，走的还是同一条消息通道（B3 既定决策）。
+ *
+ * 为什么必须带名字而不是发裸「确认」：后端的确认采纳要能在文本里认出是哪个
+ * 候选（`graph/nodes.py` 的 `_adopt_confirmed_candidate`），裸「确认」只在
+ * 只有一个候选时才敢采纳。带名字两种情况都对。
+ */
+async function chooseCandidate(candidate: DestinationRecommendation): Promise<void> {
+  if (store.loading) return
+  await store.send(`就去${candidateTitle(candidate)}`)
+  await scrollToBottom()
+}
+
+/**
+ * 冲突卡片的一行说明。
+ *
+ * `scope` 是契约里的自由字符串（没定义取值集合），后端给的是 `WHOLE_GUIDE`
+ * 这类内部口径，所以不做中文映射（映射漂移比显示原值更糟）：演示模式原样
+ * 回显方便对照，真实模式只说"能不能自动修"。
+ */
+function conflictHint(conflict: Conflict): string {
+  if (store.runMode === 'DEMO') {
+    return `范围：${conflict.scope}｜修复选项 ${conflict.repair_options.length} 个`
+  }
+  return conflict.repair_options.length > 0
+    ? `可以自动调整（${conflict.repair_options.length} 种改法）`
+    : '这项暂时无法自动调整，需要你出发前自行确认'
+}
 </script>
 
 <template>
@@ -143,7 +176,12 @@ function candidateTitle(candidate: DestinationRecommendation): string {
         <div v-else class="msg msg--assistant">
           <p class="msg__text">{{ message.text }}</p>
           <div class="msg__meta">
-            <span v-if="message.stage" class="msg__stage">{{ stageLabel(message.stage) }}</span>
+            <!-- 阶段标签是我们自己的状态机口径，演示模式下留着（讲清系统在做什么），
+                 真实模式下收起——用户不关心走到哪一格，只关心这一句说了什么。 -->
+            <span
+              v-if="message.stage && store.runMode === 'DEMO'"
+              class="msg__stage"
+            >{{ stageLabel(message.stage) }}</span>
             <span class="ts-faint">{{ message.at }}</span>
           </div>
         </div>
@@ -171,8 +209,30 @@ function candidateTitle(candidate: DestinationRecommendation): string {
           <p v-if="candidate.risk_flags.length > 0" class="candidate__risk">
             风险：{{ candidate.risk_flags.join('；') }}
           </p>
-          <p class="ts-faint">{{ evidenceHint(candidate.evidence_ids) }}｜readiness: {{ candidate.readiness_id }}</p>
+          <p class="ts-faint">
+            {{ evidenceHint(candidate.evidence_ids) }}<template v-if="store.runMode === 'DEMO'">｜readiness: {{ candidate.readiness_id }}</template>
+          </p>
+          <div class="candidate__actions">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :disabled="store.loading"
+              @click="chooseCandidate(candidate)"
+            >
+              就去{{ candidateTitle(candidate) }}
+            </el-button>
+          </div>
         </div>
+
+        <!--
+          候选里没有想去的地方时（常见于用户点名的城市还没进知识库），
+          必须给一条出路：否则用户看着一屏不认识的候选，只能自己猜该说什么。
+          这里不猜、不替用户选，只说明"直接说目的地名即可"。
+        -->
+        <p class="candidates__hint ts-faint">
+          都不合适？直接说你真正想去的地方，我们再去查有没有可用资料。
+        </p>
       </div>
 
       <!-- 冲突（C6 之后才会真正产生，这里先把展示位留好） -->
@@ -185,7 +245,7 @@ function candidateTitle(candidate: DestinationRecommendation): string {
           :closable="false"
           show-icon
           :title="conflict.message"
-          :description="`范围：${conflict.scope}｜修复选项 ${conflict.repair_options.length} 个`"
+          :description="conflictHint(conflict)"
         />
       </div>
 
@@ -217,7 +277,7 @@ function candidateTitle(candidate: DestinationRecommendation): string {
 
       <div v-if="store.loading" class="chat__loading">
         <el-icon class="is-loading"><Loading /></el-icon>
-        <span>正在处理…</span>
+        <span>{{ stageProgress(store.stage) }}</span>
       </div>
     </div>
 
@@ -367,6 +427,18 @@ function candidateTitle(candidate: DestinationRecommendation): string {
 
 .candidate p {
   margin: 2px 0;
+}
+
+/* 「就去这个」：候选卡唯一的动作入口，靠右让手不用找 */
+.candidate__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.candidates__hint {
+  margin: 0;
+  font-size: 12px;
 }
 
 .chat__loading {
