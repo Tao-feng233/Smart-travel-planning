@@ -56,3 +56,16 @@ def build_questions(missing_fields: list[str]) -> list[str]:
 
 def build_labels(missing_fields: list[str]) -> list[str]:
     return [_BY_NAME[name].label for name in missing_fields if name in _BY_NAME]
+
+
+def build_question_map(missing_fields: list[str]) -> dict[str, str]:
+    """字段名 → 追问文案（写进信封 `warnings[].details` 的结构化载荷）。
+
+    前端据此生成表单并显示文案，因此**文案只有后端这一份来源**；
+    未知字段用字段名兜底，保证 details 与缺失字段一一对应、不错位。
+    """
+
+    return {
+        name: (_BY_NAME[name].question if name in _BY_NAME else name)
+        for name in missing_fields
+    }

@@ -158,6 +158,11 @@ class SessionService:
         # 缺项清单要持久化：`GET /api/sessions/{id}` 只返回 PlanState，
         # 刷新页面时只能靠信封 warnings 把"缺什么"带给前端。
         extras.guide_missing_notes = guide_notes
+        extras.guide_missing_inputs = (
+            list(context.guide_outcome.missing_inputs)
+            if context.guide_outcome is not None
+            else []
+        )
 
         self._repository.save(new_state)
         self._repository.save_extras(session_id, extras)
@@ -181,6 +186,7 @@ class SessionService:
             draft=extras.draft,
             data_is_mock=self._data_is_mock,
             guide_missing=extras.guide_missing_notes,
+            guide_missing_codes=extras.guide_missing_inputs,
         )
         return new_state, reply, warnings
 
@@ -206,6 +212,7 @@ class SessionService:
             draft=extras.draft,
             data_is_mock=self._data_is_mock,
             guide_missing=extras.guide_missing_notes,
+            guide_missing_codes=extras.guide_missing_inputs,
         )
         return state, reply, warnings
 

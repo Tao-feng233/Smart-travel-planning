@@ -144,6 +144,23 @@ def test_planning_reply_summarises_plan_and_conflicts() -> None:
     assert [item.conflict_id for item in reply.conflicts] == ["c1"]
 
 
+def test_warning_details_carry_backend_question_text() -> None:
+    """Q6 收尾：`details` 的 value 是**后端**的追问文案，前端不再抄一份。
+
+    前端按「后端文案优先、本地兜底」渲染（B 已实现），所以后端一改文案，
+    页面立刻跟着变——文案只有一份来源。
+    """
+
+    from app.services.reply_builder import build_warnings
+
+    state = PlanState(session_id="sess_reply", stage=PlanStage.ASKING_CLARIFICATION.value)
+    warnings = build_warnings(state, draft=_draft())
+    item = next(w for w in warnings if w.code == "MISSING_PROFILE_FIELDS")
+    assert set(item.details) == {"start_date", "end_date", "traveler_count", "budget"}
+    assert "大概哪天出发" in item.details["start_date"]
+    assert "预算" in item.details["budget"]
+
+
 def test_awaiting_confirmation_asks_user_to_confirm() -> None:
     state = PlanState(
         session_id="sess_reply",

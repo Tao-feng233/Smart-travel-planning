@@ -126,6 +126,10 @@ def test_guide_incomplete_stage_and_warning(incomplete_client: TestClient) -> No
     refreshed = incomplete_client.get(f"/api/sessions/{session_id}").json()
     codes = [item["code"] for item in refreshed["warnings"]]
     assert "GUIDE_MATERIAL_MISSING" in codes
+    # 缺项要有**结构化** details：前端不该解析 message 文本（Q6 的后半条）
+    item = next(w for w in refreshed["warnings"] if w["code"] == "GUIDE_MATERIAL_MISSING")
+    assert item["details"], "GUIDE_MATERIAL_MISSING 必须带结构化缺项"
+    assert any("INTERCITY" in code for code in item["details"])
     assert refreshed["data"]["current_guide_id"] is None
 
 

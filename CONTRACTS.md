@@ -820,6 +820,18 @@ P0验收：9个工具均有符合契约的可调用实现（允许Mock）；端�
 }
 ```
 
+### 13.0 信封字段语义约定（三人确认 2026-09-28）
+
+```text
+warnings[].details   结构化载荷，程序只读这里，不解析 message 文本。
+                     · code = MISSING_PROFILE_FIELDS 时：key 是缺失字段名，
+                       value 是**该字段的追问文案**（文案唯一来源在后端）。
+                     · code = GUIDE_MATERIAL_MISSING 时：key 是缺项标识
+                       （例如 ARRIVAL_INTERCITY_MISSING），value 是该缺项的说明。
+assistant_message    只面向人的展示文本；**程序不得解析它的内容或格式**。
+                     追问、缺项提示等结构化信息一律走 warnings[].details。
+```
+
 ### 13.1 会话
 
 ```text

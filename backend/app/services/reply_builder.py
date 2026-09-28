@@ -32,7 +32,7 @@ from app.schemas import (
 )
 from app.services.availability_filter import TripFilterResult
 
-from .missing_fields import build_questions
+from .missing_fields import build_question_map, build_questions
 
 _INSUFFICIENT_DATA_TEXT = (
     "当前知识库的数据覆盖不足，无法给出经过验证的推荐。"
@@ -48,6 +48,13 @@ _MOCK_NOTICE = "当前数据源为模拟数据（MOCK_ONLY），仅用于流程�
 _MISSING_INPUT_TEXT = {
     "LODGING_CANDIDATES": "住宿候选数据还没有到位，暂时生成不了含过夜的完整行程。",
     "MULTI_DESTINATION_P1": "多目的地规划属于 P1，当前只支持单目的地。",
+    # C7 组攻略时的缺项（写进 GUIDE_MATERIAL_MISSING 的 details）
+    "ARRIVAL_INTERCITY_MISSING": "缺少抵达交通方案（去程城际数据）。",
+    "RETURN_INTERCITY_MISSING": "缺少返程交通方案（返程城际数据）。",
+    "LOCAL_TRANSFER_ROUTE_MISSING": "缺少车站与住宿之间的路线数据。",
+    "LOCAL_TRANSFER_COST_MISSING": "车站与住宿之间的路线缺少费用数据。",
+    "STAY_SEGMENT_MISSING": "计划里没有住宿段。",
+    "GUIDE_MATERIAL_MISSING": "组装攻略的素材不足。",
 }
 
 
@@ -184,6 +191,7 @@ def build_warnings(
     draft: TripProfileDraft | None = None,
     data_is_mock: bool = False,
     guide_missing: Sequence[str] = (),
+    guide_missing_codes: Sequence[str] = (),
 ) -> list[WarningItem]:
     """统一信封里的 `warnings`：模拟数据与非阻塞的缺失字段提示。
 
@@ -201,7 +209,8 @@ def build_warnings(
             WarningItem(
                 code="MISSING_PROFILE_FIELDS",
                 message="关键信息还不完整，请按追问补充。",
-                details={name: name for name in missing},
+                # value 是**追问文案**（单一来源在后端）；前端只读 details，不解析 assistant_message
+                details=build_question_map(missing),
             )
         )
     if state.stage == PlanStage.INSUFFICIENT_DATA.value:
@@ -213,8 +222,18 @@ def build_warnings(
         )
     # 攻略缺素材：`GET /api/sessions/{id}` 只返回 PlanState，刷新后
     # 只能靠信封 warnings 把"缺什么"带给前端（不新增契约字段）。
-    for note in guide_missing:
-        warnings.append(WarningItem(code="GUIDE_MATERIAL_MISSING", message=note))
+    if guide_missing:
+        warnings.append(
+            WarningItem(
+                code="GUIDE_MATERIAL_MISSING",
+                # message 只给人看；缺项的结构化信息在 details 里
+                message="\n".join(guide_missing),
+                details={
+                    code: _MISSING_INPUT_TEXT.get(code, code)
+                    for code in guide_missing_codes
+                },
+            )
+        )
     return warnings
 
 

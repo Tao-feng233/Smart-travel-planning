@@ -2,6 +2,17 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**C 线（2026-09-28）· B 提的两条收尾已完成**
+
+- **Q6 文案单一来源**：`warnings[MISSING_PROFILE_FIELDS].details` 的 value 从"字段名"
+  改成**后端追问文案**（`missing_fields.build_question_map()`）；前端按"后端优先、本地兜底"接，
+  文案不再两份手抄。`CONTRACTS.md` 新增 **§13.0 信封字段语义约定**，明确
+  ① details 是结构化载荷 ② `assistant_message` 只面向人、程序不得解析。
+- **GUIDE_MATERIAL_MISSING 结构化**：该 warning 现在带 `details`（缺项标识 → 说明，
+  例如 `ARRIVAL_INTERCITY_MISSING`），`message` 只留给人看；缺项标识随会话持久化，
+  刷新页面也能拿到。
+- 验证：`cd backend && python -m pytest` → **341 passed, 1 skipped**（新增 2 个针对性用例）。
+
 **C 集成记录（2026-09-28）**：A 的两条新提交已并入 main 并复核通过——
 
 - `229f7f4`（Q9 门槛对齐）：`visit_place_count` 改为**从真实候选集推导**（不再硬编码），

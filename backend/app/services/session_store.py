@@ -78,6 +78,8 @@ class SessionExtras(BaseModel):
     handled_idempotency_keys: dict[str, int] = Field(default_factory=dict)
     #: 攻略组装缺什么（持久化后由信封 warnings 带给前端）
     guide_missing_notes: list[str] = Field(default_factory=list)
+    #: 攻略缺项的**结构化标识**（写进 GUIDE_MATERIAL_MISSING 的 details）
+    guide_missing_inputs: list[str] = Field(default_factory=list)
     #: 上一轮推荐的目的地候选（用户只回「确认」时，系统据此确定目的地）
     last_recommendations: list[DestinationRecommendation] = Field(default_factory=list)
 
