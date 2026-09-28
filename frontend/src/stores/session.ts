@@ -208,6 +208,19 @@ export const useSessionStore = defineStore('session', () => {
 
   function absorbWarnings(items: WarningItem[] | undefined): void {
     warnings.value = items ?? []
+    // 「攻略缺什么」的还原通道。
+    //
+    // `GET /api/sessions/{id}` 按 §13.1 只返回 `PlanState`，里面**没有** `degraded_items`
+    // （那个字段只属于 `SendMessageData`），所以刷新页面后缺项清单本来会整条丢失。
+    // C 的处理（2026-09-27）：不新增契约字段，改由信封 `warnings` 回带，
+    // `code = GUIDE_MATERIAL_MISSING`、`message` 就是缺项文案。
+    //
+    // 只在**确实带了该 warning** 时才覆盖：`send()` 里 `refreshState()` 紧跟其后跑，
+    // 若无条件覆盖，会把 `POST` 刚给的那份 `data.degraded_items` 冲成空。
+    const guideMissing = (items ?? [])
+      .filter((item) => item.code === 'GUIDE_MATERIAL_MISSING')
+      .map((item) => item.message)
+    if (guideMissing.length > 0) degradedItems.value = guideMissing
   }
 
   function describeError(cause: unknown): { code: string; message: string } {

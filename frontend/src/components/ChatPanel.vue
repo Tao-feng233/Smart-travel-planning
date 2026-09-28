@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus'
 
 import ClarificationCard from '@/components/ClarificationCard.vue'
 import { useSessionStore } from '@/stores/session'
+import type { DestinationRecommendation } from '@/types/contract'
 import { formatDateRange } from '@/utils/format'
 import { stageLabel } from '@/utils/labels'
 
@@ -62,6 +63,17 @@ function onKeydown(event: KeyboardEvent): void {
 function evidenceHint(ids: string[]): string {
   return ids.length > 0 ? `${ids.length} 条证据` : '暂无证据'
 }
+
+/**
+ * 候选卡片的标题。
+ *
+ * `name` 是 Q8 新增的可选字段（后端 `reply_builder` 已统一用目的地中文名填充），
+ * 但 Provider 没给出名称时它是 `null` —— 那就回退显示 ID，
+ * 而不是在前端编一个：目的地名是事实性内容，只能来自数据层。
+ */
+function candidateTitle(candidate: DestinationRecommendation): string {
+  return candidate.name?.trim() || candidate.destination_id
+}
 </script>
 
 <template>
@@ -97,7 +109,8 @@ function evidenceHint(ids: string[]): string {
           class="candidate ts-card"
         >
           <div class="candidate__head">
-            <strong>{{ candidate.destination_id }}</strong>
+            <strong>{{ candidateTitle(candidate) }}</strong>
+            <span v-if="candidate.name" class="candidate__id">{{ candidate.destination_id }}</span>
             <el-tag v-if="candidate.suitable" size="small" type="success" effect="plain">适合</el-tag>
             <el-tag v-else size="small" type="info" effect="plain">待定</el-tag>
             <el-tag size="small" effect="plain">建议 {{ candidate.suggested_days }} 天</el-tag>
@@ -254,6 +267,12 @@ function evidenceHint(ids: string[]): string {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 13px;
+}
+
+/* 有中文名时把 ID 收成小字附注（方便和后端返回对照）；没有名字时 ID 本身就是标题。 */
+.candidate__id {
+  font-size: 11px;
+  color: var(--ts-text-weak);
 }
 
 .candidate__reason {
