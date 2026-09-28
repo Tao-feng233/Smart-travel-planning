@@ -137,6 +137,50 @@ def test_unknown_session_returns_404_with_error_detail(client: TestClient) -> No
     assert client.get("/api/sessions/sess_missing").status_code == 404
 
 
+class _DroppingParser:
+    """测试替身：假装 LLM 通道丢掉了知识库外的目的地（B 实测报的静默丢弃）。"""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def parse(self, **kwargs):
+        return self._inner.parse(**kwargs)
+
+    def parse_with_diagnostics(self, **kwargs):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            draft=self._inner.parse(**kwargs),
+            diagnostics=(),
+            dropped_destinations=("大理",),
+        )
+
+
+def test_out_of_coverage_destination_is_surfaced_to_the_user() -> None:
+    """点名知识库外的地方时要有可见 warning，不能让用户以为系统没听懂。"""
+
+    from app.api.deps import build_node_deps
+
+    app = create_app()
+    node_deps = build_node_deps()
+    node_deps.parser = _DroppingParser(node_deps.parser)
+    service = build_session_service(
+        repository=InMemorySessionRepository(), node_deps=node_deps
+    )
+    app.dependency_overrides[get_session_service] = lambda: service
+    client = TestClient(app)
+    session_id = client.post("/api/sessions", json={"run_mode": "DEMO"}).json()["data"][
+        "session_id"
+    ]
+    body = client.post(
+        f"/api/sessions/{session_id}/messages",
+        json={"text": "从上海出发，10月2号到10月6号，2个人，预算5000元，想去大理"},
+    ).json()
+    item = next(w for w in body["warnings"] if w["code"] == "DESTINATION_OUT_OF_COVERAGE")
+    assert "大理" in item["message"]
+    assert item["details"] == {"大理": "不在知识库覆盖范围内"}
+
+
 def test_empty_message_is_rejected_by_schema(client: TestClient) -> None:
     session_id = _create(client)
     # text 缺失属于请求体非法

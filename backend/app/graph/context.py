@@ -79,5 +79,7 @@ class TurnContext:
     weather_facts: list[WeatherFact] = field(default_factory=list)
     #: 上一轮推荐过的目的地候选（用户回「确认」时要用它确定目的地）
     previous_recommendations: list[DestinationRecommendation] = field(default_factory=list)
+    #: 本轮被解析器丢弃的"知识库外目的地"（要变成用户可见的 warning）
+    dropped_destinations: list[str] = field(default_factory=list)
     #: C7 组装攻略的结果（缺素材时 guide 为 None，但计划仍然有效）
     guide_outcome: GuideBuildOutcome | None = None

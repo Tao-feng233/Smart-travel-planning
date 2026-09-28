@@ -192,6 +192,7 @@ def build_warnings(
     data_is_mock: bool = False,
     guide_missing: Sequence[str] = (),
     guide_missing_codes: Sequence[str] = (),
+    dropped_destinations: Sequence[str] = (),
 ) -> list[WarningItem]:
     """统一信封里的 `warnings`：模拟数据与非阻塞的缺失字段提示。
 
@@ -218,6 +219,18 @@ def build_warnings(
             WarningItem(
                 code="OUT_OF_KNOWLEDGE_COVERAGE",
                 message="该需求超出当前知识库覆盖范围。",
+            )
+        )
+    # 用户点名了知识库外的地方：必须说出来，不能让用户以为系统没听懂
+    if dropped_destinations:
+        names = "、".join(dropped_destinations)
+        warnings.append(
+            WarningItem(
+                code="DESTINATION_OUT_OF_COVERAGE",
+                message=f"「{names}」不在当前知识库覆盖范围内，暂时无法规划该目的地。",
+                details={
+                    name: "不在知识库覆盖范围内" for name in dropped_destinations
+                },
             )
         )
     # 攻略缺素材：`GET /api/sessions/{id}` 只返回 PlanState，刷新后

@@ -2,6 +2,17 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**C 线（2026-09-28）· 越界目的地不再静默丢弃（方案乙：走 `ParseOutcome` 通道）**
+
+- `parse_request` 改为优先调用 `parse_with_diagnostics()`（用 `getattr` 兜底，
+  没有该方法时回落 `parse()` → C 自己的规则式解析器不受影响）。
+- 新增 warning：`code = DESTINATION_OUT_OF_COVERAGE`，
+  `message` = 人话（「大理」不在当前知识库覆盖范围内…），`details` = `{地名: 说明}`；
+  缺项随会话持久化，刷新后仍在。
+- **等 B 加 2 行**：`ParseOutcome` 增加 `dropped_destinations: tuple[str, ...] = ()`
+  （必须结构化：C 要拿它当 `details` 的 key）。字段一到，警告自动生效，前端零改动。
+- 测试：+2（warning 形状 / API 层可见）→ **371 passed, 1 skipped**。
+
 **C 线（2026-09-28）· B 提的两条收尾已完成**
 
 - **Q6 文案单一来源**：`warnings[MISSING_PROFILE_FIELDS].details` 的 value 从"字段名"

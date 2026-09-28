@@ -161,13 +161,8 @@ def build_nodes(deps: NodeDeps) -> dict[str, Callable[..., NodeReturn]]:
         """
 
         text = (runtime.context.user_message or "").strip()
-        draft = deps.parser.parse(
-            session_id=state.session_id,
-            text=text,
-            previous=runtime.context.draft,
-            reference_date=deps.today(),
-            known_destinations=deps.known_destinations,
-        )
+        draft, dropped = _parse_request(deps, state, runtime, text)
+        runtime.context.dropped_destinations = list(dropped)
         draft.missing_fields = draft.compute_missing_fields()
         runtime.context.draft = draft
 
@@ -771,6 +766,28 @@ _DEPARTURE_SPAN = re.compile(
     r"|我(?:在|住在)[\u4e00-\u9fa5]{2,6}"
     r"|出发地[是：:]?\s*[\u4e00-\u9fa5]{2,6}"
 )
+
+
+def _parse_request(deps: NodeDeps, state: PlanState, runtime, text: str):
+    """调解析器，返回 (draft, 被丢弃的知识库外目的地)。
+
+    B2 的实现提供 `parse_with_diagnostics()`（返回 `ParseOutcome`，里面带
+    `dropped_destinations`）；没有这个方法时回落到仅返回 draft 的 `parse()`
+    （C 自己的规则式解析器就是这种），所以这里用 getattr 兜底、不硬依赖。
+    """
+
+    kwargs = dict(
+        session_id=state.session_id,
+        text=text,
+        previous=runtime.context.draft,
+        reference_date=deps.today(),
+        known_destinations=deps.known_destinations,
+    )
+    parser = deps.parser
+    if hasattr(parser, "parse_with_diagnostics"):
+        outcome = parser.parse_with_diagnostics(**kwargs)
+        return outcome.draft, tuple(getattr(outcome, "dropped_destinations", ()) or ())
+    return parser.parse(**kwargs), ()
 
 
 def _strip_departure_mentions(text: str) -> str:

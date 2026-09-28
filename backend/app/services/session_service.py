@@ -147,6 +147,7 @@ class SessionService:
             extras.plan_conflicts = list(context.validation_result.conflicts)
         if context.recommendations:
             extras.last_recommendations = list(context.recommendations)
+        extras.dropped_destinations = list(context.dropped_destinations)
         guide_notes: list[str] = []
         if context.guide_outcome is not None:
             if context.guide_outcome.guide is not None:
@@ -187,6 +188,7 @@ class SessionService:
             data_is_mock=self._data_is_mock,
             guide_missing=extras.guide_missing_notes,
             guide_missing_codes=extras.guide_missing_inputs,
+            dropped_destinations=extras.dropped_destinations,
         )
         return new_state, reply, warnings
 
@@ -213,6 +215,7 @@ class SessionService:
             data_is_mock=self._data_is_mock,
             guide_missing=extras.guide_missing_notes,
             guide_missing_codes=extras.guide_missing_inputs,
+            dropped_destinations=extras.dropped_destinations,
         )
         return state, reply, warnings
 

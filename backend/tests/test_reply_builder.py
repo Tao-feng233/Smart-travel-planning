@@ -161,6 +161,18 @@ def test_warning_details_carry_backend_question_text() -> None:
     assert "预算" in item.details["budget"]
 
 
+def test_out_of_coverage_destination_warning_shape() -> None:
+    """用户点名知识库外的地方：warning 要有 code + 人话 message + 结构化 details。"""
+
+    from app.services.reply_builder import build_warnings
+
+    state = PlanState(session_id="sess_reply", stage=PlanStage.AWAITING_DESTINATION_CONFIRMATION.value)
+    warnings = build_warnings(state, dropped_destinations=["大理"])
+    item = next(w for w in warnings if w.code == "DESTINATION_OUT_OF_COVERAGE")
+    assert "大理" in item.message
+    assert item.details == {"大理": "不在知识库覆盖范围内"}
+
+
 def test_awaiting_confirmation_asks_user_to_confirm() -> None:
     state = PlanState(
         session_id="sess_reply",

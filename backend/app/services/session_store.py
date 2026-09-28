@@ -82,6 +82,8 @@ class SessionExtras(BaseModel):
     guide_missing_inputs: list[str] = Field(default_factory=list)
     #: 上一轮推荐的目的地候选（用户只回「确认」时，系统据此确定目的地）
     last_recommendations: list[DestinationRecommendation] = Field(default_factory=list)
+    #: 被丢弃的知识库外目的地（前端要看得到"系统听懂了但没数据"）
+    dropped_destinations: list[str] = Field(default_factory=list)
 
 
 class SessionRepository(Protocol):
