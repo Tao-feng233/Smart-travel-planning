@@ -31,6 +31,7 @@ replan_affected_scope。
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable, Mapping, Protocol
@@ -763,6 +764,21 @@ def _fixed_destination_id(profile: TripProfile | None) -> str | None:
     return None
 
 
+#: 出发地表达（这些片段里的城市名不代表"用户选了目的地"）
+_DEPARTURE_SPAN = re.compile(
+    r"(?:从|由)[\u4e00-\u9fa5]{2,6}?(?:出发|过去|出发去)"
+    r"|[\u4e00-\u9fa5]{2,6}?出发"
+    r"|我(?:在|住在)[\u4e00-\u9fa5]{2,6}"
+    r"|出发地[是：:]?\s*[\u4e00-\u9fa5]{2,6}"
+)
+
+
+def _strip_departure_mentions(text: str) -> str:
+    """抹掉"出发地"表达，避免把出发城市当成本轮选的目的地。"""
+
+    return _DEPARTURE_SPAN.sub(" ", text)
+
+
 def _destination_name(deps: NodeDeps, destination_id: str) -> str | None:
     for name, value in deps.known_destinations.items():
         if value == destination_id:
@@ -791,10 +807,14 @@ def _adopt_confirmed_candidate(
     if not text or not candidates:
         return None
 
+    # 「从成都出发」里的成都**不是**目的地选择：出发地用的是同一批城市名。
+    # 先把"出发地表达"整段抹掉，再在剩下的文本里找候选名。
+    text_without_departure = _strip_departure_mentions(text)
+
     picked = None
     for item in candidates:
-        if item.destination_id in text or any(
-            name in text and value == item.destination_id
+        if item.destination_id in text_without_departure or any(
+            name in text_without_departure and value == item.destination_id
             for name, value in deps.known_destinations.items()
         ):
             picked = item

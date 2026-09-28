@@ -292,6 +292,21 @@ def test_confirming_a_system_recommendation_starts_planning() -> None:
     assert context.validated_plan is not None
 
 
+def test_departure_city_is_not_taken_as_destination_pick() -> None:
+    """「我从成都出发去大理」不能把**出发地**当成"选了目的地"。
+
+    出发地和目的地用的是同一批城市名，所以采纳逻辑必须先把"出发地表达"排除掉
+    （B 实测报过这个误判）。
+    """
+
+    repository = InMemorySessionRepository()
+    _session(repository, "sess_dep")
+    _run(repository, "sess_dep", "从上海出发，10月2号到10月6号，2个人，预算5000元，喜欢美食和人文")
+    state, _ = _run(repository, "sess_dep", "我从成都出发去大理")
+    assert state.current_plan_id is None, "出发地不该被当成选中的目的地"
+    assert state.stage == PlanStage.AWAITING_DESTINATION_CONFIRMATION.value
+
+
 def test_naming_destination_again_counts_as_confirmation() -> None:
     repository = InMemorySessionRepository()
     _session(repository, "sess_name")

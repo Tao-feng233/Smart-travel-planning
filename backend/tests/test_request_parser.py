@@ -177,6 +177,19 @@ def test_known_destination_becomes_fixed_request() -> None:
     assert profile.destination_requests[0].fixed is True
 
 
+def test_departure_city_is_not_a_destination_request() -> None:
+    """「从成都出发」里的成都只是出发地，不能变成"目的地=成都"（B 实测报的误判）。"""
+
+    profile = parse("我从成都出发去大理")
+    assert profile.departure_city == "成都"
+    assert profile.destination_requests == []
+
+
+def test_named_destination_after_departure_still_works() -> None:
+    profile = parse("从上海出发，想去成都")
+    assert [r.destination_id for r in profile.destination_requests] == ["dest_chengdu"]
+
+
 def test_noise_input_yields_empty_profile() -> None:
     """无关输入不猜测：所有关键字段保持缺失。"""
 

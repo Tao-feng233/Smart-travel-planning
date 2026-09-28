@@ -58,6 +58,21 @@ _FIXED_BUDGET_WORDS = ("预算固定", "不能超过", "不能超", "最多", "�
 
 #: 预算标签（"我的预算…" "总预算…" "花费…"）
 _BUDGET_LABEL = r"(?:总预算|整体预算|全部预算|预算|花费|开销|费用)"
+
+#: 出发地表达的固定模式。出发地和目的地用的是**同一批城市名**，
+#: 识别目的地前必须先把这些片段抹掉，否则「从成都出发」会被当成"想去成都"。
+_DEPARTURE_SPAN = re.compile(
+    r"(?:从|由)[\u4e00-\u9fa5]{2,6}?(?:出发|过去|出发去)"
+    r"|[\u4e00-\u9fa5]{2,6}?出发"
+    r"|我(?:在|住在)[\u4e00-\u9fa5]{2,6}"
+    r"|出发地[是：:]?\s*[\u4e00-\u9fa5]{2,6}"
+)
+
+
+def _strip_departure_mentions(text: str) -> str:
+    """抹掉"出发地"表达，只留可能表示目的地的部分。"""
+
+    return _DEPARTURE_SPAN.sub(" ", text)
 #: 金额前的语气词/标点，**允许连续出现**（"大概是" "差不多是"）——
 #: 旧实现只允许一个，导致「我的预算大概是三万」解析不到（手动试用时报的缺口）。
 _BUDGET_FILLER = (
@@ -412,8 +427,11 @@ class StubTripProfileParser:
     def _extract_destination(
         profile: TripProfileDraft, text: str, known_destinations: Mapping[str, str]
     ) -> None:
+        # 只在"去掉出发地表达"之后的文本里找目的地：
+        # 「我从成都出发去大理」里的成都只是出发地，不是目的地选择。
+        scoped = _strip_departure_mentions(text)
         for name, destination_id in known_destinations.items():
-            if name not in text:
+            if name not in scoped:
                 continue
             requests = list(profile.destination_requests)
             if not any(item.destination_id == destination_id for item in requests):
