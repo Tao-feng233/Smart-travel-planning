@@ -1,5 +1,24 @@
 # 项目进度报告（三人协作版）
 
+## ⚡ 最新变更（只看这一块就够）
+
+**C 集成记录（2026-09-28）**：A 的两条新提交已并入 main 并复核通过——
+
+- `229f7f4`（Q9 门槛对齐）：`visit_place_count` 改为**从真实候选集推导**（不再硬编码），
+  公式改为 `ceil(duration_days × 1.5) + 1`，`ruleset_version = rules-2026-09-27-v2`，
+  与 `CONTRACTS.md` §3.3 一致；
+- `3cbcdff`（高德混合路线 Provider）：`deps.py` 改为按 `DATA_MODE` 装配，
+  **默认 `MOCK` 行为不变**（演示路径不受影响），只有显式 `DATA_MODE=HYBRID` 才让
+  `get_route` 走高德优先 + Mock 回退。
+
+验证：`cd backend && python -m pytest` → **324 passed, 1 skipped**；
+`tools/check_a_data.py` → 7/7；`tools/check_b_flow.py --deps real` → **exit 0**（端到端仍通）。
+
+> 注意：A 的这次提交把本段的小标题覆盖掉了，C 已恢复（`# 项目进度报告` 下的
+> 「⚡ 最新变更」是三人约定的入口，请保留）。
+
+---
+
 ## 2026-09-28 · A 线：高德实时路线 + 其余 Mock 的混合链路（`DATA_MODE=HYBRID`）
 
 - 新增 `backend/app/providers/amap_route.py`：高德 Web 服务「路径规划 2.0」
