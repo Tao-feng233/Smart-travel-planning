@@ -6,6 +6,8 @@ import type { PreparationItem, PreparationSection } from '@/types/contract'
 import { formatDateTime } from '@/utils/format'
 import { prepCategoryLabel, prepPriorityLabel } from '@/utils/labels'
 
+import GuideSection from './GuideSection.vue'
+
 const props = defineProps<{ section: PreparationSection }>()
 
 const groups = computed(() => {
@@ -18,6 +20,17 @@ const groups = computed(() => {
   return [...map.entries()].map(([category, items]) => ({ category, items }))
 })
 
+/** 收起摘要：必办几项、出发前要复核几项——不展开也知道有没有硬任务。 */
+const summary = computed(() => {
+  const required = props.section.items.filter((item) => item.priority === 'REQUIRED').length
+  const parts = [`${props.section.items.length} 项准备`]
+  if (required > 0) parts.push(`其中 ${required} 项必办`)
+  if (props.section.refresh_before_departure.length > 0) {
+    parts.push(`${props.section.refresh_before_departure.length} 项出发前复核`)
+  }
+  return parts.join(' · ')
+})
+
 function priorityType(priority: PreparationItem['priority']): 'danger' | 'warning' | 'info' {
   if (priority === 'REQUIRED') return 'danger'
   if (priority === 'RECOMMENDED') return 'warning'
@@ -26,9 +39,7 @@ function priorityType(priority: PreparationItem['priority']): 'danger' | 'warnin
 </script>
 
 <template>
-  <section class="ts-card panel">
-    <h3 class="ts-section-title">三、行前准备</h3>
-
+  <GuideSection title="三、行前准备" :summary="summary" :default-open="false">
     <div v-if="section.items.length === 0" class="ts-faint">暂无准备事项。</div>
 
     <div v-for="group in groups" :key="group.category" class="group">
@@ -60,14 +71,10 @@ function priorityType(priority: PreparationItem['priority']): 'danger' | 'warnin
         </li>
       </ul>
     </div>
-  </section>
+  </GuideSection>
 </template>
 
 <style scoped>
-.panel {
-  padding: 14px;
-}
-
 .group + .group,
 .refresh {
   margin-top: 10px;

@@ -6,11 +6,15 @@
  * 所以这里把 `source`、`evidence_ids`、`booking_advice` 一并显示，
  * 让用户看到"这个车次判断的依据是什么"。
  */
+import { computed } from 'vue'
+
 import type { ArrivalAndDepartureSection, IntercityOption } from '@/types/contract'
 import { formatDateTime, formatMinutes, formatMoney, formatTimeRange } from '@/utils/format'
 import { modeLabel } from '@/utils/labels'
 
-defineProps<{ section: ArrivalAndDepartureSection }>()
+import GuideSection from './GuideSection.vue'
+
+const props = defineProps<{ section: ArrivalAndDepartureSection }>()
 
 function windowText(option: IntercityOption): string {
   return `${formatTimeRange(option.departure_window.start_at, option.departure_window.end_at)} 出发 → ${formatTimeRange(
@@ -18,12 +22,18 @@ function windowText(option: IntercityOption): string {
     option.arrival_window.end_at,
   )} 到达`
 }
+
+/** 收起时的摘要：方式 + 区间 + 票价，够判断"要不要点开"。 */
+const summary = computed(
+  () =>
+    `${modeLabel(props.section.recommended_option.mode)}｜` +
+    `${props.section.recommended_option.origin_station} → ${props.section.recommended_option.destination_station}｜` +
+    `${formatMoney(props.section.recommended_option.price_range)}`,
+)
 </script>
 
 <template>
-  <section class="ts-card panel">
-    <h3 class="ts-section-title">二、怎么去、怎么回</h3>
-
+  <GuideSection title="二、怎么去、怎么回" :summary="summary">
     <div class="option">
       <div class="option__head">
         <el-tag size="small" type="primary" effect="light">{{ modeLabel(section.recommended_option.mode) }}</el-tag>
@@ -114,14 +124,10 @@ function windowText(option: IntercityOption): string {
         <p class="ts-faint">{{ section.return_plan.reason }}</p>
       </div>
     </div>
-  </section>
+  </GuideSection>
 </template>
 
 <style scoped>
-.panel {
-  padding: 14px;
-}
-
 .option {
   padding: 10px 12px;
   background: var(--ts-surface-soft);

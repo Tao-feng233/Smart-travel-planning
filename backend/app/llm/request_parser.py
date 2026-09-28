@@ -90,6 +90,18 @@ class ParseOutcome:
     draft: TripProfileDraft
     used_llm: bool
     diagnostics: tuple[str, ...] = ()
+    #: 用户提到、但不在知识库清单内因而**被丢弃**的目的地（展示名，已去重保序）。
+    #:
+    #: 结构化原因：上游要拿它当 `WarningItem.details` 的 key 发
+    #: `DESTINATION_OUT_OF_COVERAGE` 警告；如果只在 `diagnostics` 里留一句人话，
+    #: 上游就得解析文本，那是脆的。
+    #:
+    #: 为什么不在 parser 上挂会话级状态：`deps.py` 装配出的 parser 是**进程内单例**，
+    #: 挂上去就成了"一个实例存所有会话的临时状态"，并发下必然串味。
+    #: 诊断本来就是"这一轮"的信息，走返回值最自然。
+    #:
+    #: 只在 LLM 路径有值；降级到规则式解析器时为空（原因见 `_degrade`）。
+    dropped_destinations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -99,11 +111,14 @@ class MergeResult:
     `blocked_fields` 记录**被校验收掉**的字段（例如已经过去的日期、
     早于出发日期的返回日期）。规则式兜底不得再去填它们 ——
     否则「校验收掉」会被「规则补回」抵消，红线就形同虚设。
+
+    `dropped_destinations` 见 `ParseOutcome` 的同名字段。
     """
 
     payload: dict[str, Any]
     diagnostics: list[str]
     blocked_fields: frozenset[str]
+    dropped_destinations: tuple[str, ...] = ()
 
 
 @dataclass
@@ -178,6 +193,8 @@ class LLMTripProfileParser:
         )
         user_prompt = build_profile_user_prompt(message)
         diagnostics: list[str] = []
+        #: 越界目的地在重试期间也会变（模型每次重答都可能不同），去重后累积
+        dropped_destinations: list[str] = []
 
         for attempt in range(self.max_repair_attempts + 1):
             try:
@@ -203,6 +220,9 @@ class LLMTripProfileParser:
             )
             merged = merge_result.payload
             diagnostics.extend(merge_result.diagnostics)
+            for label in merge_result.dropped_destinations:
+                if label not in dropped_destinations:
+                    dropped_destinations.append(label)
 
             if self.use_rule_assist:
                 merged, assist_diagnostics = self._apply_rule_assist(
@@ -240,6 +260,7 @@ class LLMTripProfileParser:
                 draft=_finalize_draft(draft, session_id),
                 used_llm=True,
                 diagnostics=tuple(diagnostics),
+                dropped_destinations=tuple(dropped_destinations),
             )
 
         # 正常流程不会走到这里，保留兜底以免将来改循环时漏出口
@@ -349,6 +370,16 @@ class LLMTripProfileParser:
         reason: str,
         extra: Sequence[str] = (),
     ) -> ParseOutcome:
+        """LLM 通道不可用时退回规则式解析。
+
+        `dropped_destinations` 这里**保持为空**，不是漏了：
+        越界目的地是"模型给了一个清单外的 ID"才会产生的，而规则式解析器
+        不产出这种 payload —— 它的候选本来就只从知识库清单里挑。
+        也就是说**降级路径下"用户点名的目的地暂不可规划"这条提示不会出现**。
+        要做到全路径覆盖，需要规则式解析器自己暴露它丢掉了什么
+        （那是 C 线的事，B 这层拿不到）。
+        """
+
         draft = self.fallback.parse(
             session_id=session_id,
             text=text,
@@ -469,12 +500,23 @@ def merge_profile_payload(
             "模型输出了 must_visit_resource_ids，但资源 ID 只能来自数据层，已忽略"
         )
 
-    requests, request_diagnostics = _accept_destination_requests(
+    requests, request_diagnostics, dropped_destinations = _accept_destination_requests(
         payload.get("destination_requests"),
         base=base,
         known=known,
     )
     diagnostics.extend(request_diagnostics)
+
+    # 出发地不是目的地。闸门放在这里就够了：`merged["departure_city"]` 在上面已经定好，
+    # 而 `_apply_rule_assist` 不碰 `destination_requests`（不在 _ASSIST_* 字段里），
+    # 所以这两行之后 `merged["destination_requests"]` 就是最终值。
+    requests, departure_diagnostics = _drop_departure_as_destination(
+        requests,
+        departure_city=merged.get("departure_city"),
+        known=known,
+    )
+    diagnostics.extend(departure_diagnostics)
+
     merged["destination_requests"] = requests
     # 目的地个数决定 destination_mode，不采信模型的声明
     merged["destination_mode"] = _derive_destination_mode(requests)
@@ -487,7 +529,10 @@ def merge_profile_payload(
     merged["constraints"] = constraints
 
     return MergeResult(
-        payload=merged, diagnostics=diagnostics, blocked_fields=frozenset(blocked)
+        payload=merged,
+        diagnostics=diagnostics,
+        blocked_fields=frozenset(blocked),
+        dropped_destinations=dropped_destinations,
     )
 
 
@@ -509,20 +554,39 @@ def _finalize_draft(draft: TripProfileDraft, session_id: str) -> TripProfileDraf
     return draft
 
 
+def _destination_label(item: Mapping[str, Any], identifier: str) -> str:
+    """被丢弃的目的地该给用户显示成什么名字。
+
+    模型可能把城市名直接当 ID（`destination_id = "大理"`），也可能编一个
+    `dest_dali`。优先用模型给的 `name`，没有再退回 `identifier` ——
+    哪怕退回的是个编出来的 ID，也好过我们替它编一个中文城市名：
+    目的地名是事实性内容，红线不允许模型之外的人（包括我们）凭空造。
+    """
+
+    name = _clean_text(item.get("name"))
+    return name or identifier
+
+
 def _accept_destination_requests(
     raw: Any,
     *,
     base: TripProfileDraft,
     known: Mapping[str, str],
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], tuple[str, ...]]:
     """只接受知识库清单内的目的地 ID；名称一律以清单为准。
 
     模型很容易把用户说的城市名直接当 `destination_id`（例如 "成都"），
     或者编一个看起来合理的 ID。这一层是**硬闸门**：
     不在清单里的直接丢弃并记录，绝不带进下游。
+
+    返回 `(accepted, diagnostics, dropped_destinations)`。第三个值是
+    **被丢弃目的地的展示名**（去重保序、结构化），供上游发
+    `DESTINATION_OUT_OF_COVERAGE` 警告用 —— 用户说了「大理」而系统只字不提、
+    直接推荐别的城市，比直接说"大理暂时规划不了"更让人困惑。
     """
 
     diagnostics: list[str] = []
+    dropped: list[str] = []
     allowed = set(known.values())
     name_by_id = {identifier: name for name, identifier in known.items()}
 
@@ -533,9 +597,22 @@ def _accept_destination_requests(
     items = raw if isinstance(raw, (list, tuple)) else ([raw] if raw else [])
     for item in items:
         if not isinstance(item, Mapping):
+            # 模型可能把目的地写成裸字符串（`["大理"]`）而不是对象。
+            # 这类条目同样要报上去：模型提到过的地名一个都不该默默消失，
+            # 否则用户又会回到"我说了大理，系统只字不提"的老问题上。
+            label = _clean_text(item)
+            if label and label not in dropped:
+                dropped.append(label)
+            diagnostics.append(
+                f"模型给出的目的地条目 {label or '<空>'} 不是对象结构，已丢弃"
+            )
             continue
         identifier = str(item.get("destination_id") or "").strip()
         if identifier not in allowed:
+            label = _destination_label(item, identifier)
+            # 同一个目的地被模型重复列出时只报一次，避免警告里出现重复条目
+            if label and label not in dropped:
+                dropped.append(label)
             diagnostics.append(
                 f"模型给出的目的地 {identifier or '<空>'} 不在知识库清单内，已丢弃"
             )
@@ -554,7 +631,58 @@ def _accept_destination_requests(
         entry["fixed"] = bool(fixed) if isinstance(fixed, bool) else entry.get("fixed", True)
         accepted[identifier] = entry
 
-    return list(accepted.values()), diagnostics
+    return list(accepted.values()), diagnostics, tuple(dropped)
+
+
+def _drop_departure_as_destination(
+    requests: list[dict[str, Any]],
+    *,
+    departure_city: str | None,
+    known: Mapping[str, str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """出发地不是目的地：用户既说了出发点、又说了别的目的地时，丢掉被误填的出发地。
+
+    「我从**成都**出发去大理」里的「成都」是出发点，不是"要去成都玩"。
+    模型偶尔会把两者都填进 `destination_requests`，下游就会把出发城市
+    也当成目的地排进行程 —— 用户拿到一份"从成都出发、去成都玩"的攻略。
+
+    **只在「同时存在出发城市和其它目的地」时才丢**：
+    只剩一条、且那一条就是出发城市时保留 ——「就在成都玩」「成都周边游」
+    是合法需求（出发地同时是目的地），此时丢掉等于删掉用户的真实意图。
+
+    这不是"越界丢弃"（那类走 `_accept_destination_requests` 并上报给用户），
+    而是**语义纠正**：该目的地本身在知识库里可用，只是不该出现在这个位置，
+    所以只写人话诊断、不进 `dropped_destinations`（不该给用户发"覆盖不足"警告）。
+    """
+
+    if len(requests) <= 1 or not departure_city:
+        return requests, []
+
+    raw_name = str(departure_city).strip()
+    departure_id = known.get(raw_name)
+    # 出发地不是知识库里的目的地（例如"从北京出发"而清单里没有北京）时无从比对，
+    # 不猜：原样放行
+    if departure_id is None and not any(
+        item.get("name") == raw_name for item in requests
+    ):
+        return requests, []
+
+    kept = [
+        item
+        for item in requests
+        if item.get("destination_id") != departure_id and item.get("name") != raw_name
+    ]
+    if len(kept) == len(requests):
+        return requests, []
+    if not kept:
+        # 理论上不会发生（长度 > 1 才进来），保留兜底：宁可不动，也不返回空列表
+        return requests, []
+
+    diagnostics = [
+        f"「{raw_name}」在用户话里是出发地、不是目的地："
+        f"目的地清单里已去掉它，保留 {', '.join(str(item.get('name') or item.get('destination_id')) for item in kept)}"
+    ]
+    return kept, diagnostics
 
 
 def _derive_destination_mode(requests: Sequence[Mapping[str, Any]]) -> str:

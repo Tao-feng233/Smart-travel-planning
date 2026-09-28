@@ -65,6 +65,20 @@ interface PersistedSession {
   runMode: RunMode
   messages: ChatMessage[]
   profileVersion: number | null
+  /**
+   * 这一轮**还没解决**的冲突。
+   *
+   * 为什么必须存：`conflicts` 只出现在 `POST /api/sessions/{id}/messages` 的响应里，
+   * `GET /api/sessions/{id}` 按 §13.1 返回的 `PlanState` **不带它**。不存的话刷新一次就整块消失，
+   * 而 `stage` 仍是 `REPAIRING`（那个能从 `PlanState` 恢复），于是界面自相矛盾：
+   * 顶栏说「有几项要你先确认」，右边的冲突面板却空着、空态还让用户"在左边说清想去哪"——
+   * 可用户早就说清了，卡住的正是那几项冲突。
+   *
+   * 这看起来像"复制后端状态"，但它和 `messages` 同性质：都是**这一轮的展示产出**，
+   * 只为了让界面在刷新后保持自洽；下一轮 `send()` 会用后端响应整个覆盖掉，
+   * 不会长期停留在旧值上。
+   */
+  conflicts: Conflict[]
 }
 
 function readSavedSession(): PersistedSession | null {
@@ -93,7 +107,18 @@ function writeSavedSession(session: PersistedSession | null): void {
 
 export const useSessionStore = defineStore('session', () => {
   // --- 原始响应状态 ---------------------------------------------------------
-  const runMode = ref<RunMode>('DEMO')
+  /**
+   * 当前运行模式。**初值沿用上次的存档**，不能写死 `'DEMO'`。
+   *
+   * 为什么关键：`init()` 恢复会话的条件是 `saved.runMode === mode`。
+   * 若这里固定从 `'DEMO'` 起，挂载时的 `init('DEMO')` 就会把 VERIFIED 的存档
+   * 判成不匹配，于是**每次刷新都新建一个演示会话**：界面上模式悄悄变回演示、
+   * 而用户以为自己还在真实模式，后续几轮都按演示链路跑——这个是误导，
+   * 而本项目的门面正是「运行模式如实披露」。
+   *
+   * 读不出存档（没有 / 坏数据 / 旧格式）时兜到 `'DEMO'`。
+   */
+  const runMode = ref<RunMode>(readSavedSession()?.runMode ?? 'DEMO')
   const sessionId = ref<string | null>(null)
   const planState = ref<PlanState | null>(null)
   const stage = ref<string>('CREATED')
@@ -192,7 +217,16 @@ export const useSessionStore = defineStore('session', () => {
     messages.value.push({ role, text, stage: atStage, at: nowLabel() })
   }
 
-  /** 只在真实会话下落盘；演示通道不持久化，避免误导下次打开。 */
+  /**
+   * 落盘。**演示会话也存**。
+   *
+   * `init()` 靠 `saved.runMode` 决定"该不该恢复这一场"，而模式又从这个存档里读回来
+   * （见 `runMode` 的说明），所以两种模式的会话都必须写进去，否则刷新后无从判断。
+   *
+   * 早先这里写着「只在真实会话下落盘；演示通道不持久化」，但代码里从来没有这个分支——
+   * 注释和实现对不上比没有注释更糟。这里选择改注释而不是补分支：演示会话存下来
+   * 才有「刷新回到同一场演示」的效果，没有理由不存。
+   */
   function persist(): void {
     if (!sessionId.value) {
       writeSavedSession(null)
@@ -203,6 +237,7 @@ export const useSessionStore = defineStore('session', () => {
       runMode: runMode.value,
       messages: messages.value,
       profileVersion: tripProfile.value?.profile_version ?? null,
+      conflicts: conflicts.value,
     })
   }
 
@@ -247,6 +282,8 @@ export const useSessionStore = defineStore('session', () => {
         planState.value = result.data
         stage.value = result.data.stage
         messages.value = saved.messages
+        // 旧存档（没有 `conflicts` 字段）要兜成空数组，别让 `undefined` 漏进界面。
+        conflicts.value = Array.isArray(saved.conflicts) ? saved.conflicts : []
         traceId.value = result.traceId
         absorbWarnings(result.warnings)
         loading.value = false

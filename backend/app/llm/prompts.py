@@ -4,7 +4,10 @@
 
 1. **不作旅游事实来源**：开放时间、价格、路线、住宿、餐饮、天气一律不说；
 2. **不猜测、不补全**：用户没说的就是空的，缺信息交给追问流程；
-3. **只在给定集合内选择**：目的地 ID、节点 ID 都不能超出提供的清单。
+3. **只在给定集合内选择**：最终采纳的目的地 ID、节点 ID 都不能超出提供的清单。
+   但「用户提到了清单外的地名」这种情况要**照实报上来**，交下游丢弃并告知用户
+   （`request_parser.py` 的 `dropped_destinations`）—— 静默吞掉用户说过的目的地，
+   比丢弃一个越界 ID 更糟：用户会以为系统没听懂，而不是知道"这里暂时规划不了"。
 
 提示词是**约束**，不是保证。真正的把关在
 `request_parser.py` / `destination_recommender.py` / `action_interpreter.py`
@@ -16,6 +19,12 @@
 
 变更记录
 --------
+- prompts-2026-09-28-v3：B2 的目的地规则从「不在清单里就保持空数组」改成
+  「清单外的地名也要照实输出（destination_id 与 name 都写用户说的地名）」，
+  并补一条对应 few-shot。原因：原写法让「用户点名了知识库没有的城市」这件事
+  在模型这一步就被吞掉，下游无从得知，用户只会看到系统推荐了别的城市。
+  修好后 `request_parser.py` 的 `dropped_destinations` 才有值，
+  上游据此发 `DESTINATION_OUT_OF_COVERAGE` 警告。
 - prompts-2026-09-28-v2：补 few-shot 示例（B2×2 / B4×1 / B5×3，全部为
   模块级常量，回归测试直接引用并校验其合法性）；负向表述改正向
   （「只输出/只取自」替代「不要/绝不能」）；B5 增加 action_type
@@ -36,7 +45,7 @@ from .contract_hint import schema_text
 from .guards import FACT_CLAIM_KEYWORDS
 
 #: 当前提示词版本（改动提示词必须同步改这里 + 上方变更记录）
-PROMPT_VERSION = "prompts-2026-09-28-v2"
+PROMPT_VERSION = "prompts-2026-09-28-v3"
 
 #: 提示词里给模型的规范标签（与 `guards.py` 的 alias 表同一套取值）
 _INTEREST_TAGS = (
@@ -92,6 +101,19 @@ B2_FEWSHOT_EXAMPLES: tuple[tuple[str, dict[str, Any], str], ...] = (
             "mobility_constraints": ["爸妈腿脚不好，别太累"],
         },
         "日期、天数、预算都没说，全部留空（不出现这些字段），交给系统的追问流程。",
+    ),
+    (
+        "我从杭州出发去敦煌，两个人，预算八千",
+        {
+            "departure_city": "杭州",
+            "traveler_count": 2,
+            "budget": {"amount": 8000, "currency": "CNY"},
+            "destination_requests": [{"destination_id": "敦煌", "name": "敦煌"}],
+        },
+        "「敦煌」不在下方清单里，仍然照实填：destination_id 与 name 都写用户说的地名"
+        "（不要编 dest_xxx 形式的下游 ID）—— 系统会据此明确告诉用户这个目的地暂时"
+        "规划不了，直接吞掉才是问题。「杭州」是出发地，只写 departure_city，"
+        "不要写进目的地。",
     ),
 )
 
@@ -191,8 +213,10 @@ def build_profile_system_prompt(
    缺信息由系统的追问流程去补。
 2. 你只负责理解需求。开放时间、门票价格、交通路线、住宿、餐厅、天气
    一律交给数据层 —— 这个结构里也没有对应的字段。
-3. 目的地只从下方清单里选。用户提到的目的地不在清单里时，
-   destination_requests 保持空数组 —— 编造的 ID 或城市名会让下游查无此地。
+3. 目的地 ID 只从下方清单里取；但用户提到的目的地在清单外时**也要照实输出**：
+   destination_id 与 name 都填用户说的那个地名（例如「敦煌」），
+   不要编造 dest_xxx 形式的下游 ID，也不要因为"清单里没有"就整条丢掉 ——
+   系统要靠它明确告诉用户「这个目的地暂时规划不了」，静默丢掉才是问题。
 
 【填写规则】
 - 今天是 {reference_date.isoformat()}。用户说「10月2号」这类没有年份的日期时，

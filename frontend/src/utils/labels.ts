@@ -27,6 +27,30 @@ const STAGE: Record<string, string> = {
   READY: '攻略已就绪',
 }
 
+/**
+ * 真实模式下「链路停在这里、等你处理」的阶段话术。
+ *
+ * 这三个阶段都**不是过渡态，而是停住了**，所以真实模式下不能沿用状态机的进行时口径：
+ * - `REPAIRING`：后端没有可自动执行的修法（实测 `repair_options` 为空），
+ *   在等用户决定怎么改。这时说「正在修复冲突」是错的——没有任何东西在跑，
+ *   用户会以为再等等就好，实际是**永远等不到**。
+ * - `GUIDE_INCOMPLETE`：计划通过验证了，但攻略素材不够，后端刻意不报 READY。
+ * - `INSUFFICIENT_DATA`：知识库根本没有覆盖。
+ *
+ * 演示模式仍显示 `阶段：<原始口径>`，那是给对照后端状态机用的，不变。
+ */
+const STAGE_STALLED: Record<string, string> = {
+  REPAIRING: '有几项要你先确认',
+  GUIDE_INCOMPLETE: '攻略素材不足',
+  INSUFFICIENT_DATA: '这里暂时查不到资料',
+}
+
+/** 真实模式下的停滞态话术；其它阶段返回 `null`（此时不展示阶段标签）。 */
+export function stageStalledText(stage?: string | null): string | null {
+  if (!stage) return null
+  return STAGE_STALLED[stage] ?? null
+}
+
 const NODE_TYPE: Record<string, string> = {
   ARRIVAL: '抵达',
   CHECK_IN: '入住',
@@ -134,7 +158,9 @@ const LIFECYCLE: Record<string, string> = {
   OUTDATED: '已过期',
 }
 
-const SEVERITY: Record<string, string> = { WARNING: '提醒', ERROR: '冲突' }
+/* 严重度说成人话：写「冲突」的话，跟外面的标题「需要你处理的冲突」叠在一起
+   会读成「冲突｜影响整份行程」，等于没说。这里改成用户要做的动作。 */
+const SEVERITY: Record<string, string> = { WARNING: '可留意', ERROR: '必须处理' }
 
 const ALTERNATIVE_TRIGGER: Record<string, string> = {
   LATE_START: '起晚/晚出发',
@@ -158,6 +184,27 @@ const LODGING_AREA_HINT: Record<string, string> = {
 function pick(table: Record<string, string>, value: string | null | undefined, fallback = '—'): string {
   if (!value) return fallback
   return table[value] ?? value
+}
+
+//: 处理中给用户看的进度话术（比状态机标签更像"我们正在为你做什么"）。
+//: 真实模式下状态机标签已收起，等待期间就靠这句让用户知道没卡住。
+const STAGE_PROGRESS: Record<string, string> = {
+  PARSING_REQUEST: '正在理解你的需求…',
+  CHECKING_FIELDS: '正在核对信息…',
+  RETRIEVING_DESTINATIONS: '正在检索目的地…',
+  RECOMMENDING_DESTINATIONS: '正在挑选合适的目的地…',
+  FETCHING_RESOURCES: '正在获取可选资源…',
+  FILTERING_RESOURCES: '正在核对可用性…',
+  PLANNING: '正在编排每日行程…',
+  VALIDATING: '正在校验行程是否走得通…',
+  REPAIRING: '正在调整冲突…',
+  REPLANNING: '正在按突发重排行程…',
+}
+
+/** 处理中的进度话术；认不出的阶段一律退到中性文案，不显示内部枚举名。 */
+export function stageProgress(stage?: string | null): string {
+  if (!stage) return '正在处理…'
+  return STAGE_PROGRESS[stage] ?? '正在处理…'
 }
 
 export const stageLabel = (value?: string | null) => pick(STAGE, value, '—')
@@ -203,6 +250,11 @@ export function warningTitle(code: string): string {
     MOCK_DATA_IN_DEMO: '演示模式使用模拟数据',
     MISSING_PROFILE_FIELDS: '关键信息还不完整',
     OUT_OF_KNOWLEDGE_COVERAGE: '超出知识库覆盖范围',
+    // 用户点名的某个目的地不在知识库里（C 侧 `reply_builder` 发的，
+    // 数据来自 B2 的 `ParseOutcome.dropped_destinations`）。
+    // 和上面那条的区别：这条说的是「你说的那个地方暂时去不了」，
+    // 上面那条说的是「整个需求都超出覆盖」。
+    DESTINATION_OUT_OF_COVERAGE: '有目的地暂时规划不了',
     DEGRADED_DATA: '部分数据已降级',
     DATA_EXPIRED: '数据已过期',
     LIMITED_EVIDENCE: '证据不足',

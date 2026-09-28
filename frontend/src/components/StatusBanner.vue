@@ -15,6 +15,7 @@ import {
   lifecycleLabel,
   planValidationLabel,
   stageLabel,
+  stageStalledText,
   warningTitle,
 } from '@/utils/labels'
 
@@ -61,6 +62,30 @@ const stageTagType = computed(() => {
 const guideIncomplete = computed(() => store.stage === 'GUIDE_INCOMPLETE')
 
 /**
+ * 是否演示模式。
+ *
+ * 真实模式（`VERIFIED`）下面向用户，只显示**与用户决策有关**的状态：
+ * 攻略能不能用、数据可不可信、有没有模拟数据。
+ * 「阶段：会话已创建」「计划有效性 VALID」「生命周期 DRAFT」这些是给我们
+ * 对齐状态用的内部口径，演示模式下全留着（演示要讲清系统在做什么），
+ * 真实模式下收起来——用户不关心我们的状态机走到哪一格。
+ */
+const isDemo = computed(() => store.runMode === 'DEMO')
+
+/**
+ * 真实模式下「停在这里、等你处理」的阶段的用户话术。
+ *
+ * 这类阶段是 `GUIDE_INCOMPLETE` / `REPAIRING` / `INSUFFICIENT_DATA`——它们都不是过渡态，
+ * 藏着会误导用户，所以真实模式下也要露出来；但**不带**「阶段：」前缀：那是状态机的口径，
+ * 用户不关心我们走到哪一格。`stageStalledText` 只认这三类，认不出返回 `null`。
+ *
+ * 尤其 `REPAIRING` 在真实模式下常常是**停住等你**：后端没有可自动执行的修法
+ * （实测 `repair_options` 为空），这时还写「正在修复冲突」会让人以为再等等就好，
+ * 实际永远等不到。
+ */
+const stalledText = computed(() => (isDemo.value ? null : stageStalledText(store.stage)))
+
+/**
  * `GUIDE_INCOMPLETE` 的缺失清单。
  *
  * 用**原始** `degradedItems` 而不是已过滤的 `visibleDegradedItems`：
@@ -79,19 +104,26 @@ const guideIncompleteText = computed(() => {
 <template>
   <div class="banner">
     <div class="banner__row">
-      <el-tag size="small" :type="stageTagType" effect="plain">阶段：{{ stageLabel(store.stage) }}</el-tag>
+      <!-- 演示模式：原样露状态机口径，方便对照后端 -->
+      <el-tag v-if="isDemo" size="small" :type="stageTagType" effect="plain">
+        阶段：{{ stageLabel(store.stage) }}
+      </el-tag>
+      <!-- 真实模式：只在这三类「停住等你」的阶段露一句人话，不带「阶段：」前缀 -->
+      <el-tag v-else-if="stalledText" size="small" :type="stageTagType" effect="plain">
+        {{ stalledText }}
+      </el-tag>
 
       <template v-if="showGuideStatus">
         <el-tag size="small" :type="readinessType" effect="light">
           {{ guideReadinessLabel(store.guide?.guide_readiness) }}
         </el-tag>
-        <el-tag size="small" :type="planType" effect="plain">
+        <el-tag v-if="isDemo" size="small" :type="planType" effect="plain">
           {{ planValidationLabel(store.guide?.plan_validation_status) }}
         </el-tag>
         <el-tag size="small" :type="assuranceType" effect="plain">
           {{ dataAssuranceLabel(store.guide?.data_assurance_status) }}
         </el-tag>
-        <el-tag size="small" type="info" effect="plain">
+        <el-tag v-if="isDemo" size="small" type="info" effect="plain">
           {{ lifecycleLabel(store.guide?.lifecycle_status) }}
         </el-tag>
       </template>

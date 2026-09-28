@@ -11,6 +11,8 @@ import type { LodgingCandidate, LodgingSection } from '@/types/contract'
 import { formatDateRange, formatMoney } from '@/utils/format'
 import { lodgingTypeLabel, qualityFlagLabel } from '@/utils/labels'
 
+import GuideSection from './GuideSection.vue'
+
 const props = defineProps<{ section: LodgingSection }>()
 
 interface StayRow {
@@ -37,12 +39,17 @@ const stayRows = computed<StayRow[]>(() =>
     candidate: props.section.primary_candidates.find((item) => item.resource_id === segment.lodging_id) ?? null,
   })),
 )
+
+/** 收起摘要：几段住宿、住哪几个区域——不展开就能判断要不要改住宿。 */
+const summary = computed(() => {
+  if (props.section.stay_segments.length === 0) return '尚未确定住宿'
+  const areas = [...new Set(props.section.stay_segments.map((item) => item.lodging_area).filter(Boolean))]
+  return `${props.section.stay_segments.length} 段住宿${areas.length ? ` · ${areas.join(' / ')}` : ''}`
+})
 </script>
 
 <template>
-  <section class="ts-card panel">
-    <h3 class="ts-section-title">四、住在哪</h3>
-
+  <GuideSection title="四、住在哪" :summary="summary" :default-open="false">
     <div v-if="stayRows.length === 0" class="ts-faint">还没有确定住宿段落。</div>
 
     <div v-for="row in stayRows" :key="row.id" class="stay">
@@ -96,14 +103,10 @@ const stayRows = computed<StayRow[]>(() =>
         </span>
       </div>
     </div>
-  </section>
+  </GuideSection>
 </template>
 
 <style scoped>
-.panel {
-  padding: 14px;
-}
-
 .stay + .stay {
   margin-top: 10px;
   padding-top: 10px;

@@ -157,6 +157,43 @@ def test_profile_prompt_renders_examples_verbatim() -> None:
         assert _render(output) in prompt
 
 
+def test_b2_prompt_asks_model_to_report_out_of_catalog_names() -> None:
+    """清单外的地名要「照实输出」，不能教模型自己吞掉。
+
+    这条规则与 `request_parser.py` 的 `dropped_destinations` 是一对：
+    prompt 让模型报上来 → 解析器丢弃并结构化上报 → C 线发
+    `DESTINATION_OUT_OF_COVERAGE`。任何一环松掉，用户点名了知识库没有的城市时
+    整条链路都会只字不提（用户只会看到系统推荐了别的城市）。
+    """
+
+    prompt = build_profile_system_prompt(
+        reference_date=REFERENCE_DATE,
+        known_destinations=KNOWN_DESTINATIONS,
+        previous=None,
+    )
+    assert "也要照实输出" in prompt
+    # 旧写法（让模型直接吞掉）不许回来
+    assert "destination_requests 保持空数组 —— 编造的 ID" not in prompt
+
+
+def test_b2_examples_cover_out_of_catalog_destination() -> None:
+    """至少一条示例演示「清单外的目的地怎么填」，且必须带上同名 name。
+
+    光有规则没有示例，模型对这条规则的执行率明显更差（few-shot 是工程产物）。
+    断言用的是「确实不在渲染清单里的地名」，所以示例与清单自相矛盾时也会失败。
+    """
+
+    catalog_ids = set(KNOWN_DESTINATIONS.values())
+    hits = [
+        item
+        for _, output, _ in B2_FEWSHOT_EXAMPLES
+        for item in output.get("destination_requests", [])
+        if item.get("destination_id") not in catalog_ids
+    ]
+    assert hits, "B2 示例里必须有一条演示「清单外的目的地」怎么填"
+    assert all(item.get("name") for item in hits), "清单外目的地的示例必须带上 name"
+
+
 def test_profile_prompt_injects_parameters() -> None:
     prompt = build_profile_system_prompt(
         reference_date=REFERENCE_DATE,
