@@ -10,7 +10,7 @@ from datetime import date
 
 from b_line_fakes import FakeLLMProvider
 from app.schemas import Money, TripProfileDraft, finalize_trip_profile
-from app.llm.request_parser import LLMTripProfileParser
+from app.llm.request_parser import LLMTripProfileParser, ParseOutcome
 
 REFERENCE = date(2026, 9, 24)
 KNOWN = {"成都": "dest_chengdu", "乐山": "dest_leshan"}
@@ -402,3 +402,156 @@ def test_avoidance_words_are_normalized_too() -> None:
     draft = _outcome([payload]).draft
     assert "HIGH_INTENSITY_HIKING" in draft.avoidances
     assert "不想爬山" not in draft.avoidances
+
+
+# --- 越界目的地的结构化上报 ---------------------------------------------------
+#
+# B/C 联调约定：B2 把「用户提到、但不在知识库清单里」的目的地结构化报出来
+# （`ParseOutcome.dropped_destinations`），C 线读它发
+# `DESTINATION_OUT_OF_COVERAGE` 警告。
+#
+# 为什么不挂在 parser 实例上：`api/deps.py` 装配出的 parser 是**进程内单例**，
+# 挂会话级状态在并发下必然串味。诊断是"这一轮"的信息，走返回值最自然。
+
+
+def test_parse_outcome_defaults_to_empty_dropped() -> None:
+    """新字段必须有默认值：老调用点（含降级路径）不改也不崩。"""
+
+    outcome = ParseOutcome(draft=TripProfileDraft(session_id=SESSION), used_llm=False)
+
+    assert outcome.dropped_destinations == ()
+
+
+def test_out_of_catalog_destination_is_reported_structurally() -> None:
+    """清单外的目的地要结构化上报：值是人能看懂的地名，不是诊断串。"""
+
+    payload = dict(_COMPLETE)
+    payload["departure_city"] = "上海"
+    payload["destination_requests"] = [{"destination_id": "大理", "name": "大理"}]
+
+    outcome = _outcome([payload], text="从上海出发去大理玩几天")
+
+    # 上游要拿它当 WarningItem.details 的 key，所以必须是干净的结构化值
+    assert outcome.dropped_destinations == ("大理",)
+    # 人话诊断同时保留（排障用），两条通道各司其职
+    assert any("大理" in item for item in outcome.diagnostics)
+    # 越界目的地绝不进画像，也别谎报成 SINGLE
+    assert outcome.draft.destination_requests == []
+    assert outcome.draft.destination_mode == "UNKNOWN"
+
+
+def test_out_of_catalog_destination_without_name_falls_back_to_identifier() -> None:
+    """模型没给 name、只给了编造的 ID 时退回 ID —— 哪怕难看，也不替它编中文名。"""
+
+    payload = dict(_COMPLETE)
+    payload["destination_requests"] = [{"destination_id": "dest_dali"}]
+
+    outcome = _outcome([payload])
+
+    assert outcome.dropped_destinations == ("dest_dali",)
+
+
+def test_out_of_catalog_notification_does_not_repeat() -> None:
+    """同一个目的地被重复列出时只报一次，免得警告里堆重复条目。"""
+
+    payload = dict(_COMPLETE)
+    payload["destination_requests"] = [
+        {"destination_id": "大理", "name": "大理"},
+        {"destination_id": "大理", "name": "大理"},
+    ]
+
+    outcome = _outcome([payload])
+
+    assert outcome.dropped_destinations == ("大理",)
+
+
+def test_in_catalog_destination_is_not_reported_as_dropped() -> None:
+    """清单内的目的地正常接受，绝不能被算进「被丢弃」。"""
+
+    outcome = _outcome([_COMPLETE], text="就去成都")
+
+    assert outcome.dropped_destinations == ()
+    assert [item.name for item in outcome.draft.destination_requests] == ["成都"]
+
+
+def test_destination_given_as_bare_string_is_reported_too() -> None:
+    """模型把目的地写成裸字符串（`["大理"]`）时同样要上报。
+
+    漏掉这条分支，模型换个写法就能让"用户提过的地方"再次静默消失，
+    又回到老问题上。
+    """
+
+    payload = dict(_COMPLETE)
+    payload["destination_requests"] = ["大理"]
+
+    outcome = _outcome([payload])
+
+    assert outcome.dropped_destinations == ("大理",)
+
+
+def test_degraded_path_reports_nothing_dropped() -> None:
+    """降级到规则式解析时 `dropped_destinations` 为空 —— 这是已知限制，不是 bug。
+
+    越界目的地是"模型给了清单外 ID"才产生的，规则式解析器不产出这种 payload
+    （它的候选本来就只从清单里挑）。所以**降级路径下"目的地暂不可规划"这条
+    提示不会出现**。写进测试免得以后被当成回归，或被误认为已经全路径覆盖。
+    """
+
+    outcome = _outcome([_COMPLETE], available=False)
+
+    assert outcome.used_llm is False
+    assert outcome.dropped_destinations == ()
+
+
+# --- 出发地不是目的地 ---------------------------------------------------------
+#
+# 实测暴露：「我从成都出发去大理」里的「成都」是出发点。模型偶尔会把出发地和
+# 目的地都填进 `destination_requests`，下游就会排出一份"从成都出发去成都玩"的行程。
+
+
+def test_departure_city_is_not_treated_as_destination() -> None:
+    """同时存在出发城市和其它目的地时，丢掉被误填的出发地。"""
+
+    payload = dict(_COMPLETE)
+    payload["departure_city"] = "成都"
+    payload["destination_requests"] = [
+        {"destination_id": "dest_chengdu", "priority": "HIGH"},
+        {"destination_id": "dest_leshan", "priority": "HIGH"},
+    ]
+
+    outcome = _outcome([payload], text="从成都出发去乐山玩")
+
+    assert [item.name for item in outcome.draft.destination_requests] == ["乐山"]
+    assert outcome.draft.destination_mode == "SINGLE"
+    # 这是语义纠正、不是越界丢弃：不该给用户发"覆盖不足"警告
+    assert outcome.dropped_destinations == ()
+    assert any("出发地" in item for item in outcome.diagnostics)
+
+
+def test_departure_city_is_kept_when_it_is_the_only_destination() -> None:
+    """唯一一条目的地就是出发城市时保留：「就在成都玩」是合法需求，不能删。"""
+
+    payload = dict(_COMPLETE)
+    payload["departure_city"] = "成都"
+    payload["destination_requests"] = [
+        {"destination_id": "dest_chengdu", "priority": "HIGH"},
+    ]
+
+    outcome = _outcome([payload], text="就在成都玩几天")
+
+    assert [item.name for item in outcome.draft.destination_requests] == ["成都"]
+
+
+def test_departure_gate_leaves_other_destinations_untouched() -> None:
+    """出发地不在知识库清单里时无从比对，不猜：目的地原样保留。"""
+
+    payload = dict(_COMPLETE)
+    payload["departure_city"] = "北京"
+    payload["destination_requests"] = [
+        {"destination_id": "dest_leshan", "priority": "HIGH"},
+    ]
+
+    outcome = _outcome([payload], text="从北京出发去乐山")
+
+    assert [item.name for item in outcome.draft.destination_requests] == ["乐山"]
+    assert outcome.dropped_destinations == ()
