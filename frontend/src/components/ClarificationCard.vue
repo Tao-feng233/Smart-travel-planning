@@ -211,7 +211,7 @@ function resetForm(): void {
 .clarify {
   padding: 14px;
   background: var(--ts-brand-soft);
-  border-color: #cfe0ff;
+  border-color: #fdddc2;
 }
 
 .clarify__head {
@@ -243,7 +243,7 @@ function resetForm(): void {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-top: 1px dashed #d5e2fb;
+  border-top: 1px dashed #f0e0c8;
 }
 
 .clarify__field:first-of-type {
@@ -254,7 +254,7 @@ function resetForm(): void {
   flex: 0 0 92px;
   font-size: 13px;
   font-weight: 600;
-  color: #24405f;
+  color: #7a4a1f;
 }
 
 .clarify__question {
@@ -301,7 +301,7 @@ function resetForm(): void {
 }
 
 .tier:hover {
-  border-color: #a9c8ff;
+  border-color: #f9a266;
 }
 
 .tier--on {
@@ -335,6 +335,6 @@ function resetForm(): void {
   gap: 8px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px dashed #d5e2fb;
+  border-top: 1px dashed #f0e0c8;
 }
 </style>

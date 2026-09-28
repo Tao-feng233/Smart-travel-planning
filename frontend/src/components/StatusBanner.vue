@@ -97,7 +97,8 @@ const guideIncompleteText = computed(() => {
       </template>
 
       <el-tag v-if="store.mockInUse" size="small" type="warning" effect="plain">含模拟数据</el-tag>
-      <span v-if="store.traceId" class="banner__trace ts-mono">trace: {{ store.traceId }}</span>
+      <!-- trace 是排障用的请求标识，只给开发者看；真实模式下不打扰用户 -->
+      <span v-if="store.traceId && store.runMode === 'DEMO'" class="banner__trace ts-mono">trace: {{ store.traceId }}</span>
     </div>
 
     <el-alert

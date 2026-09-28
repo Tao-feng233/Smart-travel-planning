@@ -25,12 +25,22 @@ const activeTab = computed({
 
 const runMode = ref<RunMode>('DEMO')
 
+/**
+ * 演示模式才显示开发者元素（会话 ID、fixture 演示按钮、「运行状态」页签）。
+ * 真实模式面向"用户"：那些是给我们自己调试用的，与用户无关的一律收起来。
+ */
+const isDemo = computed(() => runMode.value === 'DEMO')
+
 onMounted(() => {
   void store.init(runMode.value)
 })
 
 async function onRunModeChange(value: RunMode): Promise<void> {
   runMode.value = value
+  // 切到真实模式时若正停在「运行状态」页，带回攻略页——那一页在真实模式下不开放
+  if (value === 'VERIFIED' && route.name === 'state') {
+    await router.push('/')
+  }
   store.reset()
   await store.init(value)
   ElMessage.success(value === 'DEMO' ? '已切换到演示模式（数据为模拟数据）' : '已切换到真实模式')
@@ -89,20 +99,22 @@ async function onIncompleteDemo(): Promise<void> {
           <el-radio-button value="VERIFIED">真实模式</el-radio-button>
         </el-radio-group>
 
-        <el-tag v-if="store.sessionId" size="small" type="info" effect="plain" class="ts-mono">
-          {{ store.sessionId }}
-        </el-tag>
-        <el-tag v-else size="small" type="info" effect="plain">未连接后端</el-tag>
+        <template v-if="isDemo">
+          <el-tag v-if="store.sessionId" size="small" type="info" effect="plain" class="ts-mono">
+            {{ store.sessionId }}
+          </el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">未连接后端</el-tag>
 
-        <el-button v-if="store.fixtureEnabled" size="small" plain @click="onFixtureDemo">
-          载入示例攻略
-        </el-button>
-        <el-button v-if="store.fixtureEnabled" size="small" plain @click="onClarifyDemo">
-          演示追问卡
-        </el-button>
-        <el-button v-if="store.fixtureEnabled" size="small" plain @click="onIncompleteDemo">
-          演示攻略不完整
-        </el-button>
+          <el-button v-if="store.fixtureEnabled" size="small" plain @click="onFixtureDemo">
+            载入示例攻略
+          </el-button>
+          <el-button v-if="store.fixtureEnabled" size="small" plain @click="onClarifyDemo">
+            演示追问卡
+          </el-button>
+          <el-button v-if="store.fixtureEnabled" size="small" plain @click="onIncompleteDemo">
+            演示攻略不完整
+          </el-button>
+        </template>
         <el-button size="small" plain @click="onReset">重新开始</el-button>
       </div>
     </header>
@@ -118,10 +130,10 @@ async function onIncompleteDemo(): Promise<void> {
         <div class="app__right-head">
           <el-radio-group v-model="activeTab" size="small">
             <el-radio-button value="guide">行程攻略</el-radio-button>
-            <el-radio-button value="state">运行状态</el-radio-button>
+            <el-radio-button v-if="isDemo" value="state">运行状态</el-radio-button>
           </el-radio-group>
-          <span v-if="store.guideOrigin === 'fixture'" class="app__badge">示例数据</span>
-          <span v-else-if="store.guideOrigin === 'api'" class="app__badge app__badge--ok">接口数据</span>
+          <span v-if="isDemo && store.guideOrigin === 'fixture'" class="app__badge">示例数据</span>
+          <span v-else-if="isDemo && store.guideOrigin === 'api'" class="app__badge app__badge--ok">接口数据</span>
         </div>
         <div class="app__right-body">
           <router-view />
@@ -158,8 +170,8 @@ async function onIncompleteDemo(): Promise<void> {
 .brand__mark {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #1f6feb, #4b9bff);
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f6803c, #ffc53d);
   color: #fff;
   font-size: 20px;
   font-weight: 700;

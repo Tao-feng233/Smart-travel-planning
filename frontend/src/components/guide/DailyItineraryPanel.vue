@@ -9,7 +9,7 @@
  * 时间排序用字符串前 19 位（`YYYY-MM-DDTHH:MM:SS`）比较，
  * 不经过 `new Date()`，避免时区平移导致顺序错乱。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import type { GuideDay, GuideNode, TravelLeg } from '@/types/contract'
 import { formatMinutes, formatMoney, formatTime, formatTimeRange } from '@/utils/format'
@@ -22,6 +22,21 @@ import {
 } from '@/utils/labels'
 
 const props = defineProps<{ days: GuideDay[] }>()
+
+/**
+ * 每天的展开状态（渐进式披露：默认只展开 Day 1，想看哪天再点开哪天）。
+ * key 是 `day.date`；没点过的天按「第一天开、其余收」处理，
+ * 点过之后以用户的选择为准 —— 攻略版本更新（数组重建）也不丢状态。
+ */
+const openState = ref<Record<string, boolean>>({})
+
+function isOpen(date: string, index: number): boolean {
+  return openState.value[date] ?? index === 0
+}
+
+function toggle(date: string, index: number): void {
+  openState.value[date] = !isOpen(date, index)
+}
 
 type TimelineItem =
   | { kind: 'node'; key: string; at: string; node: GuideNode }
@@ -68,9 +83,15 @@ function nodeTone(node: GuideNode): 'primary' | 'success' | 'warning' | 'info' {
 
     <div v-if="rows.length === 0" class="ts-faint">还没有每日行程。</div>
 
-    <article v-for="row in rows" :key="row.day.date" class="day">
-      <header class="day__head">
+    <article v-for="(row, index) in rows" :key="row.day.date" class="day">
+      <header
+        class="day__head day__head--toggle"
+        role="button"
+        :aria-expanded="isOpen(row.day.date, index)"
+        @click="toggle(row.day.date, index)"
+      >
         <div class="day__title">
+          <span class="day__chevron" :class="{ 'day__chevron--open': isOpen(row.day.date, index) }">▸</span>
           <span class="day__date">{{ row.day.date.slice(5) }}</span>
           <strong>{{ row.day.day_theme }}</strong>
           <el-tag size="small" effect="plain">{{ intensityLabel(row.day.intensity_level) }}</el-tag>
@@ -82,6 +103,7 @@ function nodeTone(node: GuideNode): 'primary' | 'success' | 'warning' | 'info' {
         </div>
       </header>
 
+      <template v-if="isOpen(row.day.date, index)">
       <p class="ts-faint day__areas">
         活动区域：{{ row.day.activity_areas.join('、') || '—' }}｜
         {{ row.day.start_location }} → {{ row.day.end_location }}
@@ -155,6 +177,7 @@ function nodeTone(node: GuideNode): 'primary' | 'success' | 'warning' | 'info' {
       <p v-if="row.day.alternative_plan_ids.length > 0" class="ts-faint day__alts">
         这天有 {{ row.day.alternative_plan_ids.length }} 个备选方案：{{ row.day.alternative_plan_ids.join('、') }}
       </p>
+      </template>
     </article>
   </section>
 </template>
@@ -176,6 +199,30 @@ function nodeTone(node: GuideNode): 'primary' | 'success' | 'warning' | 'info' {
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* 整行可点：标题行就是折叠开关（head 里已经有日期/主题/强度/花费，收起时信息不丢） */
+.day__head--toggle {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+
+.day__head--toggle:hover {
+  background: var(--ts-surface-soft);
+}
+
+.day__chevron {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--ts-text-faint);
+  transition: transform 0.15s;
+}
+
+.day__chevron--open {
+  transform: rotate(90deg);
 }
 
 .day__title {
@@ -265,7 +312,7 @@ function nodeTone(node: GuideNode): 'primary' | 'success' | 'warning' | 'info' {
 }
 
 .tl-dot--leg {
-  background: #b8c0cc;
+  background: #d8c9ae;
   width: 6px;
   height: 6px;
 }

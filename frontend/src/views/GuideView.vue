@@ -17,10 +17,10 @@ import { ElMessage } from 'element-plus'
 import ArrivalDeparturePanel from '@/components/guide/ArrivalDeparturePanel.vue'
 import BudgetAlternativesPanel from '@/components/guide/BudgetAlternativesPanel.vue'
 import DailyItineraryPanel from '@/components/guide/DailyItineraryPanel.vue'
+import EvidencePanel from '@/components/guide/EvidencePanel.vue'
 import GuideChangePanel from '@/components/guide/GuideChangePanel.vue'
 import LodgingPanel from '@/components/guide/LodgingPanel.vue'
 import PreparationPanel from '@/components/guide/PreparationPanel.vue'
-import SourcesFreshnessPanel from '@/components/guide/SourcesFreshnessPanel.vue'
 import TripSummaryPanel from '@/components/guide/TripSummaryPanel.vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -180,7 +180,8 @@ async function onIncident(): Promise<void> {
     <LodgingPanel :section="guide.lodging" />
     <DailyItineraryPanel :days="guide.daily_itinerary" />
     <BudgetAlternativesPanel :section="guide.budget_and_alternatives" :run-mode="guide.run_mode" />
-    <SourcesFreshnessPanel :section="guide.sources_and_freshness" />
+    <!-- L3 证据层：来源/时效/缺项默认收起，摘要行常显（信息分层，见 EvidencePanel 说明） -->
+    <EvidencePanel :section="guide.sources_and_freshness" :missing="store.degradedItems" />
   </div>
 </template>
 

@@ -177,14 +177,14 @@ function signedMoney(money: Money): string {
 
 .bar__track {
   height: 8px;
-  background: #eef1f5;
+  background: #f5ede0;
   border-radius: 4px;
   overflow: hidden;
 }
 
 .bar__fill {
   height: 100%;
-  background: linear-gradient(90deg, #4b9bff, #1f6feb);
+  background: linear-gradient(90deg, #ffc53d, #f6803c);
 }
 
 .bar__value {

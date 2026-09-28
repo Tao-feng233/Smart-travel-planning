@@ -1,22 +1,32 @@
-/* 全局基础样式（浅色主题）。
+/* 全局基础样式（浅色主题 · 轻松明媚的暖日色系）。
    只需要管布局与少量自定义排版；组件视觉一律交给 Element Plus，
-   避免和组件库的 token 打架。 */
+   避免和组件库的 token 打架（只覆写 EP 的主色变量，让按钮/选中态跟上画风）。 */
 
 :root {
-  --ts-bg: #f2f4f7;
+  /* 暖纸底色 + 阳光橙主色：旅行产品的"明媚"感，不用冷灰蓝 */
+  --ts-bg: #faf6ef;
   --ts-surface: #ffffff;
-  --ts-surface-soft: #f7f9fc;
-  --ts-border: #e3e6eb;
-  --ts-text: #1d2129;
-  --ts-text-weak: #6b7280;
-  --ts-text-faint: #98a2b3;
-  --ts-brand: #1f6feb;
-  --ts-brand-soft: #eaf2ff;
+  --ts-surface-soft: #fdf9f2;
+  --ts-border: #f0e7d8;
+  --ts-text: #2d2a24;
+  --ts-text-weak: #8a8375;
+  --ts-text-faint: #b8b0a0;
+  --ts-brand: #f6803c;
+  --ts-brand-soft: #fff1e4;
   --ts-warn: #b7791f;
   --ts-warn-soft: #fff8e6;
-  --ts-danger: #c0392b;
-  --ts-radius: 10px;
-  --ts-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.05);
+  --ts-danger: #d9573b;
+  --ts-radius: 12px;
+  --ts-shadow: 0 1px 2px rgba(120, 72, 20, 0.04), 0 6px 16px rgba(120, 72, 20, 0.06);
+
+  /* Element Plus 主色覆写：与 --ts-brand 同一色系（亮=悬停，浅=底色） */
+  --el-color-primary: #f6803c;
+  --el-color-primary-light-3: #f9a266;
+  --el-color-primary-light-5: #fbc393;
+  --el-color-primary-light-7: #fdddc2;
+  --el-color-primary-light-8: #fee9d7;
+  --el-color-primary-light-9: #fff4ec;
+  --el-color-primary-dark-2: #d96a2a;
 }
 
 * {
@@ -31,7 +41,8 @@ body,
 }
 
 body {
-  background: var(--ts-bg);
+  /* 顶部一层很淡的暖阳色晕，往下渐入暖纸底色——「明媚但不吵」 */
+  background: linear-gradient(180deg, #fdf3e3 0%, #faf6ef 360px) no-repeat, var(--ts-bg);
   color: var(--ts-text);
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px;
@@ -45,6 +56,7 @@ body {
   border: 1px solid var(--ts-border);
   border-radius: var(--ts-radius);
   box-shadow: var(--ts-shadow);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .ts-muted {
@@ -116,10 +128,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d5d9e0;
+  background: #e5dac6;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #c0c6d0;
+  background: #d8c9ae;
 }
