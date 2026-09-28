@@ -23,7 +23,13 @@ const activeTab = computed({
   set: (value: string) => router.push(value === 'state' ? '/state' : '/'),
 })
 
-const runMode = ref<RunMode>('DEMO')
+/**
+ * 初始模式沿用 store 恢复出来的那一次（store 里 `runMode` 的初值来自上次存档）。
+ *
+ * 这里**不能写死 `'DEMO'`**：`init()` 用 `saved.runMode === mode` 判恢复，
+ * 写死就会让真实模式的存档永远匹配不上，刷新一次就静默换成演示会话。
+ */
+const runMode = ref<RunMode>(store.runMode)
 
 /**
  * 演示模式才显示开发者元素（会话 ID、fixture 演示按钮、「运行状态」页签）。
