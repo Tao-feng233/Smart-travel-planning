@@ -282,6 +282,65 @@ def test_nodes_within_a_day_do_not_overlap() -> None:
 # --- C3 握手：禁排日期必须被尊重 -------------------------------------------
 
 
+def _weather(day, condition: str, probability: float):
+    from app.schemas import WeatherFact
+
+    return WeatherFact(
+        date=day,
+        condition=condition,
+        precipitation_probability=probability,
+        source="MOCK",
+        data_assurance_status="MOCK",
+        is_forecast=True,
+    )
+
+
+def _outdoor_visit(resource_id: str):
+    return _visit(resource_id).model_copy(
+        update={"indoor": False, "weather_sensitivity": "HIGH"}
+    )
+
+
+def test_rainy_day_prefers_indoor_place() -> None:
+    """A 的对接文档：高降水概率日期优先安排室内、低天气敏感度资源。"""
+
+    candidates = [_outdoor_visit("poi_out"), _visit("poi_in"), _lodging()]
+    outcome = _build(
+        profile=_profile(days=1, pace="RELAXED"),
+        candidates=candidates,
+        weather_facts=[_weather(START, "小雨", 0.75)],
+    )
+    plan = outcome.plan
+    assert plan is not None
+    attractions = [n for n in plan.nodes if n.node_type == "ATTRACTION"]
+    assert [n.resource_id for n in attractions] == ["poi_in"], "雨天应优先室内景点"
+    assert any("降雨" in note for note in outcome.notes)
+
+
+def test_severe_weather_excludes_outdoor_and_suggests_another_date() -> None:
+    candidates = [_outdoor_visit("poi_out1"), _outdoor_visit("poi_out2"), _lodging()]
+    outcome = _build(
+        profile=_profile(days=1), candidates=candidates,
+        weather_facts=[_weather(START, "暴雨", 0.9)],
+    )
+    plan = outcome.plan
+    assert plan is not None
+    assert [n for n in plan.nodes if n.node_type == "ATTRACTION"] == [], "严重天气不得静默排户外"
+    assert any(c.type == "WEATHER_UNSUITABLE" for c in outcome.conflicts)
+    assert any("调整" in note for note in outcome.notes)
+
+
+def test_missing_weather_is_reported_not_filled() -> None:
+    """天气缺日必须显式降级，不能用模型补（对接文档第 4 条）。"""
+
+    outcome = _build()
+    assert any(
+        c.type == "DATA_UNKNOWN" and "天气数据不完整" in c.message
+        for c in outcome.conflicts
+    )
+    assert any("天气" in note for note in outcome.notes)
+
+
 def test_travel_time_is_on_the_timeline() -> None:
     """交通必须占用时间轴：下一个活动不得早于上一段交通的抵达时间。
 

@@ -29,6 +29,7 @@ from app.schemas import (
     RunMode,
     TripProfile,
     TripProfileDraft,
+    WeatherFact,
 )
 from app.services.availability_filter import TripFilterResult
 from app.services.itinerary_planner import PlanBuildOutcome
@@ -73,5 +74,7 @@ class TurnContext:
     repair_outcome: RepairOutcome | None = None
     #: 本轮取到的城际候选（C6 重算费用时要用）
     intercity_options: list[IntercityOption] = field(default_factory=list)
+    #: 本轮取到的天气事实（排程用；缺日时为空，不编造）
+    weather_facts: list[WeatherFact] = field(default_factory=list)
     #: C7 组装攻略的结果（缺素材时 guide 为 None，但计划仍然有效）
     guide_outcome: GuideBuildOutcome | None = None

@@ -45,6 +45,7 @@ from app.schemas import (
     DestinationRecommendation,
     GetResourceAvailabilityRequest,
     GetResourceAvailabilityResponse,
+    GetWeatherRequest,
     IncompleteProfileError,
     IntercityOption,
     ItineraryPlan,
@@ -58,6 +59,7 @@ from app.schemas import (
     SearchResourcesRequest,
     SearchResourcesResponse,
     TripProfile,
+    WeatherFact,
     finalize_trip_profile,
 )
 from app.services.availability_filter import TripFilterResult, filter_candidates_for_trip

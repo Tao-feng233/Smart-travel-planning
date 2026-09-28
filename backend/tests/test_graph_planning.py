@@ -349,7 +349,9 @@ def test_closed_resource_from_step_c3_never_enters_the_plan() -> None:
     assert plan is not None
     used = {node.resource_id for node in plan.nodes if node.resource_id}
     assert "poi_1002" not in used, "闭馆资源不得进入计划（§14 不变量 2）"
-    assert "poi_1001" in used
+    # 只断言"排进了若干景点"，不钉具体是哪一个：
+    # 天气参与排序后（A 的对接文档），同分景点谁入选会随数据规模变化
+    assert len([item for item in used if item.startswith("poi_")]) >= 3
     assert context.validation_result is not None
     assert context.validation_result.status == "VALID"
     assert not [item for item in context.validation_result.conflicts if item.severity == "ERROR"]
