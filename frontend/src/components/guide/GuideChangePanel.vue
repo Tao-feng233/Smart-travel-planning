@@ -9,12 +9,17 @@
  *    它不属于 warning（warning 是数据来源类提示），必须单独露出，
  *    否则用户会以为这份攻略是干净的。
  *
+ * **这两个产物都不能挂在"有没有攻略"下面**：首次规划就卡在 `REPAIRING` 时，
+ * 后端已经带回了 `conflicts`，但那时**还没有攻略**（`data.guide_id` 为空）。
+ * 所以本组件允许 `guide` 为空，由调用方在"有计划、没攻略"时也挂出来。
+ *
  * 谱系里只有 `node_id`，要摊开给用户看必须回到攻略正文里查名字。
- * 而 `removed_node_ids` / `replacement_relations.old_node_id` 是**旧版**节点，
- * 在新版正文里查不到，旧版也取不回来（`GET /api/guides/{id}?version=N` 实测 404，
- * 根因是 `store_guide` 按 `guide_id` 覆盖、同 ID 只留最新版），
- * 所以调用方要把"改动前那一版"一起传进来当索引。
+ * `removed_node_ids` / `replacement_relations.old_node_id` 是**旧版**节点，
+ * 在新版正文里查不到，所以调用方把"改动前那一版"一起传进来当索引。
  * 两版都查不到名字就原样回显 ID 并标注，绝不编一个名字出来。
+ * （历史版本本身现在可以从后端取回了 —— C 已把 `store_guide` 改成按
+ * `(guide_id, guide_version)` 保留全部版本，`?version=N` 不再是死参数。
+ * 这里仍用调用方手里的那一版，是为了少一次请求，不是因为取不到。）
  */
 import { computed } from 'vue'
 
@@ -22,7 +27,8 @@ import type { Conflict, TravelGuide, VersionLineage } from '@/types/contract'
 import { severityLabel } from '@/utils/labels'
 
 const props = defineProps<{
-  guide: TravelGuide
+  /** 当前攻略；**首次规划卡在 `REPAIRING` 时为空**（此时只有 conflicts，没有正文）。 */
+  guide: TravelGuide | null
   /** 产出这份谱系的**改动前**那一版攻略，用来解析被移除/被替换的旧节点名。 */
   previousGuide: TravelGuide | null
   lineage: VersionLineage | null
@@ -90,18 +96,30 @@ const planStep = computed(() =>
 const guideStep = computed(() =>
   versionStep(props.lineage?.parent_guide_version ?? null, props.lineage?.new_guide_version ?? null),
 )
+
+/** 没有谱系时这块只剩 conflicts，标题就别再说「本轮改动」了。 */
+const panelTitle = computed(() => (props.lineage ? '本轮改动' : '需要你处理的冲突'))
+
+const conflictsTitle = computed(() =>
+  props.lineage ? `还没解决的问题（${props.conflicts.length}）` : `共 ${props.conflicts.length} 个`,
+)
+
+/** 冲突的元信息。修法单独列在下面，不塞进这一行里挤成一团。 */
+function conflictMeta(conflict: Conflict): string {
+  return `严重度：${severityLabel(conflict.severity)}｜范围：${conflict.scope}｜受影响节点 ${conflict.affected_node_ids.length} 个`
+}
 </script>
 
 <template>
   <section v-if="lineage || conflicts.length > 0" class="ts-card panel">
-    <h3 class="ts-section-title">本轮改动</h3>
+    <h3 class="ts-section-title">{{ panelTitle }}</h3>
 
     <template v-if="lineage">
       <p class="ts-faint panel__meta">
         改动单 <span class="ts-mono">{{ lineage.change_request_id }}</span>
         <template v-if="planStep">｜计划 {{ planStep }}</template>
         <template v-if="guideStep">｜攻略 {{ guideStep }}</template>
-        <template v-else>｜当前攻略 v{{ guide.guide_version }}（谱系未带攻略版本号）</template>
+        <template v-else-if="guide">｜当前攻略 v{{ guide.guide_version }}（谱系未带攻略版本号）</template>
       </p>
 
       <div class="panel__grid">
@@ -136,17 +154,31 @@ const guideStep = computed(() =>
     </template>
 
     <div v-if="conflicts.length > 0" class="conflicts">
-      <p class="conflicts__title ts-muted">还没解决的问题（{{ conflicts.length }}）</p>
-      <el-alert
-        v-for="conflict in conflicts"
-        :key="conflict.conflict_id"
-        class="conflict"
-        :type="conflict.severity === 'ERROR' ? 'error' : 'warning'"
-        :closable="false"
-        show-icon
-        :title="conflict.message"
-        :description="`严重度：${severityLabel(conflict.severity)}｜范围：${conflict.scope}｜受影响节点 ${conflict.affected_node_ids.length} 个｜可选修法 ${conflict.repair_options.length} 个`"
-      />
+      <p class="conflicts__title ts-muted">{{ conflictsTitle }}</p>
+      <div v-for="conflict in conflicts" :key="conflict.conflict_id" class="conflict">
+        <el-alert
+          :type="conflict.severity === 'ERROR' ? 'error' : 'warning'"
+          :closable="false"
+          show-icon
+          :title="conflict.message"
+          :description="conflictMeta(conflict)"
+        />
+        <!-- 只**列出**可选修法，不在这里发起修改：改哪一条、要不要确认
+             是用户的选择，走哪个入口由页面定，组件不替用户下决定。 -->
+        <ul v-if="conflict.repair_options.length > 0" class="options">
+          <li v-for="option in conflict.repair_options" :key="option.repair_option_id">
+            <span>{{ option.description }}</span>
+            <el-tag
+              v-if="option.requires_user_confirmation"
+              size="small"
+              type="warning"
+              effect="plain"
+            >
+              需你确认
+            </el-tag>
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>
@@ -215,6 +247,20 @@ const guideStep = computed(() =>
 }
 
 .conflict + .conflict {
-  margin-top: 8px;
+  margin-top: 10px;
+}
+
+.options {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--ts-text-weak);
+}
+
+.options li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
 }
 </style>

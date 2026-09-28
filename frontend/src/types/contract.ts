@@ -87,6 +87,14 @@ export interface TripProfile {
 /** §6 目的地推荐。 */
 export interface DestinationRecommendation {
   destination_id: string
+  /**
+   * 目的地中文名（`CONTRACTS.md` §6，Q8 三人确认 2026-09-27 新增的可选字段）。
+   *
+   * 后端在 `reply_builder` 统一填充，来源是目的地数据表 / Provider，
+   * **不得由模型编造**。Provider 没有该名称时为 `null`，
+   * 展示层必须回退到 `destination_id`，不许在前端自己编一个名字。
+   */
+  name?: string | null
   readiness_id: string
   suggested_days: number
   suitable: boolean

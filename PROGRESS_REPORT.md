@@ -77,6 +77,100 @@
 
 ## ⚡ 最新变更（只看这一块就够）
 
+**B线更新**：2026-09-27（第三轮）· **同步 main `028c89d` + `GUIDE_INCOMPLETE` 阶段对接 + 更正 3 条跨线结论**
+
+> 本条**覆盖**下面 B7 记录中的两处（历史记录不删，只在此说明变更）：
+> ① `check_b_flow.py --deps real` 退出码 **2 → 0**（A 补齐数据后）；② `session.ts` 的「两把钥匙」——
+> 其中 `guideId` 那把**已删除**（理由见下）。
+
+- **同步**：`origin/main` 已到 `028c89d`（= C 的 `0dc6984` 三缺口修复 + A 的 `fd52aad` Mock 覆盖
+  + `2f5dda1` 合并 B 分支）。B 已 merge 进 `feature/llm-vue`，**快进、零冲突**。
+- **实测基线**：全量 **302 passed, 1 skipped**；`tools/check_b_flow.py --deps real` → **退出码 0**
+  （真实数据已能完整跑通，不再停在 `INSUFFICIENT_DATA`）；`vue-tsc --noEmit` 与 `vite build` 退出码 0。
+- **`GUIDE_INCOMPLETE` 阶段对接完成**：阶段标签按语义上色（`GUIDE_INCOMPLETE` 黄 / `INSUFFICIENT_DATA` 红）
+  + 一条**不可关闭**的黄色提示列出 `degraded_items`；攻略空态区分「还没生成」与「组装不出来」。
+  该阶段在真实数据上触发不到（A 补齐后直达 READY），故新增本地演示入口「演示攻略不完整」，
+  并在页面提示里标明**不经过后端**。
+
+**逐条实测 C 的「三处缺口已全部修复」**
+
+| # | C 的说法 | 本轮实测 | 结论 |
+| --- | --- | --- | --- |
+| 1 | `?version=` 现在是真参数 | `?version=1/2/3` → 200 且内容各异；`?version=99` → 404 `DATA_MISSING` | **成立**（`0dc6984`） |
+| 2 | `GET /api/sessions/{id}` 现在会返回 `guide_id` | 返回体顶层**没有** `guide_id`，只有 `current_guide_id = "guide_40454b98"` | **不成立，但 B 不需要它改** |
+| 3 | `/incident` 谱系带 `parent_guide_version` / `new_guide_version` | 实测 `2 / 3` | **成立**（`0dc6984`） |
+
+**第 2 条的正式更正**（这条原先由 B 报错，B 自行订正）：
+
+- `CONTRACTS.md` §13.1 规定 `GET /api/sessions/{id}` 的响应就是 **`PlanState`**；
+  §10.2 的 `PlanState` 字段名是 **`current_guide_id`**，**没有 `guide_id`**
+  （`guide_id` 只出现在 §13.1 `POST /api/sessions/{id}/messages` 的 `SendMessageData` 里）。
+- 也就是说：**若真让该接口多返回 `guide_id`，反而是违约**；而 `current_guide_id` **一直都有值**。
+  B 前端需要的钥匙本来就在，**只是名字不叫 `guide_id`** —— 之前是 B 找错了字段名。
+- C 在 `get_state()` 补的 `guide_id=` 是传给 `build_reply()` 的，而 `api/routes.py` 的
+  `get_session()` 用 `state, _reply, warnings = ...` **把 reply 丢掉了**、返回 `state.model_dump()`
+  —— 那行改动对本接口是**空操作**（无害，但没打在点上）。
+- **B 侧动作**：删掉「把 `guideId` 存进 localStorage」的绕行，改为直接读刷新状态里的
+  `current_guide_id`；顺带去掉一次多余的 `refreshState()` 重复请求；相关注释一并订正。
+  **实测刷新恢复链路**（真实 HTTP）：`guide_id=guide_40454b98` → `GET /sessions` 得
+  `current_guide_id=guide_40454b98` → `GET /guides/{id}` **200, v1, 5 天**。**能找回**。
+
+**Q6 / Q8 / Q9 三项核实结论**（完整口径见 `docs/B_TEST_REPORT.md` 第三轮复核块）
+
+- **Q6**：前端**没有**解析 `assistant_message` 里的「1. 2. 3.」编号文本 —— 追问卡读的是信封里
+  `warnings[MISSING_PROFILE_FIELDS].details` 的 key（`frontend/src/utils/clarification.ts`），
+  全仓搜不到编号文本解析 → **结构化通道早就存在**，不需要为它新增字段。
+  真正待拍的是：追问文案有**两份手工副本**（后端 `services/missing_fields.py:_TEXT` ↔
+  前端 `utils/clarification.ts:META`），**5 条里 3 条已不一致**（前端省略了「（例如：10月2号）」），
+  而前端注释声称"与后端保持一致"，注释与实际不符。
+  建议契约下发 `questions: list[str]`（`details` 给字段集合、`questions` 给文案，不重复）。
+- **Q8**：`trip_summary.destination_names` **兜不了候选卡**——候选卡出现在 READY **之前**，
+  那时没有攻略；而攻略页标题**早已**在用 `destination_names`（`GuideView.vue`）。
+  后端**已有中文名且用了三处**（`reply_builder.py:100`、`reply_builder._filter_lines`、
+  `session_service.py:414`，源是 A 的 `DESTINATIONS[id]["name"]`），
+  所以「给 `DestinationRecommendation` 加 `name`」的成本 = `reply_builder` 多填一个字段，
+  **A 零工作量**；「前端另取名字」需新增 REST 端点（现有 7 条路由里没有目的地详情），不建议。
+- **Q9**：`docs/contract-open-questions.md` 里登记的
+  「硬编码 成都12/乐山6/都江堰2 vs 实际 3/0/0」**已过期**。本轮实测：
+  成都 **11 = 11**、乐山 **0 = 0**、都江堰 **0 = 0**，**三行全部相等**，
+  且 `tests/test_v04_mock_provider.py:84` 断言成都两者相等 → 不一致**已被 A 的 `fd52aad` 消除**
+  （修法是"常量改成与真实一致"，**不是**"从真实候选推导"）。**机制问题仍成立**：
+  常量仍手工维护、只有成都被测试锁住。门槛 `required = N*2+1`
+  （`services/v04_mock_provider.py:161`）实测边界 3天7 / 4天9 / **5天11** / 6天13
+  → 成都 11 个地点**恰好压线通过（margin 正好 0）**，6 天需 13 判不可规划。
+
+**B 本轮新发现的 C 侧两条**
+
+- `GUIDE_INCOMPLETE` **刷新后缺项清单必丢**：契约 §13.1 该接口只返回 `PlanState`，而 `PlanState`
+  没有 `degraded_items`；`get_state()` 也没把 `guide_notes` 传给 `build_reply()`。
+  前端已如实降级为「后端只标了阶段，没有给出缺失清单」，**不猜不编**。
+  是否扩展该接口属**契约变更，需三人评审**。
+- `GUIDE_INCOMPLETE` 在 `backend/tests/` 里**零命中**：C 的新阶段**没有自动化用例**，
+  也没有可复现的触发入口。B 无法替 C 补（属 `graph/` 与测试文件），
+  故对该阶段**不做"已验收"声明**。
+
+**B 自查修掉的一处真缺漏：`REPAIRING` 状态下 `conflicts` 完全不可见**
+
+`GuideChangePanel` 原先只挂在 GuideView 的「有攻略」分支里，而**首次规划卡在 `REPAIRING` 时
+还没有攻略**（`data.guide_id` 为空）—— 后端明明把 `conflicts` 带回来了，页面上却一条都不显示，
+用户会以为这份行程是干净的。现已改为「有计划但没攻略」也要挂出来（新增 `hasChangeInfo`），
+并顺带把 `conflict.repair_options` 的**文案**列出来（原先只显示"可选修法 N 个"）。
+只列出、不在组件里发起修改。同时删掉 3 处**已过期**的注释（都还在说 `?version=N` 返回 404、
+"`version` 参数是死的"，而 C 已改为按 `(guide_id, guide_version)` 保留全历史）。
+
+**B 本轮改动文件（8 个，全在 `frontend/` 与 `docs/`，共享文件零改动）**
+
+| 文件 | 类型 |
+| --- | --- |
+| `frontend/src/utils/labels.ts` | 修改（阶段词表补 `GUIDE_INCOMPLETE` / `REPLANNING`） |
+| `frontend/src/components/StatusBanner.vue` | 修改（阶段按语义上色 + 黄色缺项清单） |
+| `frontend/src/components/guide/GuideChangePanel.vue` | 修改（`guide` 改可空；`REPAIRING` 无攻略时也要露出 conflicts；列出修法文案；清过期注释） |
+| `frontend/src/views/GuideView.vue` | 修改（空态区分两种"没有攻略"；无攻略但有 conflicts 时也挂面板） |
+| `frontend/src/stores/session.ts` | 修改（新增演示入口；删掉 `guideId` 的 localStorage 绕行；清过期注释） |
+| `frontend/src/api/guides.ts` | 修改（订正 404 口径注释） |
+| `frontend/src/App.vue` | 修改（新增「演示攻略不完整」按钮） |
+| `docs/B_TEST_REPORT.md` | 修改（第三轮复核块 + 三缺口状态订正 + 两行新遗留风险） |
+
 **B线更新**：2026-09-27 · **B7 完成：攻略接口接进页面 + 「本轮改动」面板 + 端到端演示脚本**
 
 - **§13.2 四个攻略接口已接进前端**：`GET /api/guides/{id}`（含 `?version=`）、`/confirm`、`/modify`、`/incident`。

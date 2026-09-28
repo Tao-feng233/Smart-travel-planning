@@ -13,23 +13,33 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import { useSessionStore } from '@/stores/session'
 import {
   BUDGET_LOW_TIERS,
   BUDGET_TIERS,
+  backendQuestions,
   buildClarificationMessage,
   emptyForm,
-  fieldMeta,
   isFormEmpty,
+  resolveMeta,
   type ClarificationForm,
 } from '@/utils/clarification'
 
 const props = defineProps<{ fields: string[]; loading?: boolean }>()
 const emit = defineEmits<{ (e: 'submit', text: string): void }>()
 
+const store = useSessionStore()
 const form = reactive<ClarificationForm>(emptyForm())
 const submitting = ref(false)
 
-const metas = computed(() => props.fields.map((name) => fieldMeta(name)))
+/**
+ * 文案取值顺序：**后端 `details` 的 value 优先**，本地 `META` 兜底（Q6 结论）。
+ * 后端还没给文案时（value 仍是字段名）自动回退，行为与改前一致。
+ */
+const metas = computed(() => {
+  const backend = backendQuestions(store.warnings)
+  return props.fields.map((name) => resolveMeta(name, backend))
+})
 const budgetSelected = computed(() => form.budget)
 const canSubmit = computed(() => !isFormEmpty(form) && !submitting.value && !props.loading)
 
@@ -211,7 +221,7 @@ function resetForm(): void {
 .clarify {
   padding: 14px;
   background: var(--ts-brand-soft);
-  border-color: #cfe0ff;
+  border-color: #fdddc2;
 }
 
 .clarify__head {
@@ -243,7 +253,7 @@ function resetForm(): void {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-top: 1px dashed #d5e2fb;
+  border-top: 1px dashed #f0e0c8;
 }
 
 .clarify__field:first-of-type {
@@ -254,7 +264,7 @@ function resetForm(): void {
   flex: 0 0 92px;
   font-size: 13px;
   font-weight: 600;
-  color: #24405f;
+  color: #7a4a1f;
 }
 
 .clarify__question {
@@ -301,7 +311,7 @@ function resetForm(): void {
 }
 
 .tier:hover {
-  border-color: #a9c8ff;
+  border-color: #f9a266;
 }
 
 .tier--on {
@@ -335,6 +345,6 @@ function resetForm(): void {
   gap: 8px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px dashed #d5e2fb;
+  border-top: 1px dashed #f0e0c8;
 }
 </style>

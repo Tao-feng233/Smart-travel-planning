@@ -20,6 +20,10 @@ const STAGE: Record<string, string> = {
   PLANNING: '正在编排行程',
   VALIDATING: '正在验证计划',
   REPAIRING: '正在修复冲突',
+  REPLANNING: '正在按突发重排行程',
+  // 计划验证通过、但攻略组装缺素材（`graph/stages.py` GUIDE_INCOMPLETE）。
+  // 这里必须与 READY 明确区分：它是「停住了」，不是「好了」。
+  GUIDE_INCOMPLETE: '计划已通过，但攻略素材不足',
   READY: '攻略已就绪',
 }
 

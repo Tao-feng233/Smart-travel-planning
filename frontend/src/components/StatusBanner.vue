@@ -42,12 +42,44 @@ const planType = computed(() => {
 })
 
 const showGuideStatus = computed(() => Boolean(store.guide))
+
+/**
+ * 阶段标签的配色。
+ *
+ * `GUIDE_INCOMPLETE` 与 `INSUFFICIENT_DATA` 都不是「一切正常」，不能和
+ * 进度类阶段混成同一种灰蓝：
+ * - `GUIDE_INCOMPLETE`：计划已验证通过，但攻略组装缺素材，后端**刻意**不报 READY
+ *   （`graph/nodes.py` 组不出攻略时只回这个阶段），所以它是「停住了」；
+ * - `INSUFFICIENT_DATA`：知识库覆盖不足，同样是一个明确的终点而不是过渡态。
+ */
+const stageTagType = computed(() => {
+  if (store.stage === 'GUIDE_INCOMPLETE') return 'warning'
+  if (store.stage === 'INSUFFICIENT_DATA') return 'danger'
+  return 'primary'
+})
+
+const guideIncomplete = computed(() => store.stage === 'GUIDE_INCOMPLETE')
+
+/**
+ * `GUIDE_INCOMPLETE` 的缺失清单。
+ *
+ * 用**原始** `degradedItems` 而不是已过滤的 `visibleDegradedItems`：
+ * 这条提示描述的是「当前阶段」这个持续状态，不是某一轮的一次性提醒。
+ * 用户点掉过一次降级提示，不能因此让"缺什么"永远消失——那样页面会变成
+ * 看着像正常的空白页。
+ */
+const guideIncompleteText = computed(() => {
+  const items = store.degradedItems
+  return items.length
+    ? `缺的是攻略素材，不是行程本身：${items.join('；')}`
+    : '后端只标了阶段，没有给出缺失清单。'
+})
 </script>
 
 <template>
   <div class="banner">
     <div class="banner__row">
-      <el-tag size="small" effect="plain">阶段：{{ stageLabel(store.stage) }}</el-tag>
+      <el-tag size="small" :type="stageTagType" effect="plain">阶段：{{ stageLabel(store.stage) }}</el-tag>
 
       <template v-if="showGuideStatus">
         <el-tag size="small" :type="readinessType" effect="light">
@@ -65,7 +97,8 @@ const showGuideStatus = computed(() => Boolean(store.guide))
       </template>
 
       <el-tag v-if="store.mockInUse" size="small" type="warning" effect="plain">含模拟数据</el-tag>
-      <span v-if="store.traceId" class="banner__trace ts-mono">trace: {{ store.traceId }}</span>
+      <!-- trace 是排障用的请求标识，只给开发者看；真实模式下不打扰用户 -->
+      <span v-if="store.traceId && store.runMode === 'DEMO'" class="banner__trace ts-mono">trace: {{ store.traceId }}</span>
     </div>
 
     <el-alert
@@ -112,8 +145,21 @@ const showGuideStatus = computed(() => Boolean(store.guide))
       @close="store.dismissGuideNotice()"
     />
 
+    <!-- 刻意不可关闭：它描述的是「当前阶段」，不是某一轮的一次性提醒。
+         用户关不掉才不会被一个像正常页面的空白攻略页误导。 -->
     <el-alert
-      v-if="store.visibleDegradedItems.length > 0"
+      v-if="guideIncomplete"
+      class="banner__alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="计划已经通过验证，但攻略还组装不出来"
+      :description="guideIncompleteText"
+    />
+
+    <!-- 上面那条已经把这个阶段的 degraded_items 原样列过一次，不重复列第二遍。 -->
+    <el-alert
+      v-if="store.visibleDegradedItems.length > 0 && !guideIncomplete"
       class="banner__alert"
       type="warning"
       :closable="true"
