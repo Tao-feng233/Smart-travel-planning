@@ -150,3 +150,56 @@ def test_dropped_meal_warning_names_the_restaurant_and_period(monkeypatch,tmp_pa
     plan=asyncio.run(p.generate(w,lambda x:None))
     dropped=[x for x in plan['warnings'] if '未能放入当前日程' in x]
     assert len(dropped)==1 and '陈麻婆豆腐' in dropped[0] and '午餐' in dropped[0]
+
+def test_anchored_meal_follows_the_anchor_spot_to_its_actual_day():
+    """锚定某景点的餐厅，其餐次必须跟着该景点的实际排期走，而不是停在用户当初选的那天。"""
+    from datetime import datetime
+    from app.planning import meal_alignment
+    d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
+    groups=[{'date':d0,'items':[]},{'date':d1,'items':[{'candidate_id':'spot:1'}]}]
+    w={'catalog':{'spot:1':{'id':'spot:1','kind':'spot','name':'栈桥'},
+                  'food:1':{'id':'food:1','kind':'food','name':'栈桥海鲜餐厅','search_anchor_id':'spot:1'}},
+       'meal_choices':{d0+'|lunch':{'mode':'chosen','food_id':'food:1'}}}
+    report=meal_alignment(w,groups,[d0,d1],arrival=datetime.fromisoformat(d0+' 22:26'))
+    assert report['moved']==[(d0+'|lunch',d1+'|lunch','栈桥')]
+    assert list(w['meal_choices'])==[d1+'|lunch'],'迁移结果必须写回工作区，否则计划书仍会丢弃这一餐'
+
+def test_meal_alignment_explains_the_drop_and_names_a_concrete_alternative():
+    """挪不动时不得只说"未能放入"，必须给出原因与可改选的具体日期；没有可改选日期时明说改自行安排。"""
+    from datetime import datetime
+    from app.planning import meal_alignment
+    d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
+    groups=[{'date':d0,'items':[]},{'date':d1,'items':[{'candidate_id':'spot:1'}]}]
+    w={'catalog':{'food:1':{'id':'food:1','kind':'food','name':'陈麻婆豆腐'}},
+       'meal_choices':{d0+'|lunch':{'mode':'chosen','food_id':'food:1'}}}
+    arrival=datetime.fromisoformat(d0+' 22:26')
+    report=meal_alignment(w,groups,[d0,d1],arrival=arrival)
+    assert report['moved']==[] and report['blocked'][d0+'|lunch']=='当天不安排任何用餐'
+    assert report['alternative'][d0+'|lunch']==d1
+    assert meal_alignment(w,groups,[d0],arrival=arrival)['alternative'][d0+'|lunch'] is None
+
+def test_meal_moved_to_the_spot_day_still_reaches_the_plan(monkeypatch,tmp_path):
+    """端到端：抵达日排不进的那一餐按锚定景点挪到次日，必须真的出现在计划书里并留下说明。"""
+    import asyncio,json
+    import app.planning as p
+    monkeypatch.setattr(p,'RUNTIME',tmp_path)
+    d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
+    async def fake_llm(messages,**kwargs):
+        if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"审核完成"}'},{}
+        days=[{'date':d0,'items':[]},{'date':d1,'items':[{'candidate_id':'spot:1','duration':120}]}]
+        return {'content':json.dumps({'days':days})},{}
+    async def fake_tool(name,args):return {'items':[]}
+    async def fake_routes(a,b):return [{'available':True,'mode':'driving','minutes':13,'source':{}}]
+    monkeypatch.setattr(p,'llm',fake_llm);monkeypatch.setattr(p,'local_tool',fake_tool);monkeypatch.setattr(p,'route_options',fake_routes)
+    w=workspace()
+    w['catalog'].update({'spot:1':{'id':'spot:1','kind':'spot','name':'栈桥','location':'120,36'},
+                         'food:1':{'id':'food:1','kind':'food','name':'栈桥海鲜餐厅','location':'120.1,36.1','search_anchor_id':'spot:1','source':{}}})
+    w['hotel']={'id':'hotel:1','name':'已选酒店','location':'120.2,36.2'}
+    w['selected_transport']={'id':'go','name':'G2213','departure':d0+' 16:00','arrival':d0+' 22:26'}
+    w['meal_choices']={d0+'|lunch':{'mode':'chosen','food_id':'food:1'}};w['meal_mode']='optional'
+    plan=asyncio.run(p.generate(w,lambda x:None))
+    assert list(w['meal_choices'])==[d1+'|lunch']
+    day=next(d for d in plan['days'] if d['date']==d1)
+    assert any(e.get('food',{}).get('id')=='food:1' for e in day['events']),'迁移后的餐厅应出现在当日行程事件里'
+    assert any('已按锚定景点「栈桥」的实际排期调整到 '+d1 in x for x in plan['warnings'])
+    assert not [x for x in plan['warnings'] if '未能放入当前日程' in x]

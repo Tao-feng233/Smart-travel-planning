@@ -65,6 +65,61 @@ def choose_route(options,requirements):
     if transit and transit['minutes']<=60:return transit
     return driving or min(valid,key=lambda x:x['minutes'])
 
+def meal_alignment(w,groups,tour_dates,arrival=None,return_time=None,transport=None,requirements=None):
+    """按锚定景点的实际排期对齐已选餐次，返回迁移记录与遗留原因。
+
+    排程阶段对"整天不排用餐"的日期只会丢弃已选餐次，用户选了餐厅却看不到它。
+    这里先把锚定景点的餐次挪到该景点的实际排期日（结果写回 w['meal_choices']），
+    挪不动的记录原因与可改选的日期，供计划书给出可执行处置。
+    只对排程代码里确定不排的情形判否，避免误挪用户的选择。
+
+    返回 {'moved':[(旧key,新key,锚点名称)],'blocked':{key:原因},'alternative':{key:可改选日期或 None}}。
+    """
+    r=requirements or {};catalog=w.get('catalog',{});choices=w.setdefault('meal_choices',{})
+    spot_date={};day_items={}
+    for d in groups:
+        day_items[d['date']]=d['items']
+        for item in d['items']:spot_date[item['candidate_id']]=d['date']
+    day_span_start=minute(r.get('day_start','09:00'));day_span_end=minute(r.get('day_end','18:30'))
+    arrival_day=arrival.date().isoformat() if arrival else None
+    return_day=return_time.date().isoformat() if return_time else None
+    skipped=set()
+    if arrival_day:
+        for d in groups:
+            if d['date']<arrival_day:skipped.add(d['date'])
+            elif d['date']==arrival_day and not d['items'] and round_up(max(day_span_start,arrival.hour*60+arrival.minute+90))>=day_span_end:skipped.add(d['date'])
+    def safe_minute(value):
+        try:return minute(value)
+        except (AttributeError,TypeError,ValueError):return None
+    def serves(dt,period):
+        """该日该餐次一定会排进计划书吗。"""
+        if dt not in set(tour_dates):return False,'不在出游日期内'
+        if dt in skipped:return False,'当天不安排任何用餐'
+        if dt==arrival_day and period=='breakfast':return False,'抵达当天不单独安排早餐'
+        if transport and dt==transport.get('departure','')[:10] and period=='breakfast':
+            start=safe_minute(transport.get('departure','')[-5:])
+            if start is not None and start<9*60:return False,'出发当天该时段已在去程班次上'
+        if dt==return_day and period=='dinner':
+            limit=max(day_span_end,22*60) if any(x.get('period')=='evening' for x in day_items.get(dt,[])) else day_span_end
+            limit=min(limit,max(0,(return_time.hour*60+return_time.minute-120)//5*5))
+            if limit<18*60:return False,'返程日结束时间早于晚餐时段'
+        return True,''
+    moved=[];blocked={};alternative={}
+    for key,value in list(choices.items()):
+        if value.get('mode')!='chosen':continue
+        try:dt,period=key.split('|')
+        except ValueError:continue
+        if period not in foods.PERIODS:continue
+        ok,reason=serves(dt,period)
+        alternative[key]=next((x for x in tour_dates if x!=dt and day_items.get(x) and serves(x,period)[0]),None)
+        if ok:continue
+        blocked[key]=reason
+        anchor_id=foods.anchor_spot(w,value.get('food_id'));target=spot_date.get(anchor_id)
+        if target and target!=dt and target+'|'+period not in choices and serves(target,period)[0]:
+            choices[target+'|'+period]=value;del choices[key]
+            moved.append((key,target+'|'+period,(catalog.get(anchor_id) or {}).get('name') or anchor_id))
+    return {'moved':moved,'blocked':blocked,'alternative':alternative}
+
 async def generate(w, progress):
     r=w['requirements']; catalog=w.get('catalog',{})
     spots=[catalog[i] for i in w['selected_spots'] if i in catalog]
@@ -136,6 +191,10 @@ async def generate(w, progress):
             from datetime import datetime
             arrival=datetime.fromisoformat(transport['arrival'].replace(' ','T'))
         except (KeyError,ValueError): warnings.append('所选交通的到达时间格式需核实。')
+    # —— 餐次落地对齐 ——
+    # 已选餐次若落在"整天不排用餐"的日期（尚未抵达 / 抵达过晚直接休息），排程阶段只会丢弃并提示。
+    # 先把锚定景点的餐次挪到可执行的日期，挪不动的在下方给出可执行处置。
+    alignment=meal_alignment(w,groups,tour_dates,arrival,return_time,transport,r)
     for d in groups:
         d['items'].sort(key=lambda item:{'morning':0,'any':1,'afternoon':2,'evening':3}.get(item.get('period','any'),1))
         t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=base; lunch=False
@@ -239,13 +298,20 @@ async def generate(w, progress):
         computed.append({'date':d['date'],'theme':d.get('theme','当日行程'),'events':events,'end':clock(t)})
     plan={'title':draft.get('title') or r['city']+'旅行计划','summary':'','days':computed,'created':now(),
           'packing':draft.get('packing',[]),'todos':draft.get('todos',[]),'guides':guides,'warnings':warnings,'stale':False,'usage':usage}
+    for old,new,anchor in alignment['moved']:
+        if new not in scheduled_meals:continue
+        plan['warnings'].append(old.split('|')[0]+' 的'+foods.PERIODS.get(old.split('|')[1],'用餐')
+                                +'（'+(catalog.get((w.get('meal_choices',{}).get(new) or {}).get('food_id')) or {}).get('name','已选餐厅')+'）'
+                                +'已按锚定景点「'+anchor+'」的实际排期调整到 '+new.split('|')[0]+'，如需保留原日期请改选班次或改为自行安排。')
     for key,value in w.get('meal_choices',{}).items():
-        if value.get('mode')=='chosen' and key not in scheduled_meals:
-            meal_date,meal_period=key.split('|')
-            food_name=(w.get('catalog',{}).get(value.get('food_id')) or {}).get('name')
-            plan['warnings'].append(meal_date+' '+foods.PERIODS.get(meal_period,'用餐')+'的餐厅选择'
-                                    +(f'（{food_name}）' if food_name else '')
-                                    +'未能放入当前日程，请结合抵达和返程时间调整。')
+        if value.get('mode')!='chosen' or key in scheduled_meals:continue
+        dt,period=key.split('|');label=foods.PERIODS.get(period,'用餐')
+        food_name=(catalog.get(value.get('food_id')) or {}).get('name')
+        reason=alignment['blocked'].get(key,'');alternative=alignment['alternative'].get(key)
+        plan['warnings'].append(dt+' '+label+'的餐厅选择'+(f'（{food_name}）' if food_name else '')
+                                +'未能放入当前日程'+(f'（{reason}）' if reason else '')
+                                +('，建议改选 '+alternative+' 的'+label+'，或改为自行安排。' if alternative
+                                  else '，本次出游日期内没有可用的'+label+'时段，请改为自行安排。'))
     plan['warnings']+=validate_plan(plan,r)+journey.selection_assessment(w)['messages']
     if transport:plan['todos'].insert(0,'请注意核实去程'+transport.get('name','班次')+'与返程'+(w.get('selected_return') or {}).get('name','班次')+'的最终时刻、车站或机场及席别。')
     plan['packing'].insert(0,'请携带并妥善保管身份证件、手机和支付工具；出发前检查证件是否有效。')

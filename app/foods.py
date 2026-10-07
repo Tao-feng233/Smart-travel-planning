@@ -17,20 +17,36 @@ def moment(text):
     except ValueError:return None
 
 def infeasible(w,dt,period):
-    """去程到达日或返程出发日与该餐次的规划时段冲突时，返回可读理由；否则返回 None。
+    """所选日期确定排不出该餐次时返回可读理由；否则返回 None。
 
-    与 planning 的排程口径一致：到达日只有晚于该餐次结束时间的班次才算冲突，
-    返程日只有早于该餐次开始时间的班次才算冲突。
+    与 planning 的排程口径一致：尚未抵达的日期整天不排用餐，抵达当天不单独安排早餐，
+    到达日只有晚于该餐次结束时间的班次才算冲突，返程日只有早于该餐次开始时间的班次才算冲突。
     """
     start,end=PERIOD_WINDOWS[period]
     arrive=moment((w.get('selected_transport') or {}).get('arrival'))
     leave=moment((w.get('selected_return') or {}).get('departure'))
     name=PERIODS[period]
+    arrive_date=arrive.date().isoformat() if arrive else None
+    if arrive_date and dt<arrive_date:
+        return f'{dt} 当天尚未抵达目的地，无法安排{name}，请改选抵达日之后的餐次或改为自行安排。'
+    if arrive_date and dt==arrive_date and period=='breakfast':
+        return f'{dt} 是抵达当天，需要先衔接交通与入住，不单独安排{name}，请改选抵达日之后的餐次或改为自行安排。'
     if arrive and arrive.date().isoformat()==dt and arrive.hour*60+arrive.minute>=end:
         return f'{dt} 的到达时间是 {arrive.strftime("%H:%M")}，{name}（规划时段 {clock(start)}–{clock(end)}）来不及安排，请改选到达日之后的餐次。'
     if leave and leave.date().isoformat()==dt and leave.hour*60+leave.minute<=start:
         return f'{dt} 的返程出发时间是 {leave.strftime("%H:%M")}，{name}（规划时段 {clock(start)}–{clock(end)}）来不及安排，请改选返程日之前的餐次。'
     return None
+
+def anchor_spot(w,food_id):
+    """本次餐饮查询锚定的景点 ID：优先该候选自身的查询参照，其次本次查询的参照点列表。
+
+    用于让"某景点周边的餐厅"跟随该景点的实际排期落位。
+    """
+    item=(w.get('catalog') or {}).get(food_id) or {}
+    if item.get('search_anchor_id'):return item['search_anchor_id']
+    query=w.get('food_query') or {}
+    if query.get('explicit_anchor_id'):return query['explicit_anchor_id']
+    return next((a.get('id') for a in query.get('anchors') or [] if a.get('id')),None)
 
 def anchors(w,args):
     catalog=w['catalog'];explicit=catalog.get(args.get('anchor_id'))
