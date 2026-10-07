@@ -21,7 +21,7 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
         content={**payload,'spots':chunk,'dates':allowed_dates,'tour_dates':allowed_tour,'visit_requests':{cid:requests[cid] for cid in allowed_ids if cid in requests},'phase':index+1,'phases':len(chunks)}
         messages=[{'role':'system','content':prompt+' candidate_id逐字复制输入ID，不能用名称或酒店ID。只在tour_dates安排景点；仅输出有景点的日期，避免填充大量空白天。visit_order是用户明确先后顺序；在同一天同一时段内遵守，不能覆盖指定日期时段。'}, {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
         for attempt in range(2):
-            message,used=await model(messages,json_mode=True,max_tokens=5000)
+            message,used=await model(messages,json_mode=True,max_tokens=5000,label='plan_proposal')
             raw=message.get('content','');(runtime/'last-plan-proposal.json').write_text(raw or '{}',encoding='utf-8')
             errors=[];seen=set();groups=[];time_context=None
             try:

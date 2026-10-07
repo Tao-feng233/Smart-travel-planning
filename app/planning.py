@@ -345,7 +345,7 @@ async def _generate(w, progress):
         review_plan['days']=[{**d,'events':[{k:v for k,v in e.items() if k not in ('options','poi','evidence')} for e in d['events']]} for d in computed]
         review_messages=[{'role':'system','content':review_prompt},{'role':'user','content':json.dumps(model_facts({'requirements':r,'plan':review_plan,'transport':transport,'return_transport':w.get('selected_return')}),ensure_ascii=False)}]
         for attempt in range(2):
-            m,u=await llm(review_messages,json_mode=True,max_tokens=1800)
+            m,u=await llm(review_messages,json_mode=True,max_tokens=1800,label='review')
             (RUNTIME/'last-review-response.txt').write_text(m.get('content') or '',encoding='utf-8')
             try:
                 review=parse_review(m.get('content'))

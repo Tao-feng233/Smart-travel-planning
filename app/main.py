@@ -84,6 +84,15 @@ def health():
 def status(user=Depends(auth.current_user)):
     return {'configured':configured(),'tools':getattr(app.state,'tool_names',[]),'knowledge_cities':['青岛','成都','杭州','西安'],'knowledge_scope':'青岛景区资料及四城目的地概览'}
 
+@app.get('/api/usage')
+def usage(days:int=Query(default=0,ge=0,le=365),user=Depends(auth.current_user)):
+    """Aggregate model usage by call label, for cost tuning.
+
+    llm_calls holds counts and latencies only -- no prompts, replies or ids -- so this
+    is safe to expose to any signed-in account.
+    """
+    return storage.usage_summary(days)
+
 def owned(wid,user):
     w=storage.get(wid,user['id'])
     if not w:raise HTTPException(404,'未找到这次旅行')
