@@ -93,6 +93,7 @@ def test_review_handles_missing_summary_but_rejects_invalid_issues():
     with pytest.raises(ValueError):parse_review('{"issues":"没有问题"}')
     with pytest.raises(ValueError):parse_review('{"issues":[{"message":"问题"}]}')
 
+
 def test_review_survives_overview_guide_that_has_scope_instead_of_date_scope(monkeypatch,tmp_path):
     """回归：目的地概览类资料只有 scope、没有 date_scope，审核投影不得因直接下标取值而 KeyError。"""
     import asyncio,json

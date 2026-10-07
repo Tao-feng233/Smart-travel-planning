@@ -10,7 +10,9 @@ for _name in ('httpx','httpcore','httpx2','httpcore2'):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 class DataError(Exception):
-    pass
+    def __init__(self,message,context=None):
+        super().__init__(message)
+        self.context=context
 
 def source(name, url, fetched=None, kind='查询事实'):
     return {'name':name,'url':url,'queried_at':fetched or now(),'kind':kind}

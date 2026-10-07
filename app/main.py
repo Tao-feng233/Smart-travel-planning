@@ -20,7 +20,7 @@ ORIGIN=setting('APP_PUBLIC_ORIGIN','http://127.0.0.1:8767').rstrip('/')
 ORIGINS={ORIGIN}|({'http://localhost:8767'} if ORIGIN=='http://127.0.0.1:8767' else set())
 HOSTS={urlsplit(o).netloc for o in ORIGINS}
 PROJECT_ID=hashlib.sha256(str(ROOT.resolve()).casefold().encode()).hexdigest()[:16]
-ASSET_VERSIONS={name:hashlib.sha256((ROOT/'frontend'/name).read_bytes()).hexdigest()[:12] for name in ('style.css','workspace.css','account.js','app.js','workbench.js','product.css','details.js','interactive-map.js')}
+ASSET_VERSIONS={name:hashlib.sha256((ROOT/'frontend'/name).read_bytes()).hexdigest()[:12] for name in ('style.css','workspace.css','account.js','app.js','workbench.js','product.css','details.js','interactive-map.js','experience.js')}
 
 @asynccontextmanager
 async def lifespan(app):
@@ -96,7 +96,8 @@ def present(w):
     if not active and w.get('ui',{}).get('status')=='loading':guidance.finish(w,'interrupted')
     from .journey import next_step
     from .journey import selection_assessment,is_local
-    return {**w,'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
+    from .schedule import build
+    return {**w,'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
 
 @app.get('/api/workspaces/{wid}/map-image')
 async def workspace_map(wid:str,day:str='',focus:str='',zoom:int|None=Query(None,ge=1,le=17),lng:float|None=Query(None,ge=-180,le=180),lat:float|None=Query(None,ge=-85,le=85),base:bool=False,user=Depends(auth.current_user)):
@@ -195,7 +196,7 @@ async def perform(wid,body,jid,owner_id):
         def progress(text):
             trace.append({'time':storage.now(),'text':text});storage.update_job(jid,progress=text);publish()
         progress(w['ui']['title'])
-        error=None;status='completed'
+        error=None;status='completed';error_context=None
         if body.action=='chat':
             w['messages'].append({'role':'user','content':body.text.strip(),'time':storage.now()})
             w['revision']+=1;storage.save(w)
@@ -217,7 +218,7 @@ async def perform(wid,body,jid,owner_id):
         except asyncio.CancelledError:
             status='interrupted' if SHUTTING_DOWN else 'cancelled'
             answer='任务已中断，已保存的对话和选择可以继续。' if SHUTTING_DOWN else '已停止本轮处理，当前选择已保留。'
-        except DataError as e:error=str(e);answer=error;status='failed'
+        except DataError as e:error=str(e);answer=error;status='failed';error_context=e.context
         except ValueError as e:
             error='没有可撤销的版本' if body.action=='undo' else '本轮处理数据不完整，请检查条件后重试';answer=error;status='failed'
         except TimeoutError:error='本轮处理超时，已保存当前选择，请稍后重试。';answer=error;status='failed'
@@ -227,6 +228,7 @@ async def perform(wid,body,jid,owner_id):
         finally:
             CANCELLED.discard(jid);replies.SINK.reset(sink_token);replies.PREFIX.reset(prefix_token)
         ui=guidance.finish(w,'ready' if status=='completed' else status,error)
+        if error_context:ui['conflict']=error_context
         from .journey import next_step
         newly_ready=status=='completed' and not before_ready and all((w.get(k) or {}).get('selection_status')=='confirmed' for k in ('selected_transport','selected_return'))
         if newly_ready:ui['suggested_view']=next_step(w)['view']

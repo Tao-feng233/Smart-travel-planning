@@ -111,6 +111,7 @@ FUNCTION={'type':'function','function':{'name':'submit_intent','description':'�
 FUNCTION['function']['parameters']['properties'].update(keyword={'type':'string','description':'用户指定的酒店品牌、名称或住宿区域，原样用于酒店查询'},room_id={'type':'string','description':'来自给定room_choices的房型报价ID'},replace={'type':'boolean','description':'用户明确要求改选已有班次时为true'},time_start={'type':'string','description':'出发时间段起点 HH:MM'},time_end={'type':'string','description':'出发时间段终点 HH:MM'},train_type={'type':'string','enum':['all','highspeed','regular']})
 FUNCTION['function']['parameters']['properties'].update(acknowledgement={'type':'string','description':'执行前回应本轮要求的一句简短确认，不宣称已完成查询或选择'},include_food={'type':'boolean'},food_keywords={'type':'array','items':{'type':'string'}},prefer_known={'type':'boolean'},auto_select={'type':'boolean','description':'用户明确让助手代选班次时true'},meal_mode={'type':'string','enum':['chosen','self']},meal_date={'type':'string'},meal_period={'type':'string','enum':['breakfast','lunch','dinner']},food_id={'type':'string'},anchor_id={'type':'string','description':'当前景点或酒店参照ID，用于餐饮查询'},departure_date={'type':'string','description':'本轮交通查询日期，不能覆盖整趟开始日期'})
 FUNCTION['function']['parameters']['properties']['visit_requests']={'type':'array','items':{'type':'object','properties':{'candidate_id':{'type':'string'},'date':{'type':'string'},'period':{'type':'string','enum':list(visits.PERIODS)},'clear':{'type':'boolean'}},'required':['candidate_id']},'description':'用户明确指定某景点哪天哪个时段游玩，使用真实ID和旅行日期；取消指定用clear。'}
+FUNCTION['function']['parameters']['properties']['visit_order']={'type':'array','items':{'type':'string'},'description':'用户明确指定先后游玩顺序时，按顺序返回已选景点真实ID。使用visit_schedule；不可自动修改明确日期时段。'}
 FUNCTION['function']['parameters']['properties']['view']={'type':'string','enum':sorted(guidance.VALID_VIEWS),
     'description':'本轮正在讨论的工作台主题。即使只是解释，也可指定景点spot、住宿hotel、天气weather、往返交通transport、计划plan或资料knowledge。没有明确主题则省略。'}
 
@@ -135,6 +136,7 @@ async def understand(s):
     prompt+='日期区间同时提取start_date、end_date和含首尾的days。同城时origin与city均应保留，不能因为相同而漏掉出发地。本地游无需查询城际票。中午高铁查询使用11:00至14:00与highspeed；更精确时段以用户为准。长行程支持1至60天，超过单轮容量按阶段规划，不要求限制5天。'
     prompt+='本轮讨论明确主题时填写view，使工作台跟随话题。简短解释后告诉用户当前可以做什么，不要求一次完成所有选择。'
     prompt+='用户指定第几天或某日期游玩某景点时使用visit_schedule并返回visit_requests；只使用目录ID，不能把单个景点日期当整个出发日期。把日期与上午/下午/晚上分开记录，后续计划必须遵守；不可行要说明，不能静默忽略。交通确认后先进入餐饮，让用户选餐厅、完成餐饮或自行安排，再生成计划。'
+    prompt+='用户要求调整先后顺序时使用visit_schedule和visit_order，记录真实已选ID；要求按位置自动优化并重排时使用plan，保留已选班次、餐厅和明确日期时段。给用户说明具体冲突的日期和相关地点，不能把返程次日误当成最后游玩日。'
     visible_ids=list(discovery.page_info(w)['ids'])+list((w.get('hotel_query') or {}).get('ids',[]))+list((w.get('food_query') or {}).get('ids',[]))+[p['id'] for p in (w.get('transport') or {}).get('items',[])]+w['selected_spots']
     visible_ids+= [p['id'] for p in (w.get('hotel'),w.get('selected_transport'),w.get('selected_return')) if p and p.get('id')]
     prompt+='用户想了解已有餐厅或景点的电话、营业资料、特色标签时，使用place_detail并指定id；菜单、订位与出游当天营业不能据此确认。查门票使用ticket和对应景点id，单独的门票日期使用visit_date，不修改旅行开始日期。'
@@ -186,7 +188,7 @@ async def execute(s):
         if p['kind']=='spot' and cid not in w['selected_spots']:w['selected_spots'].append(cid);w['spots_confirmed']=False;mark_stale(w)
         elif p['kind']!='spot':selection_answer=await handle(w,'select',{'id':cid,'replace':intent.get('replace',False),**{k:intent[k] for k in ('meal_date','meal_period','meal_mode') if k in intent}},s['progress'])
         if action=='chat':w['ui']=guidance.describe(w,'select',{'id':cid},status='loading')
-    answer=await handle(w,intent.get('action','chat'),{'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','visit_requests') if k in intent}},s['progress'])
+    answer=await handle(w,intent.get('action','chat'),{'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('id','view','visit_date','keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','visit_requests','visit_order') if k in intent}},s['progress'])
     if (intent.get('include_food') or w['requirements'].get('food_preferences')) and action in ('search_spots','spots_page'):
         try:answer+='\n'+await handle(w,'search_foods',{'keywords':intent.get('food_keywords') or w['requirements'].get('food_preferences')},s['progress']);w['ui']=guidance.describe(w,action,view='spot',status='loading')
         except DataError:answer+='\n本次未取得餐饮候选，已保留餐饮偏好，可稍后单独查询。'
@@ -232,7 +234,7 @@ async def recommend(w,items,task,guides=None):
 async def handle(w,action,args,progress):
     r=w['requirements']; w.setdefault('catalog',{})
     if action=='chat':return ''
-    if action=='visit_schedule':return visits.save(w,args.get('visit_requests',[]))
+    if action=='visit_schedule':return visits.save(w,args.get('visit_requests',[]),args.get('visit_order'))
     if action=='complete_food':
         w['dining_reviewed']=True;w['ui']=guidance.describe(w,'complete_food',view='plan',status='loading')
         return '餐饮安排已确认。未选餐厅的餐次保留自行安排。**下一步：生成旅行计划书。**'

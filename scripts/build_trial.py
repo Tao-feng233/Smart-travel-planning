@@ -15,7 +15,7 @@ def copy_files(source,target):
 def build(include_env=False):
     runtime_zip=ROOT/'data/runtime/package-build/python-3.13.9-embed-amd64.zip'
     if hashlib.md5(runtime_zip.read_bytes()).hexdigest()!='f41c7640d30159cbbc708d9386d01d94':raise ValueError('Official runtime integrity check failed')
-    tag='20261007-v10-'+uuid.uuid4().hex[:6]
+    tag='20261007-v11-'+uuid.uuid4().hex[:6]
     release_name='识途体验版-Windows64-'+tag
     stage=ROOT/'data/runtime/package-build'/release_name
     stage.mkdir(parents=True,exist_ok=False)
@@ -71,6 +71,8 @@ exit /b %taskExitCode%
 地图支持全国范围拖动、鼠标位置滚轮缩放、双击位置放大及加减按钮；操作立即响应，停止后补充清晰底图。显示全部为100%并恢复中心；重置中心点只恢复位置、保留比例；全国按钮直接切到全国。按日期查看每日线路：有道路坐标的段落绘制高德实际通行路线；未取得道路数据时显示顺序示意，出行请使用实时导航。
 餐厅和景点详情打开时会补查一次地图资料，支持手动更新；展示特色标签、营业资料、电话、人均、照片与商圈，字段缺失保留待核实。酒店详情保留来源提供的全部房型（技术保护最多100种）、面积、楼层、房间图片、退改和查询时可售状态。
 门票按景点的指定游玩日、已生成日程或建议日查询，也可单独改日期；含门票产品与文创/餐食/附加体验分类显示，名称重试不扩大子景点入园范围。区间最低价不当作当天准确报价，预约名额未提供即标未知。
+新增浮动小地图，拖动标题栏可移动，点击减号收为图标；各类已选地点分色，当前地点突出显示，正式计划的已查询路线用红线标注。鼠标移到右侧可显示旅行时间轴，点击日期时间定位对应选择，餐厅选定后自动进入下一饭点并刷新周边候选；未生成正式计划的时间与顺序是建议估算。
+途牛图片优先加载同源原图，失败回退缩略图，图片保持完整比例，点击可查看完整图片。次日早班返程的空白日期不再套用09:00游玩起点或强制安排早餐；存在真实冲突时支持跳转到相关景点或班次、请求按位置优化并重排。
 候选有来源；选定不代表预订。票价、余票和天气会变化，尚未核实的信息在计划中说明。
 
 常见问题
@@ -87,7 +89,7 @@ exit /b %taskExitCode%
     entries={p.relative_to(stage).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in stage.rglob('*') if p.is_file()}
     forbidden=[name for name in entries if name.startswith('data/runtime/') or any(x in name for x in ('.展示检查','travel.db','backups/','.venv/','__pycache__'))]
     if forbidden:raise ValueError('Private runtime files unexpectedly entered release')
-    manifest={'version':'v10','client_release_date':'2026-10-07','target':'Windows x64','python':'3.13.9','config_included':include_env,'original_history_included':False,'runtime_download_sha256':hashlib.sha256(runtime_zip.read_bytes()).hexdigest(),'files_sha256':entries}
+    manifest={'version':'v11','client_release_date':'2026-10-07','target':'Windows x64','python':'3.13.9','config_included':include_env,'original_history_included':False,'runtime_download_sha256':hashlib.sha256(runtime_zip.read_bytes()).hexdigest(),'files_sha256':entries}
     (stage/'package-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     dist=ROOT/'dist';dist.mkdir(exist_ok=True);archive=dist/(release_name+'.zip')
     with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:

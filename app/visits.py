@@ -9,7 +9,7 @@ def dates(w):
  r=w['requirements']
  return [(date.fromisoformat(r['start_date'])+timedelta(days=i)).isoformat() for i in range(int(r.get('days') or 1))] if r.get('start_date') else []
 
-def save(w,requests):
+def save(w,requests,order=None):
  valid=dates(w);current=dict(w.get('visit_requests',{}));messages=[]
  for req in requests:
   cid=req.get('candidate_id');p=w['catalog'].get(cid)
@@ -18,6 +18,10 @@ def save(w,requests):
   dt=req.get('date');period=req.get('period','any')
   if dt not in valid or period not in PERIODS:raise DataError('请选择游玩日期范围内的日期和有效时段。')
   current[cid]={'date':dt,'period':period};messages.append(p['name']+'：'+dt+' '+PERIODS[period])
+ if order is not None:
+  if not isinstance(order,list) or any(not isinstance(cid,str) for cid in order) or len(order)!=len(set(order)) or any(cid not in w.get('selected_spots',[]) for cid in order):raise DataError('调整顺序必须使用已选景点的真实ID，且不可重复。')
+  w['visit_order']=order
+  messages.append('优先顺序：'+' → '.join(w['catalog'][cid]['name'] for cid in order))
  w['visit_requests']=current
  if w.get('plan'):w['plan']['stale']=True
  return '已记录游玩安排：'+('；'.join(messages) or '恢复由助手安排')+'。生成或重排时会按这些要求核对日期与时段，若时间或交通冲突会说明。'

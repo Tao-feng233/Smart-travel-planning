@@ -66,6 +66,16 @@ def choose_route(options,requirements):
     return driving or min(valid,key=lambda x:x['minutes'])
 
 async def generate(w, progress):
+    try:return await _generate(w,progress)
+    except DataError as e:
+        context=e.context or {};ids=context.get('candidate_ids',[])
+        # One bounded repair after querying actual travel times. Hard dates
+        # and periods remain intact; a second failure is actionable feedback.
+        if context.get('phase')=='proposal' or not ids or not any(not w.get('visit_requests',{}).get(cid) for cid in ids):raise
+        progress('时间衔接未通过，正在保留已选班次与明确安排、调整可变顺序后重新核对')
+        return await _generate({**w,'planning_feedback':str(e)},progress)
+
+async def _generate(w, progress):
     r=w['requirements']; catalog=w.get('catalog',{})
     spots=[catalog[i] for i in w['selected_spots'] if i in catalog]
     if not spots:raise DataError('请先选择想去的景点')
@@ -88,7 +98,9 @@ async def generate(w, progress):
     span=(date.fromisoformat(finish)-date.fromisoformat(begin)).days+1
     if span>90:raise DataError('完整旅途跨度超过90天，请按阶段分别规划。')
     payload={'requirements':r,'dates':[(date.fromisoformat(begin)+timedelta(days=i)).isoformat() for i in range(span)],'tour_dates':tour_dates,'spots':spots,
-             'visit_requests':w.get('visit_requests',{}),'selected_room':w.get('selected_room'),'hotel':w.get('hotel'),'selected_transport':w.get('selected_transport'),'selected_return':w.get('selected_return'),'official_guides':guides}
+             'visit_requests':w.get('visit_requests',{}),'visit_order':w.get('visit_order',[]),'selected_room':w.get('selected_room'),'hotel':w.get('hotel'),'selected_transport':w.get('selected_transport'),'selected_return':w.get('selected_return'),'official_guides':guides}
+    if w.get('planning_feedback'):payload['validation_feedback']=w['planning_feedback']+'。调整可变景点日期或同日顺序，保留已选地点、班次、餐厅与用户明确日期时段，不可修改用户选择来掩盖冲突。'
+    payload['meal_choices']={key:{**value,'food':catalog.get(value.get('food_id'))} for key,value in w.get('meal_choices',{}).items()}
     # Model output is a proposal. Enforce exact candidate identity and allow one
     # repair with concrete validation feedback, never silently add/remove spots.
     from .proposals import create
@@ -116,6 +128,10 @@ async def generate(w, progress):
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
+        if p:
+            from .schedule import meal_window
+            earliest,latest=meal_window(w,dt,period)
+            t=max(t,earliest)
         if p and last:
             chosen=choose_route(await route_options(last,p),r)
             if not chosen:raise DataError('已选餐厅的通行路线未查询到，请改为自行安排或换餐厅后重排。')
@@ -123,6 +139,8 @@ async def generate(w, progress):
             events.append({'kind':'route','name':'从'+last['name']+'前往'+p['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':[chosen],'buffer':allocation-chosen['minutes'],'note':'前往已选用餐地点，含规划缓冲。'})
             t+=allocation
         elif p and not last:raise DataError('缺少前往已选餐厅的出发位置，请确定住宿或改为自行安排后生成。')
+        if p and t+duration>latest:
+            raise DataError(dt+' '+foods.PERIODS[period]+'（'+p['name']+'）含通行后的用餐时间超出当前可用时段，请调整顺序、餐厅或班次后重排。',{'date':dt,'meal_period':period,'candidate_ids':[p['id']],'view':'food','direction':'return' if return_time and dt>=return_time.date().isoformat() else 'outbound'})
         name=foods.PERIODS[period]+' · '+(p['name'] if p else '自行安排')
         events.append({'kind':'meal','name':name,'start':clock(t),'end':clock(t+duration),'note':'餐厅为规划意向，营业时段、菜单和价格请出发前确认，可随时更换。' if p else '弹性用餐建议，可自行选择餐厅或调整时间；未预订，费用未核实。',**({'food':p,'source':p.get('source')} if p else {})})
         scheduled_meals.add(dt+'|'+period)
@@ -143,7 +161,7 @@ async def generate(w, progress):
             events.append({'kind':'transport','name':'乘坐'+transport['name']+'前往'+r['city'],'start':transport['departure'][-5:],'end':transport['arrival'][-5:],'note':'请注意核实出发时刻、车站或机场及席别；请携带并保管好身份证件。','source':transport.get('source')})
         if arrival:
             if d['date']<arrival.date().isoformat():
-                if d['items']:raise DataError(f"{d['date']} 的游览早于所选班次到达，草稿未通过校验，请调整班次或重新生成。")
+                if d['items']:raise DataError(f"{d['date']} 的游览早于所选班次到达，草稿未通过校验，请调整班次或重新生成。",{'date':d['date'],'direction':'outbound','candidate_ids':[x['candidate_id'] for x in d['items']],'view':'spot'})
                 computed.append({'date':d['date'],'theme':'在途，尚未抵达目的地','events':events, 'end':clock(t),'note':'当天在途，尚未抵达目的地，不安排游览。'})
                 continue
             elif d['date']==arrival.date().isoformat():
@@ -153,6 +171,24 @@ async def generate(w, progress):
                     computed.append({'date':d['date'],'theme':'抵达与休息','events':events,'end':'23:59','note':'到达较晚，优先办理入住和休息。'})
                     continue
                 warnings.append(f"{d['date']} 从到达后预留90分钟开始游玩，此为出站/接驳建议，尚未核实完整接驳路线。")
+        # A return-only day is not a sightseeing day. In particular, a morning
+        # train must not be rejected because of an invented 09:00 day start.
+        if return_time and d['date']==return_time.date().isoformat() and not d['items']:
+            depart=return_time.hour*60+return_time.minute
+            preparation=max(0,depart-120)
+            if arrival and arrival.date()==return_time.date() and arrival.hour*60+arrival.minute>preparation:
+                raise DataError('到达时间与返程接驳准备时间冲突，请调整往返班次。',{'date':d['date'],'direction':'return','candidate_ids':[],'view':'transport'})
+            # Meals are optional and must fit before preparation. No meal is
+            # inserted merely to fill the extra date in the travel span.
+            if foods.choice(w,d['date'],'breakfast') and preparation>=8*60+30:
+                breakfast,bt,last=await meal(d['date'],'breakfast',7*60+30,last,45)
+                if bt>preparation:raise DataError('返程当天已选早餐与接驳准备时间冲突，请调整早餐地点或返程班次。',{'date':d['date'],'direction':'return','view':'food','meal_period':'breakfast','candidate_ids':[]})
+                events+=breakfast
+            events.append({'kind':'transfer_plan','name':'退房与前往车站或机场，预留候车和安检时间','start':clock(preparation),'end':return_time.strftime('%H:%M'),'note':'暂按提前120分钟准备；实际接驳路线、退房及候车耗时请核对。'})
+            back=w['selected_return'];finish=back.get('arrival','')[-5:] if back.get('arrival','')[:10]==d['date'] else '23:59'
+            events.append({'kind':'transport','name':'乘坐'+back.get('name','返程班次')+'返程','start':return_time.strftime('%H:%M'),'end':finish,'source':back.get('source'),'note':'请核实班次最终时刻、车站或机场及席别。'})
+            computed.append({'date':d['date'],'theme':'退房与返程','events':events,'end':clock(preparation)})
+            continue
         if (not arrival or d['date']>arrival.date().isoformat()) and (not events or minute(events[0]['start'])>=9*60):
             breakfast,bt,last=await meal(d['date'],'breakfast',7*60+30 if foods.choice(w,d['date'],'breakfast') else 8*60,last,45)
             events+=breakfast;t=max(t,round_up(bt))
@@ -215,7 +251,7 @@ async def generate(w, progress):
             deadline=(return_time.hour*60+return_time.minute-120)//5*5
             end_limit=min(end_limit,max(0,deadline))
             warnings.append(f"{d['date']} 所选返程 {return_time.strftime('%H:%M')}，暂按提前120分钟结束游览；机场/车站接驳、安检耗时尚未完整核实。")
-            if t>end_limit:raise DataError('当日游览与所选返程冲突，请减少最后一天景点或换返程班次后重排。')
+            if t>end_limit:raise DataError(d['date']+'的活动与返程冲突：预计结束于'+clock(t)+'，返程'+return_time.strftime('%H:%M')+'需暂按'+clock(end_limit)+'开始接驳准备。请调整这一天的顺序、游玩日期或返程班次后重排。',{'date':d['date'],'direction':'return','candidate_ids':[x['candidate_id'] for x in d['items']],'view':'spot','deadline':clock(end_limit)})
         if end_limit>=18*60 and t<=end_limit-60:
             dinner_start=max(t,17*60)
             if t<dinner_start:events.append({'kind':'free','name':'自由活动与机动时间','start':clock(t),'end':clock(dinner_start),'note':'可休息或自行安排活动。'})

@@ -19,11 +19,11 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
         allowed_ids={p['id'] for p in chunk}
         if len(chunks)>1:progress(f'正在安排第{index+1}/{len(chunks)}阶段的地点与日期')
         content={**payload,'spots':chunk,'dates':allowed_dates,'tour_dates':allowed_tour,'visit_requests':{cid:requests[cid] for cid in allowed_ids if cid in requests},'phase':index+1,'phases':len(chunks)}
-        messages=[{'role':'system','content':prompt+' candidate_id逐字复制输入ID，不能用名称或酒店ID。只在tour_dates安排景点；仅输出有景点的日期，避免填充大量空白天。'}, {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
+        messages=[{'role':'system','content':prompt+' candidate_id逐字复制输入ID，不能用名称或酒店ID。只在tour_dates安排景点；仅输出有景点的日期，避免填充大量空白天。visit_order是用户明确先后顺序；在同一天同一时段内遵守，不能覆盖指定日期时段。'}, {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
         for attempt in range(2):
             message,used=await model(messages,json_mode=True,max_tokens=5000)
             raw=message.get('content','');(runtime/'last-plan-proposal.json').write_text(raw or '{}',encoding='utf-8')
-            errors=[];seen=set();groups=[]
+            errors=[];seen=set();groups=[];time_context=None
             try:
                 value=json.loads(raw)
                 for day in value.get('days',[]):
@@ -39,12 +39,25 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                         period=pin.get('period') or item.get('period') or 'any'
                         if period not in ('any','morning','afternoon','evening'):period='any'
                         seen.add(cid);items.append({**item,'period':period,'duration':round_up(max(30,min(240,int(item.get('duration',90)))),15)})
+                    if items and dt in allowed_tour:
+                        from .schedule import windows,minutes
+                        low,high=windows(w,dt)
+                        limited=low>0 or high<1440
+                        low=max(low,minutes(w['requirements'].get('day_start','09:00')))
+                        if limited and low+sum(i['duration'] for i in items)>high:
+                            errors.append('所选班次限制了'+dt+'可用时间；请将可调整的景点换到其他游玩日期，保留明确指定日期时段，不删除景点。')
+                            back=(w.get('selected_return') or {}).get('departure','')[:10]
+                            time_context={'date':dt,'direction':'return' if back and dt>=back else 'outbound','candidate_ids':[x['candidate_id'] for x in items],'view':'spot','phase':'proposal'}
+                    ranks={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
+                    if ranks:items.sort(key=lambda x:({'morning':0,'any':1,'afternoon':2,'evening':3}.get(x['period'],1),ranks.get(x['candidate_id'],9999)))
                     groups.append({**day,'items':items})
                 if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(allowed_ids-seen))
                 if len({d['date'] for d in groups})!=len(groups):errors.append('日期重复')
             except (ValueError,TypeError,KeyError,AttributeError):errors.append('JSON日程结构或时长无效')
             if not errors:break
-            if attempt:raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
+            if attempt:
+                if time_context:raise DataError(time_context['date']+'的活动与'+('返程冲突' if time_context['direction']=='return' else '去程到达时间冲突')+'，修订后仍无法容纳建议游玩时长。请调整相关景点日期、时段或班次。',time_context)
+                raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
             progress('正在根据候选与日期校验结果修订草稿')
             messages.extend([{'role':'assistant','content':raw or '{}'}, {'role':'user','content':json.dumps({'validation_errors':errors,'allowed_ids':sorted(allowed_ids),'allowed_dates':allowed_tour},ensure_ascii=False)}])
         for key,n in used.items():
