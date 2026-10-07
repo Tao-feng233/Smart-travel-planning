@@ -9,13 +9,14 @@ PERIODS={'breakfast':'早餐','lunch':'午餐','dinner':'晚餐'}
 def infeasible(w,dt,period):
     """Reject meals outside the same buffered window used by the timeline."""
     from .schedule import meal_start,windows,clock
+    from . import time_policy
     if meal_start(w,dt,period) is not None:return None
     low,high=windows(w,dt)
     name=PERIODS[period]
     if high<1440:
         detail='返程接驳准备需在'+clock(high)+'开始'
     elif low>0:
-        detail='去程抵达及90分钟准备后，最早可从'+clock(low)+'安排'
+        detail='去程抵达及'+str(time_policy.FALLBACK_ARRIVAL_BUFFER_MINUTES)+'分钟准备后，最早可从'+clock(low)+'安排'
     else:detail='当前每日结束时刻不足以容纳完整用餐时长'
     return dt+' '+name+'来不及安排：'+detail+'。请调整餐次、日期或班次；也可自行安排。'
 
