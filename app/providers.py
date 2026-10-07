@@ -246,19 +246,27 @@ async def llm(messages, tools=None, json_mode=False, max_tokens=2200, label='llm
     if tools: body.update(tools=tools,tool_choice='required')
     if json_mode: body['response_format']={'type':'json_object'}
     started=time.monotonic()
+    usage={}                                   # kept so a late failure still reports what was billed
     try:
         async with httpx.AsyncClient(timeout=100) as c:
             r=await c.post(setting('LLM_BASE_URL').rstrip('/')+'/chat/completions',headers={'Authorization':'Bearer '+setting('LLM_API_KEY')},json=body)
             if r.status_code!=200: raise DataError(f'大模型请求失败，HTTP {r.status_code}')
             data=r.json()
         usage=data.get('usage') or {}
+        # Validate before recording success: an HTTP 200 without usable choices
+        # raises below and would otherwise be counted twice -- once as ok here
+        # and again as failed in the generic handler. One request, one record.
+        choices=data.get('choices') or []
+        if not choices:raise DataError('大模型返回内容为空') from None
+        message=choices[0].get('message')
+        if not isinstance(message,dict):raise DataError('大模型返回内容不完整') from None
         record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=True)
-        return data['choices'][0]['message'],usage
+        return message,usage
     except httpx.HTTPError:
         record_llm_call(label,body['model'],{},(time.monotonic()-started)*1000,ok=False,error='连接失败或超时')
         raise DataError('大模型连接失败或响应超时') from None
     except DataError as e:
-        record_llm_call(label,body['model'],{},(time.monotonic()-started)*1000,ok=False,error=str(e))
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=False,error=str(e))
         raise
     except Exception as e:
         record_llm_call(label,body['model'],{},(time.monotonic()-started)*1000,ok=False,error=type(e).__name__)

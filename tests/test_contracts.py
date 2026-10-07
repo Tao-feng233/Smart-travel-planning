@@ -15,8 +15,8 @@ from app.contracts import (RevisionConflict,RequestConflict,LeaseLost,JobNotClai
 class SqliteWorkspaces:
     def __init__(self,path):
         self.c=sqlite3.connect(path)
-        self.c.execute('CREATE TABLE workspaces(id TEXT PRIMARY KEY,owner_id TEXT,payload TEXT,revision INTEGER)')
-        self.c.execute('CREATE TABLE versions(id TEXT,revision INTEGER,payload TEXT,PRIMARY KEY(id,revision))')
+        self.c.execute('CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,owner_id TEXT,payload TEXT,revision INTEGER)')
+        self.c.execute('CREATE TABLE IF NOT EXISTS versions(id TEXT,revision INTEGER,payload TEXT,PRIMARY KEY(id,revision))')
         self.c.commit()
     def get(self,wid,owner_id):
         row=self.c.execute('SELECT payload,owner_id,revision FROM workspaces WHERE id=?',(wid,)).fetchone()
@@ -30,14 +30,18 @@ class SqliteWorkspaces:
         self.c.execute('INSERT OR REPLACE INTO versions VALUES(?,?,?)',(workspace['id'],new,payload));self.c.commit()
         return new
     def previous(self,wid,owner_id,before_revision):
+        # Same rule as get(): a foreign or missing trip is None, never someone
+        # else's snapshot. Undo must not become a way to read across accounts.
+        owned=self.c.execute('SELECT owner_id FROM workspaces WHERE id=?',(wid,)).fetchone()
+        if not owned or (owner_id is not None and owned[0]!=owner_id):return None
         row=self.c.execute('SELECT payload,revision FROM versions WHERE id=? AND revision<? ORDER BY revision DESC LIMIT 1',(wid,before_revision)).fetchone()
         if not row:raise ContractError('没有可撤销的版本')
-        w=json.loads(row[0]);w['revision']=row[1];return w
+        w=json.loads(row[0]);w['revision']=row[1];w['owner_id']=owned[0];return w
 
 class SqliteCache:
     def __init__(self,path):
         self.c=sqlite3.connect(path)
-        self.c.execute('CREATE TABLE cache(provider TEXT,key TEXT,payload TEXT,expires REAL,PRIMARY KEY(provider,key))');self.c.commit()
+        self.c.execute('CREATE TABLE IF NOT EXISTS cache(provider TEXT,key TEXT,payload TEXT,expires REAL,PRIMARY KEY(provider,key))');self.c.commit()
     def get(self,provider,key):
         row=self.c.execute('SELECT payload,expires FROM cache WHERE provider=? AND key=?',(provider,key)).fetchone()
         return json.loads(row[0]) if row and row[1]>time.time() else None
@@ -46,20 +50,31 @@ class SqliteCache:
 
 class SqliteBudget:
     def __init__(self,path):
-        self.c=sqlite3.connect(path)
-        self.c.execute('CREATE TABLE calls(provider TEXT,time REAL)');self.c.commit()
+        # isolation_level=None: we issue BEGIN IMMEDIATE ourselves, because a
+        # read-then-write that runs as two auto-commits lets two callers both
+        # count zero and both insert when limit=1.
+        self.c=sqlite3.connect(path,isolation_level=None)
+        self.c.execute('CREATE TABLE IF NOT EXISTS calls(provider TEXT,time REAL)');self.c.commit()
     def record_and_check(self,provider,limit,window_seconds):
         floor=time.time()-window_seconds
-        allowed=self.c.execute('SELECT COUNT(*) FROM calls WHERE provider=? AND time>?',(provider,floor)).fetchone()[0]<limit
-        if allowed:self.c.execute('INSERT INTO calls VALUES(?,?)',(provider,time.time()));self.c.commit()
-        return allowed
+        self.c.execute('BEGIN IMMEDIATE')          # take the write lock before counting
+        try:
+            used=self.c.execute('SELECT COUNT(*) FROM calls WHERE provider=? AND time>?',(provider,floor)).fetchone()[0]
+            if used>=limit:
+                self.c.execute('COMMIT');return False
+            self.c.execute('INSERT INTO calls VALUES(?,?)',(provider,time.time()))
+            self.c.execute('COMMIT');return True
+        except Exception:
+            self.c.execute('ROLLBACK');raise
 
 class SqliteJobs:
     def __init__(self,path):
-        self.c=sqlite3.connect(path)
-        self.c.execute('CREATE TABLE jobs(id TEXT PRIMARY KEY,owner_id TEXT,workspace_id TEXT,request_id TEXT,action TEXT,status TEXT,progress TEXT,ui TEXT,worker_id TEXT,lease REAL,created REAL,error TEXT)')
-        self.c.execute('CREATE UNIQUE INDEX job_request ON jobs(owner_id,request_id)')
-        self.c.execute('CREATE TABLE stages(job_id TEXT,key TEXT,payload TEXT,PRIMARY KEY(job_id,key))');self.c.commit()
+        # isolation_level=None: claim() issues BEGIN IMMEDIATE so that picking a
+        # row and taking it happen inside one write transaction.
+        self.c=sqlite3.connect(path,isolation_level=None)
+        self.c.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,owner_id TEXT,workspace_id TEXT,request_id TEXT,action TEXT,status TEXT,progress TEXT,ui TEXT,worker_id TEXT,lease REAL,created REAL,error TEXT)')
+        self.c.execute('CREATE UNIQUE INDEX IF NOT EXISTS job_request ON jobs(owner_id,request_id)')
+        self.c.execute('CREATE TABLE IF NOT EXISTS stages(job_id TEXT,key TEXT,payload TEXT,PRIMARY KEY(job_id,key))');self.c.commit()
     def submit(self,job_id,owner_id,workspace_id,request_id,action):
         row=self.c.execute('SELECT id,workspace_id FROM jobs WHERE owner_id=? AND request_id=?',(owner_id,request_id)).fetchone()
         if row:
@@ -68,13 +83,24 @@ class SqliteJobs:
         self.c.execute('INSERT INTO jobs(id,owner_id,workspace_id,request_id,action,status,progress,created) VALUES(?,?,?,?,?,?,?,?)',
                        (job_id,owner_id,workspace_id,request_id,action,C.QUEUED,'',time.time()))
         self.c.commit();return job_id
-    def _claimable(self):return "status='queued' OR (status='running' AND (lease IS NULL OR lease<?))"
+    # Bracketed on purpose: `id=? AND status='queued' OR (...)` binds the OR
+    # branch to nothing, so one claim would repoint every expired job at the new
+    # worker. AND binds tighter than OR, so the whole condition needs its own
+    # parentheses to stay scoped to the selected id.
+    def _claimable(self):return "(status='queued' OR (status='running' AND (lease IS NULL OR lease<?)))"
     def claim(self,worker_id,lease_seconds):
-        row=self.c.execute('SELECT id FROM jobs WHERE '+self._claimable()+' ORDER BY created LIMIT 1',(time.time(),)).fetchone()
-        if not row:return None
-        cur=self.c.execute("UPDATE jobs SET status='running',worker_id=?,lease=?,error=NULL WHERE id=? AND "+self._claimable(),
-                           (worker_id,time.time()+lease_seconds,row[0],time.time()))
-        self.c.commit()
+        now=time.time()
+        self.c.execute('BEGIN IMMEDIATE')     # one writer at a time: never two winners
+        try:
+            row=self.c.execute('SELECT id FROM jobs WHERE '+self._claimable()+' ORDER BY created LIMIT 1',(now,)).fetchone()
+            if not row:
+                self.c.execute('COMMIT');return None
+            cur=self.c.execute("UPDATE jobs SET status='running',worker_id=?,lease=?,error=NULL WHERE id=? AND "+self._claimable(),
+                               (worker_id,now+lease_seconds,row[0],now))
+            self.c.execute('COMMIT')
+        except Exception:
+            self.c.execute('ROLLBACK');raise
+        assert cur.rowcount<=1,'一次领取只能改动一行'
         return self.get_job(row[0]) if cur.rowcount==1 else None
     def get_job(self,jid):
         row=self.c.execute('SELECT id,owner_id,workspace_id,request_id,action,status,progress,worker_id FROM jobs WHERE id=?',(jid,)).fetchone()
@@ -93,10 +119,19 @@ class SqliteJobs:
         self.c.execute('INSERT OR REPLACE INTO stages VALUES(?,?,?)',(job_id,key,json.dumps(payload,ensure_ascii=False)));self.c.commit()
     def finish(self,job_id,worker_id,status,error=None):
         if status not in C.TERMINAL_STATES:raise ContractError('非法的结束状态')
-        row=self.c.execute('SELECT status,worker_id FROM jobs WHERE id=?',(job_id,)).fetchone()
-        if not row or row[0]==C.CANCELLED:raise FinalAfterCancel('已停止的任务不能再提交最终计划')
-        if row[0]!=C.RUNNING or row[1]!=worker_id:raise LeaseLost('任务已由其他执行器接管')
-        self.c.execute('UPDATE jobs SET status=?,error=?,lease=NULL WHERE id=?',(status,error,job_id));self.c.commit()
+        row=self.c.execute('SELECT status FROM jobs WHERE id=?',(job_id,)).fetchone()
+        if not row:raise LeaseLost('任务已由其他执行器接管')
+        if row[0]==C.CANCELLED:raise FinalAfterCancel('已停止的任务不能再提交最终计划')
+        # Conditional update, not "read then write": the status we just read may
+        # already have changed. One UPDATE carries both the ownership check and
+        # the cancel guard, so a cancel landing in between is never overwritten.
+        cur=self.c.execute("UPDATE jobs SET status=?,error=?,lease=NULL WHERE id=? AND status=? AND worker_id=?",
+                           (status,error,job_id,C.RUNNING,worker_id))
+        self.c.commit()
+        if cur.rowcount==1:return
+        after=self.c.execute('SELECT status FROM jobs WHERE id=?',(job_id,)).fetchone()
+        if after and after[0]==C.CANCELLED:raise FinalAfterCancel('已停止的任务不能再提交最终计划')
+        raise LeaseLost('任务已由其他执行器接管')
     def cancel(self,job_id,owner_id):
         cur=self.c.execute("UPDATE jobs SET status='cancelled' WHERE id=? AND owner_id=? AND status IN ('queued','running')",(job_id,owner_id))
         self.c.commit();return cur.rowcount==1
@@ -129,6 +164,8 @@ def test_workspace_is_owner_scoped_and_rejects_stale_revision(stores):
     assert stores['workspaces'].save(w,1)==2                      # 带对新 revision 才能保存
     old=stores['workspaces'].previous('w1','alice',2)             # 快照可撤销
     assert old['city']=='青岛' and old['revision']==1
+    assert stores['workspaces'].previous('w1','bob',2) is None     # 撤销同样按归属读取
+    assert stores['workspaces'].previous('nope','alice',2) is None
 
 def test_cache_roundtrip_and_expiry(stores):
     stores['cache'].put('amap','k1',{'items':[1,2]},ttl_seconds=60)
@@ -170,6 +207,78 @@ def test_cancelled_job_keeps_choices_and_blocks_final_plan(stores):
     with pytest.raises(FinalAfterCancel):
         jobs.finish('j1','worker-a',C.COMPLETED)                             # 取消后不能再出最终计划
     assert jobs.get_job('j1')['status']==C.CANCELLED
+
+def test_budget_limit_holds_for_two_writers(tmp_path):
+    """Two executors, one limit: the second call must be refused, not counted twice."""
+    db=str(tmp_path/'budget.db')
+    a=SqliteBudget(db);b=SqliteBudget(db)                          # two connections = two executors
+    assert a.record_and_check('amap',limit=1,window_seconds=60) is True
+    assert b.record_and_check('amap',limit=1,window_seconds=60) is False
+    assert a.c.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==1   # exactly one call recorded
+
+def test_budget_check_and_record_share_one_write_transaction(tmp_path):
+    """Counting and inserting must be one critical section, not two auto-commits."""
+    db=str(tmp_path/'lock.db')
+    a=SqliteBudget(db)
+    a.c.execute('BEGIN IMMEDIATE')                                 # a is inside check+record
+    other=sqlite3.connect(db,isolation_level=None,timeout=0.2)
+    with pytest.raises(sqlite3.OperationalError):                  # b cannot count alongside it
+        other.execute('BEGIN IMMEDIATE')
+    a.c.execute('ROLLBACK');other.close()
+
+def test_claim_touches_only_the_target_job_when_leases_expire(stores):
+    """Once the OR branch is unbracketed, one claim repointed every expired job."""
+    jobs=stores['jobs']
+    for j in ('j1','j2','j3'):jobs.submit(j,'alice','w1','req-'+j,'plan')
+    jobs.claim('worker-a',60)                                      # j1 running, lease valid
+    jobs.c.execute("UPDATE jobs SET status='running',worker_id='worker-dead',lease=? WHERE id IN ('j2','j3')",
+                   (time.time()-1,));jobs.c.commit()               # j2/j3 crashed workers
+    taken=jobs.claim('worker-b',60)
+    assert taken is not None and taken['id']=='j2'                 # oldest expired job only
+    assert jobs.get_job('j3')['worker_id']=='worker-dead'          # not silently repointed
+    assert jobs.get_job('j1')['worker_id']=='worker-a'             # a live lease is untouched
+
+def test_two_workers_never_claim_the_same_job(tmp_path):
+    db=str(tmp_path/'claim.db')
+    a=SqliteJobs(db);b=SqliteJobs(db)
+    a.submit('j1','alice','w1','req-1','plan')
+    assert a.claim('worker-a',60)['id']=='j1'
+    assert b.claim('worker-b',60) is None                          # second connection loses
+
+def test_finish_rejects_a_worker_that_lost_the_lease(stores):
+    jobs=stores['jobs'];jobs.submit('j1','alice','w1','req-1','plan');jobs.claim('worker-a',60)
+    jobs.c.execute("UPDATE jobs SET lease=? WHERE id='j1'",(time.time()-1,));jobs.c.commit()
+    assert jobs.claim('worker-b',60)['worker_id']=='worker-b'      # expired lease, taken over
+    with pytest.raises(LeaseLost):
+        jobs.finish('j1','worker-a',C.COMPLETED)                   # old holder may not finish
+    assert jobs.get_job('j1')['status']==C.RUNNING                 # and must not move the status
+
+def test_cancelled_job_keeps_its_saved_stages(stores):
+    """Cancelling must preserve what the run already produced, and block late results."""
+    jobs=stores['jobs'];jobs.submit('j1','alice','w1','req-1','plan');jobs.claim('worker-a',60)
+    ctx=FixtureJobContext(jobs);ctx.job_id='j1'
+    ctx.save_stage('provider_query',{'trains':['G1']})
+    assert jobs.cancel('j1','alice') is True
+    with pytest.raises(FinalAfterCancel):
+        jobs.finish('j1','worker-a',C.COMPLETED)
+    assert ctx.load_stage('provider_query')=={'trains':['G1']}     # produced work survives
+    assert jobs.get_job('j1')['status']==C.CANCELLED
+
+def test_all_five_repositories_are_declared():
+    """The brief asks for five; a missing protocol should fail here, not in review."""
+    for name in ('WorkspaceRepository','CacheRepository','ProviderBudgetRepository',
+                 'JobRepository','KnowledgeRepository'):
+        assert hasattr(C,name),f'missing repository protocol: {name}'
+        assert isinstance(getattr(C,name),type)
+
+def test_knowledge_repository_covers_text_parents_and_index_state():
+    """It stores what the vector index cannot: raw text, parent blocks, manifest."""
+    for member in ('put_document','get_document','put_parents','get_parent','search',
+                   'index_state','set_index_state'):
+        assert hasattr(C.KnowledgeRepository,member),f'KnowledgeRepository 缺少 {member}'
+    # Out of scope on purpose: no chunking and no embedding behind this interface.
+    for forbidden in ('embed','chunk','split','vectorize'):
+        assert not hasattr(C.KnowledgeRepository,forbidden)
 
 def test_resolve_date_precedence_keeps_suggestions_unconfirmed():
     user=C.resolve_date('return_date','2026-10-15',None,'2026-10-14')

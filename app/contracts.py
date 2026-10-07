@@ -95,6 +95,65 @@ class JobRepository(Protocol):
         """Owner-requested cancel: mark CANCELLED unless already terminal."""
 
 @runtime_checkable
+class KnowledgeRepository(Protocol):
+    """Durable home for guide text: raw documents, parent blocks and index state.
+
+    Storage only. Chunking and embedding stay in app/knowledge.py and
+    app/vector_index.py -- this protocol must never grow a splitter or a model
+    call. Qdrant keeps child-block vectors plus the payload a query needs; the
+    raw text and the parent blocks that restore context live here, so a vector
+    rebuild can never lose the corpus. Field names follow the data service
+    (data/knowledge/*.json, app/data_contracts.py) so member one's loader and
+    this repository describe the same objects.
+    """
+
+    def put_document(self,doc:dict)->str:
+        """Store one raw document and return its doc_id.
+
+        doc carries id, city, title, url, text, fetched_at, scope or date_scope
+        and source_kind. Re-storing the same id replaces the effective version:
+        source_version is the digest of the text, previous_version keeps the
+        version it replaced, and the superseded text is archived rather than
+        dropped. A failed collection run keeps the old text; only a changed
+        source_version moves the effective version forward.
+        """
+    def get_document(self,doc_id:str)->dict|None:
+        """Effective version of one document, or None when it was never stored."""
+    def put_parents(self,doc_id:str,content_version:str,parents:list[dict])->None:
+        """Store the parent blocks produced for one content version.
+
+        Each parent carries its parent_id, city, entity_ids and applicable date
+        scope. Replacing a content version replaces its parents; the previous
+        blocks stay readable until the new index is switched in, so a rebuild
+        that fails halfway cannot leave queries with dangling parent_id values.
+        """
+    def get_parent(self,parent_id:str)->dict|None:
+        """One parent block by id: how a hit on a child block regains its context."""
+    def search(self,city:str,query:str,visit_date:str|None=None,end_date:str|None=None,
+               entity_ids:list[str]|None=None,limit:int=5)->dict:
+        """Retrieve guide material and return the data-service envelope: items plus
+        status, retrieval, degraded_reason and corpus_version.
+
+        visit_date alone means a single day; with end_date it is an interval and
+        results intersect it. entity_ids filter by strict intersection -- an empty
+        list means no filter, never "matches nothing". Callers must keep each
+        item's validity (background_only, stale_snapshot, visit_date_unverified,
+        within_declared_scope, degraded, query_failed) and surface it: a hit is
+        material for the trip, not proof that a rule is in force that day.
+        """
+    def index_state(self)->dict|None:
+        """Current manifest: corpus digest, model identity, backend identity and
+        collection name. None when no index has been published yet."""
+    def set_index_state(self,manifest:dict)->None:
+        """Publish a new manifest only after its collection is written and counted.
+
+        The switch is atomic: a failed build keeps the previous manifest rather
+        than pointing queries at a half-written collection. When the vector index
+        is unusable or stale, retrieval degrades to lexical results and says so
+        through degraded_reason -- it never mixes old vectors with new text.
+        """
+
+@runtime_checkable
 class JobContext(Protocol):
     """What task code receives instead of touching the job table directly."""
 
