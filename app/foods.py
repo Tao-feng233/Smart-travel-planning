@@ -36,6 +36,17 @@ def infeasible(w,dt,period):
     else:detail='当前每日结束时刻不足以容纳完整用餐时长'
     return dt+' '+name+'来不及安排：'+detail+'。请调整餐次、日期或班次；也可自行安排。'
 
+def anchor_spot(w,food_id):
+    """本次餐饮查询锚定的景点 ID：优先该候选自身的查询参照，其次本次查询的参照点列表。
+
+    用于让"某景点周边的餐厅"跟随该景点的实际排期落位。
+    """
+    item=(w.get('catalog') or {}).get(food_id) or {}
+    if item.get('search_anchor_id'):return item['search_anchor_id']
+    query=w.get('food_query') or {}
+    if query.get('explicit_anchor_id'):return query['explicit_anchor_id']
+    return next((a.get('id') for a in query.get('anchors') or [] if a.get('id')),None)
+
 def anchors(w,args):
     catalog=w['catalog'];explicit=catalog.get(args.get('anchor_id'))
     if explicit and explicit.get('location'):return [explicit]
