@@ -1,6 +1,50 @@
 """Bounded proposal batches for long trips; every selected ID is validated once."""
 import json,math
 
+def rebalance(w,groups,requests,allowed_tour,dates):
+    """确定性有限重排：把可调整的景点分配到有空档的日期。
+
+    模型两次都没把景点排开时，不该把死结丢给用户——只要存在可行分配，
+    就由程序按当日可用时间（含到达/返程边界）重新分配；用户明确指定日期
+    时段的景点保持不动。分配失败返回 None，由调用方给出可读原因。
+    只调整日期，不改动模型给出的时长、时段与说明。
+    """
+    from .schedule import windows,minutes
+    req=w['requirements'];day_start=minutes(req.get('day_start','09:00'))
+    cap={}
+    for dt in allowed_tour:
+        low,high=windows(w,dt);low=max(low,day_start)
+        usable=max(0,high-low)
+        cap[dt]=[usable,usable]           # [剩余分钟, 原始可用分钟]
+    placed={dt:[] for dt in allowed_tour}
+    movable=[]
+    for d in groups:
+        dt=d['date']
+        if dt not in placed:continue
+        for item in d.get('items',[]):
+            cid=item['candidate_id']
+            if requests.get(cid,{}).get('date')==dt:placed[dt].append(item)   # 用户指定，保持原日
+            else:movable.append(item)
+    for dt,items in placed.items():
+        cap[dt][0]-=sum(x['duration'] for x in items)
+    for item in sorted(movable,key=lambda x:-x['duration']):
+        need=item['duration']
+        # 双重校验：既要当天还有剩余分钟，也要单次游玩装得进当天的可用窗口，
+        # 否则会出现"重排后仍放不下"的假可行。
+        options=[dt for dt in allowed_tour if cap[dt][0]>=need and need<=cap[dt][1]]
+        if not options:return None
+        # 先挑剩余时间最紧的、再挑当日已排最少的，避免把时间堆在一天
+        dt=min(options,key=lambda d:(cap[d][0]-need,cap[d][1]-cap[d][0],d))
+        placed[dt].append(item);cap[dt][0]-=need
+    out=[]
+    for dt in sorted(placed):
+        items=placed[dt]
+        if not items:continue
+        ranks={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
+        items.sort(key=lambda x:({'morning':0,'any':1,'afternoon':2,'evening':3}.get(x.get('period','any'),1),ranks.get(x['candidate_id'],9999)))
+        out.append({'date':dt,'theme':'','items':items})
+    return out or None
+
 async def create(w,spots,payload,prompt,progress,model,runtime):
     from .providers import DataError
     from .planning import round_up
@@ -50,19 +94,41 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                         limited=low>0 or high<1440
                         low=max(low,minutes(w['requirements'].get('day_start','09:00')))
                         if limited and low+sum(i['duration'] for i in items)>high:
-                            errors.append('所选班次限制了'+dt+'可用时间；请将可调整的景点换到其他游玩日期，保留明确指定日期时段，不删除景点。')
+                            fixed_ids=[x['candidate_id'] for x in items if x['candidate_id'] in requests]
+                            movable=str(len(items)-len(fixed_ids))
+                            room=[]
+                            for other in allowed_tour:
+                                if other==dt:continue
+                                low_o,high_o=windows(w,other)
+                                low_o=max(low_o,minutes(w['requirements'].get('day_start','09:00')))
+                                if high_o-low_o>=30:room.append(other)
+                            errors.append('所选班次限制了'+dt+'可用时间（'+str(low)+'-'+str(high)+' 分钟口径，当日已排'+str(sum(i['duration'] for i in items))+'分钟）；'
+                                          '把可调整的'+movable+'个景点换到有空档的日期：'+(','.join(room) if room else '本次没有可用日期')+'。'
+                                          '用户明确指定日期时段的'+str(len(fixed_ids))+'个必须留在原日期，也不得删除任何景点。')
                             back=(w.get('selected_return') or {}).get('departure','')[:10]
-                            time_context={'date':dt,'direction':'return' if back and dt>=back else 'outbound','candidate_ids':[x['candidate_id'] for x in items],'view':'spot','phase':'proposal'}
+                            time_context={'date':dt,'direction':'return' if back and dt>=back else 'outbound','candidate_ids':[x['candidate_id'] for x in items],'view':'spot','phase':'proposal','available_dates':room}
                     ranks={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
                     if ranks:items.sort(key=lambda x:({'morning':0,'any':1,'afternoon':2,'evening':3}.get(x['period'],1),ranks.get(x['candidate_id'],9999)))
                     groups.append({**day,'items':items})
-                if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(allowed_ids-seen))
+                if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(sorted(allowed_ids-seen)))
                 if len({d['date'] for d in groups})!=len(groups):errors.append('日期重复')
                 allocation=[{**item,'date':d['date']} for d in groups for item in d['items']]
                 errors.extend(visit_analysis.distribution_errors(w,allocation,allowed_tour))
             except (ValueError,TypeError,KeyError,AttributeError):errors.append('JSON日程结构或时长无效')
             if not errors:break
             if attempt:
+                # 修订后仍不可行：先尝试确定性重排（存在可行分配时不该失败）
+                repaired=rebalance(w,groups,requests,allowed_tour,dates)
+                if repaired:
+                    moved=[cid for d in repaired for cid in [x['candidate_id'] for x in d['items']]]
+                    if set(moved)==allowed_ids:
+                        progress('模型两次未排开，已按当日可用时间自动重排景点日期')
+                        groups=repaired;errors=[]
+                        for d in groups:
+                            dt=d['date']
+                            if dt not in by_date:by_date[dt]=d
+                            else:by_date[dt]['items']+=d['items']
+                        break
                 if time_context:raise DataError(time_context['date']+'的活动与'+('返程冲突' if time_context['direction']=='return' else '去程到达时间冲突')+'，修订后仍无法容纳建议游玩时长。请调整相关景点日期、时段或班次。',time_context)
                 raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
             progress('正在根据候选与日期校验结果修订草稿')
