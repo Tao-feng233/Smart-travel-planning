@@ -31,8 +31,24 @@ def markdown(w):
                 rt=e['route'];lines += [f"  方式：{rt['mode']}；高德预计 {rt['minutes']} 分钟；另留 {e['buffer']} 分钟缓冲；查询：{rt['source']['queried_at']}"]
             if e.get('poi'):lines += [f"  地址：{e['poi'].get('address','未知')}；来源：高德地图 {e['poi']['source']['queried_at']}"]
         lines+=['']
-    lines+=['## 预算与未核实费用','',str(p['budget'].get('hotel_reference','未知'))+' 元住宿起价参考；口径：'+p['budget'].get('basis','住宿未确认'),'']
-    lines+=['- '+x+'：尚未完整核实' for x in p['budget'].get('unknown',[])]+['','## 天气','']
+    lines+=['## 预算与未核实费用','']
+    b=p.get('budget') or {}
+    if b.get('verified'):
+        for item in b['verified']:
+            lines.append(f"- {item['item']}（已核实）：¥{item.get('amount')}；来源：{item.get('basis','')}")
+    if b.get('estimated'):
+        for item in b['estimated']:
+            high=item.get('high',item.get('low'))
+            amount=(f"约 ¥{item['low']:.0f}" if high==item.get('low') else f"约 ¥{item['low']:.0f}–¥{high:.0f}")
+            lines.append(f"- {item['item']}（估计）：{amount}；口径：{item.get('basis','')}")
+    if not b.get('verified') and not b.get('estimated'):
+        lines.append('- 目前没有已核实金额，也没有可给区间的估算；缺费用依据的项目不记为零。')
+    lines.append('')
+    for item in b.get('unknown') or []:
+        if isinstance(item,dict):lines.append(f"- {item['item']}：尚未核实（{item.get('reason','缺少费用依据')}）")
+        else:lines.append('- '+str(item)+'：尚未完整核实')
+    if b.get('per_person_note'):lines+=['','人均口径：'+b['per_person_note']]
+    lines+=['','## 天气','']
     weather=w.get('weather')
     if weather:
         dates={d['date'] for d in p['days']}

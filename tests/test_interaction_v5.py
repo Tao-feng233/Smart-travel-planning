@@ -44,4 +44,10 @@ def test_rounded_route_and_late_arrival_are_separate_explicit_events(monkeypatch
  spot=next(e for e in p['days'][1]['events'] if e['kind']=='spot');assert spot['start']=='09:30' and spot['end']=='11:00' and '回澜阁' in spot['note']
  assert not any('超出每日结束' in issue or '重叠' in issue for issue in p['warnings'])
  assert any('身份证件' in s for s in p['packing'])
- assert p['budget']['selected_room_quote']==289 and p['budget']['hotel_reference'] is None
+ # 酒店没有列表起价时，住宿只能列出已选房型报价形成的估计区间，
+ # 并且必须标明是估计而不是已确认金额。
+ assert p['budget']['selected_room_quote']==289
+ estimate=next(x for x in p['budget']['estimated'] if x['item']=='住宿')
+ assert estimate['unit_price']==289 and estimate['status']=='estimated'
+ assert p['budget']['hotel_reference']==estimate['low'] and p['budget']['verified']==[]
+ assert any(x['item']=='住宿' for x in p['budget']['estimated'])
