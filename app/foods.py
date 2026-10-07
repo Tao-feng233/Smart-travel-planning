@@ -82,6 +82,13 @@ async def search(w,args,progress,recommend):
     if items:
         await recommend(w,items,'单独筛选4至5家餐厅，按餐饮偏好与查询位置比较。只根据返回资料描述，不猜招牌菜、人均、景观或本地人比例。')
         items.sort(key=lambda p:p.get('recommendation_rank',99))
+    items=items[:8]
+    from .planning import route_options,choose_route
+    from .access import screen
+    progress('正在提前核对餐厅通行与当前餐次可用时段')
+    meal=(args['meal_date'],args['meal_period']) if args.get('meal_date') and args.get('meal_period') in PERIODS else None
+    by_id={p['id']:p for p in refs}
+    items,excluded=await screen(w,items,lambda p:by_id.get(p.get('search_anchor_id')) or anchor,route_options,choose_route,meal)
     items=items[:5]
     for p in items:
         period=PERIODS.get(args.get('meal_period'),'用餐')
@@ -96,7 +103,7 @@ async def search(w,args,progress,recommend):
             found=await local_tool('search_places',market_params)
             markets=[p for p in found.get('items',[]) if p.get('kind')=='market' and any(x in p.get('name','') for x in ('市场','水产批发'))][:2]
         except DataError:pass
-    w['catalog'].update({p['id']:p for p in items+markets});w['food_query']={'ids':[p['id'] for p in items],'markets':[p['id'] for p in markets],'keyword':keyword,'anchor':'、'.join(p['name'] for p in refs) if refs else r['city'],'anchors':[{'id':p['id'],'name':p['name']} for p in refs],'explicit_anchor_id':args.get('anchor_id'),'meal_date':args.get('meal_date'),'meal_period':args.get('meal_period'),'scope':'周边5公里' if anchor else '城市范围'};w['turn_food_updated']=True
+    w['catalog'].update({p['id']:p for p in items+markets});w['food_query']={'ids':[p['id'] for p in items],'excluded':excluded,'markets':[p['id'] for p in markets],'keyword':keyword,'anchor':'、'.join(p['name'] for p in refs) if refs else r['city'],'anchors':[{'id':p['id'],'name':p['name']} for p in refs],'explicit_anchor_id':args.get('anchor_id'),'meal_date':args.get('meal_date'),'meal_period':args.get('meal_period'),'scope':'周边5公里' if anchor else '城市范围'};w['turn_food_updated']=True
     return '已单独查询到'+str(len(items))+'家餐饮候选，可在右侧“餐饮”按日期和餐次选择，也可以自行安排。' if items else '本次未找到符合条件的餐饮候选，已保留您的饮食偏好。可调整区域或自行安排。'
 
 def select_meal(w,args):

@@ -17,13 +17,25 @@ class DataError(Exception):
 def source(name, url, fetched=None, kind='查询事实'):
     return {'name':name,'url':url,'queried_at':fetched or now(),'kind':kind}
 
+AMAP_PACING=asyncio.Lock()
+AMAP_INFLIGHT=asyncio.Semaphore(2)
+AMAP_LAST_REQUEST=0.0
+
+async def amap_slot():
+    global AMAP_LAST_REQUEST
+    async with AMAP_PACING:
+        await asyncio.sleep(max(0,.4-(time.monotonic()-AMAP_LAST_REQUEST)))
+        AMAP_LAST_REQUEST=time.monotonic()
+
 async def amap(path, params, ttl=900):
     key=cache_key(path,params)
     old=cached(key)
     if old: return old
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            r=await client.get('https://restapi.amap.com'+path,params={**params,'key':setting('AMAP_API_KEY')})
+            async with AMAP_INFLIGHT:
+                await amap_slot()
+                r=await client.get('https://restapi.amap.com'+path,params={**params,'key':setting('AMAP_API_KEY')})
             if r.status_code!=200: raise DataError(f'高德 HTTP {r.status_code}')
             d=r.json()
             if str(d.get('status'))!='1': raise DataError('高德查询失败：'+str(d.get('info','未知错误'))[:100])
@@ -37,6 +49,7 @@ async def search_poi(city, keywords, category='spot',page=1,page_size=6,location
     params={'keywords':keywords,'region':city,'city_limit':'true','page_size':int(page_size),'page_num':int(page),'show_fields':'business,navi,photos,children'}
     if category=='spot': params['types']='110000|140000'
     if category=='food':params['types']='050000'
+    if category=='hotel':params['types']='100000'
     path='/v5/place/text'
     if location:
         path='/v5/place/around';params.pop('region',None);params.pop('city_limit',None)
@@ -47,6 +60,7 @@ async def search_poi(city, keywords, category='spot',page=1,page_size=6,location
         code=str(p.get('typecode') or '')
         if category=='spot' and (code.startswith('05') or any(x in p.get('type','') for x in ('餐饮服务','中餐厅'))):continue
         if category=='food' and code and not code.startswith('05'):continue
+        if category=='hotel' and code and not code.startswith('10'):continue
         if category=='market' and code.startswith('05'):continue
         items.append(normalize_place(p,r['source'],category))
     return items
@@ -81,18 +95,20 @@ async def place_details(ids):
         rows.append(normalize_place(p,result['source']))
     return {'items':rows}
 
-async def route(origin, destination, mode, citycode='0532'):
+async def route(origin, destination, mode, citycode='',destination_citycode=''):
     path={'walking':'walking','driving':'driving','transit':'transit/integrated'}.get(mode)
     if not path: raise DataError('不支持的交通方式')
-    params={'origin':origin,'destination':destination,'show_fields':'cost,navi,polyline','city1':citycode,'city2':citycode}
+    if mode=='transit' and not citycode:
+        return {'mode':mode,'available':False,'status':'missing_city','reason':'缺少地图城市代码，公交待核实'}
+    params={'origin':origin,'destination':destination,'show_fields':'cost,navi,polyline','city1':citycode,'city2':destination_citycode or citycode}
     if mode!='transit': params.pop('city1'); params.pop('city2')
     r=await amap('/v5/direction/'+path,params,300)
     routes=r['data'].get('route',{})
     paths=routes.get('transits' if mode=='transit' else 'paths',[])
-    if not paths: return {'mode':mode,'available':False,'reason':'未查询到路线','source':r['source']}
+    if not paths: return {'mode':mode,'available':False,'status':'no_route','reason':'该方式查询成功，但未返回路线方案','source':r['source']}
     p=paths[0]; cost=p.get('cost') or {}
-    duration=cost.get('duration') or p.get('duration')
-    if duration is None: return {'mode':mode,'available':False,'reason':'接口未提供耗时','source':r['source']}
+    duration=cost.get('duration') if cost.get('duration') is not None else p.get('duration')
+    if duration in (None,'',[]): return {'mode':mode,'available':False,'status':'incomplete','reason':'接口未提供耗时','source':r['source']}
     details=[];steps=[];polylines=[]
     def add_step(s):
         steps.append({k:s[k] for k in ('instruction','road_name','distance','duration') if s.get(k) is not None})
@@ -108,7 +124,7 @@ async def route(origin, destination, mode, citycode='0532'):
                               'to':(bus.get('arrival_stop') or {}).get('name')})
                 if bus.get('polyline'):polylines.append(bus['polyline'])
     r['source']['url']='https://developer.amap.com/api/webservice/guide/api/newroute'
-    return dict(mode=mode,available=True,minutes=math.ceil(float(duration)/60),distance=int(float(p.get('distance',0))),
+    return dict(mode=mode,available=True,status='available',minutes=math.ceil(float(duration)/60),distance=int(float(p.get('distance') or 0)),
                 walking_distance=p.get('walking_distance'),fare=cost.get('transit_fee') if mode=='transit' else None,
                 details=details,steps=steps,polylines=polylines,source=r['source'],note='查询时路线预计耗时；驾车不含叫车等待，公交按接口整段耗时，不重复加等车时间')
 

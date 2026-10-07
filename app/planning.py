@@ -43,12 +43,33 @@ def validate_plan(plan,requirements):
     return issues
 
 async def route_options(a,b):
-    origin=a.get('entrance') or a.get('location'); dest=b.get('entrance') or b.get('location')
-    if not origin or not dest: return []
-    async def one(mode):
-        try: return await local_tool('calculate_route',{'origin':origin,'destination':dest,'mode':mode,'citycode':a.get('citycode') or b.get('citycode') or '0532'})
-        except DataError: return {'mode':mode,'available':False,'reason':'路线查询失败'}
-    return await asyncio.gather(*(one(m) for m in ('walking','transit','driving')))
+    from .locations import endpoint
+    origin=endpoint(a);dest=endpoint(b)
+    if not origin or not dest:return [{'mode':m,'available':False,'status':'missing_location','reason':'起点或终点缺少有效地图坐标'} for m in ('walking','transit','driving')]
+    if origin==dest:return [{'mode':'walking','available':True,'status':'same_location','minutes':0,'distance':0,'polylines':[],
+                            'note':'起终点为同一地图坐标，未额外计算道路通行；景区内部移动仍需核实'}]
+    async def query(x,y):
+        options=[]
+        # Sequential modes bound per-pair bursts; the provider also limits QPS.
+        for mode in ('walking','transit','driving'):
+            if mode=='transit' and not (a.get('citycode') and b.get('citycode')):
+                options.append({'mode':mode,'available':False,'status':'missing_city','reason':'缺少地图城市代码，公交待核实'});continue
+            params={'origin':x,'destination':y,'mode':mode}
+            if mode=='transit':params.update(citycode=a['citycode'],destination_citycode=b['citycode'])
+            try:options.append(await local_tool('calculate_route',params))
+            except DataError:options.append({'mode':mode,'available':False,'status':'query_failed','reason':'路线接口查询失败或连接超时，可重试'})
+        return options
+    options=await query(origin,dest)
+    pois=(endpoint(a,False),endpoint(b,False))
+    if not any(x.get('available') for x in options) and all(pois) and pois!=(origin,dest) and any(x.get('status')=='no_route' for x in options):
+        fallback=await query(*pois)
+        if any(x.get('available') for x in fallback):
+            for x in fallback:
+                if x.get('available'):x['endpoint_fallback']=True;x['note']='入口位置未返回方案，使用地图地点坐标核算；到具体入口的衔接仍需核实。'
+            return fallback
+        # An entrance failure cannot override an inconclusive POI retry.
+        return fallback
+    return options
 
 def choose_route(options,requirements):
     valid=[x for x in options if x.get('available')]
@@ -71,7 +92,7 @@ async def generate(w, progress):
         context=e.context or {};ids=context.get('candidate_ids',[])
         # One bounded repair after querying actual travel times. Hard dates
         # and periods remain intact; a second failure is actionable feedback.
-        if context.get('phase')=='proposal' or not ids or not any(not w.get('visit_requests',{}).get(cid) for cid in ids):raise
+        if context.get('phase') in ('proposal','route') or not ids or not any(not w.get('visit_requests',{}).get(cid) for cid in ids):raise
         progress('时间衔接未通过，正在保留已选班次与明确安排、调整可变顺序后重新核对')
         return await _generate({**w,'planning_feedback':str(e)},progress)
 
@@ -133,8 +154,11 @@ async def _generate(w, progress):
             earliest,latest=meal_window(w,dt,period)
             t=max(t,earliest)
         if p and last:
-            chosen=choose_route(await route_options(last,p),r)
-            if not chosen:raise DataError('已选餐厅的通行路线未查询到，请改为自行安排或换餐厅后重排。')
+            options=await route_options(last,p);chosen=choose_route(options,r)
+            if not chosen:
+                reason='各方式均未返回方案' if options and all(x.get('status')=='no_route' for x in options) else '坐标或路线接口尚未核实'
+                raise DataError('从'+last['name']+'到'+p['name']+'的通行未能核实（'+reason+'），请更新位置或重试查询，也可调整本餐安排。',
+                                {'date':dt,'meal_period':period,'candidate_ids':[last['id'],p['id']],'view':'food','route_options':options,'phase':'route'})
             allocation=round_up(chosen['minutes']+15)
             events.append({'kind':'route','name':'从'+last['name']+'前往'+p['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':[chosen],'buffer':allocation-chosen['minutes'],'note':'前往已选用餐地点，含规划缓冲。'})
             t+=allocation
@@ -259,7 +283,8 @@ async def _generate(w, progress):
             if t>end_limit:raise DataError('已选晚餐与当日结束或返程时间冲突，请换餐厅或改为自行安排。')
         if base and last and last.get('kind')=='food':
             opts=await route_options(last,base);chosen=choose_route(opts,r)
-            if not chosen:raise DataError('已选餐厅返回住宿的路线未查到，请调整用餐安排后重排。')
+            if not chosen:raise DataError('从'+last['name']+'返回'+base['name']+'的路线尚未核实，请更新位置或重试，也可调整用餐安排。',
+                                         {'date':d['date'],'candidate_ids':[last['id'],base['id']],'view':'food','phase':'route','route_options':opts})
             allocation=round_up(chosen['minutes']+15)
             if t+allocation>end_limit:raise DataError('用餐后返回住宿与当日结束或返程冲突，请调整餐厅或时间后重排。')
             events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':opts,'buffer':allocation-chosen['minutes'],'note':'用餐后返回住宿，含规划缓冲。'})

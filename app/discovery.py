@@ -84,6 +84,13 @@ async def search(w,args,progress,recommend):
     # Publish a bounded set actually compared by the model, rather than all raw API rows.
     ranked=[p for p in items if p.get('recommendation_rank') is not None]
     items=(ranked or items)[:8]
+    from .planning import route_options,choose_route
+    from .access import screen
+    anchor=w.get('hotel') or next((w['catalog'].get(cid) for cid in w.get('selected_spots',[]) if w['catalog'].get(cid,{}).get('location')),None)
+    if anchor and not anchor.get('stale'):
+        progress('正在提前核对景点与已选区域的通行')
+        items,excluded=await screen(w,items,lambda p:anchor,route_options,choose_route)
+    else:excluded=[]
     w['catalog'].update({p['id']:p for p in items});w['candidates']=items;w['rag_results']=guides
     missing=list(dict.fromkeys(p['parent_id'] for p in items if p.get('parent_id') and p['parent_id'] not in w['catalog']))[:4]
     if missing:
@@ -91,7 +98,7 @@ async def search(w,args,progress,recommend):
             parents=await local_tool('get_place_details',{'ids':missing})
             w['catalog'].update({p['id']:p for p in parents.get('items',[]) if p.get('kind')=='spot'})
         except DataError:pass
-    w['spot_search']={'city':city,'keywords':keywords,'provider_page':1,'page':1,'ids':[p['id'] for p in items],'exhausted':True}
+    w['spot_search']={'city':city,'keywords':keywords,'provider_page':1,'page':1,'ids':[p['id'] for p in items],'excluded':excluded,'exhausted':True}
     w['discovery_mode']=False;w['spots_confirmed']=False;w['stage']='景点'
     return f'已查询到{min(PAGE_SIZE,len(items))}个景点，已展示在右侧。'+summary
 

@@ -19,9 +19,10 @@ async def get_place_details(ids:list[str]) -> dict:
     return await providers.place_details(ids)
 
 @mcp.tool()
-async def calculate_route(origin: str, destination: str, mode: str='walking', citycode: str='0532') -> dict:
+async def calculate_route(origin: str, destination: str, mode: str='walking', citycode: str='',destination_citycode: str='') -> dict:
     """高德路线：walking/driving/transit，坐标经度在前，耗时为查询时预计。"""
-    return await providers.route(origin,destination,mode,citycode)
+    try:return await providers.route(origin,destination,mode,citycode,destination_citycode)
+    except providers.DataError as e:return {'mode':mode,'available':False,'status':'query_failed','reason':str(e)}
 
 @mcp.tool()
 async def daily_weather(location: str) -> dict:

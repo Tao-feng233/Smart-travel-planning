@@ -245,11 +245,24 @@ async def handle(w,action,args,progress):
         return '旅行信息已保存。请在右侧继续当前步骤。'
     if action=='search_foods':return await foods.search(w,args,progress,recommend)
     if action=='meal_choice':
+        cid=args.get('food_id') or args.get('id');p=w['catalog'].get(cid)
+        if p and args.get('meal_mode','chosen')=='chosen' and args.get('meal_date') and args.get('meal_period') in foods.PERIODS:
+            blocked=foods.infeasible(w,args['meal_date'],args['meal_period'])
+            if not blocked:
+                from .access import check
+                refs=foods.anchors(w,args)
+                p['access']=await check(w,p,refs[0] if refs else None,route_options,choose_route,(args['meal_date'],args['meal_period']))
+                if p['access']['status'] in ('no_route','time_conflict'):
+                    raise DataError(p['name']+'不适合当前餐次：'+p['access']['message'],{'date':args['meal_date'],'meal_period':args['meal_period'],'candidate_ids':[cid],'view':'food'})
         result=foods.select_meal(w,args);mark_stale(w);return result
     if action=='select_room':
         answer=select_room(w,args.get('room_id') or args.get('id'));mark_stale(w);return answer
     if action=='place_detail':
         p=w['catalog'].get(args.get('id'))
+        if p and p.get('kind')=='hotel':
+            from .locations import locate_hotel
+            await locate_hotel(w,p,local_tool)
+            return p['match_status']
         if not p or not p['id'].startswith('amap:') or p.get('kind') not in ('spot','food','market'):raise DataError('请打开已查询的高德地点详情。')
         try:
             result=await local_tool('get_place_details',{'ids':[p['id']]})
@@ -357,8 +370,14 @@ async def handle(w,action,args,progress):
         d=unwrap(detail_result['data']);p['detail_source']=detail_result['source']
         if not isinstance(d,dict):raise DataError('酒店详情未返回可用结构，请稍后重试。')
         p['detail']=enrichment.hotel_detail(d);p['room_choices']=room_choices(p,r)
+        if not p.get('address') and isinstance(d.get('address'),str) and d['address']:
+            p['address']=d['address'];p['address_source']=detail_result['source']
+        from .locations import coordinate,locate_hotel
+        if not coordinate(p.get('location')) and p.get('name'):await locate_hotel(w,p,local_tool)
         if isinstance(d.get('firstPic'),str) and d['firstPic']:p['photos']=list(dict.fromkeys([d['firstPic']]+p.get('photos',[])))[:8]
-        if (w.get('hotel') or {}).get('id')==p['id']:w['hotel']['detail']=p['detail']
+        if (w.get('hotel') or {}).get('id')==p['id']:
+            w['hotel']['detail']=p['detail']
+            if p.get('address'):w['hotel']['address']=p['address']
         return '房型详情已更新。请核对日期、人数、餐食与退改；列表起价仍不是确认后的总价。'
     if not r.get('city'):raise DataError('先告诉我想去哪个城市；还没想好也可以先聊旅行偏好。')
     if action=='search_spots':
@@ -395,22 +414,16 @@ async def handle(w,action,args,progress):
                'source':result['source'],'query_conditions':params,'location':None,'match_status':'待核对地图位置'}
             items.append(p)
         progress('核对酒店地图位置，并比较到已选景点的真实通行')
-        for p in items[:3]:
-            try:
-                matches=(await local_tool('search_places',{'city':r['city'],'keywords':p['name'],'category':'hotel'}))['items']
-                # Avoid silently accepting an arbitrary fuzzy result.
-                def normal(s):return re.sub(r'[\W_]|酒店|青岛|市','',s or '')
-                exact=[x for x in matches if normal(x['name'])==normal(p['name'])]
-                if len(exact)==1:
-                    m=exact[0];p.update(location=m['location'],entrance=m.get('entrance'),citycode=m.get('citycode'),amap_id=m['provider_id'],
-                                       match_status='名称匹配地图地点，地址请再核对',map_source=m['source'])
-                    if chosen:
-                        options=await route_options(p,chosen[0]);p['anchor_route']=choose_route(options,r);p['route_options']=options
-                        p['anchor_name']=chosen[0]['name']
-                        p['area_comparison']=[{'name':q['name'],'straight_km':round(journey.coordinate_distance(p,q),1)} for q in chosen[:8] if q.get('location')]
-                        p['recommendation_basis']='以'+chosen[0]['name']+'为主要区域参照，结合'+str(len(chosen))+'个已选地点分布比较；已核算到参照点通行，其余直线距离仅用于位置比较。'
-                else:p['match_status']='跨平台名称匹配有歧义，未计算酒店路线'
-            except DataError:p['match_status']='地图位置查询失败'
+        from .locations import locate_hotel
+        for p in items:await locate_hotel(w,p,local_tool)
+        from .access import screen
+        items,excluded=await screen(w,items,lambda p:chosen[0] if chosen else None,route_options,choose_route)
+        w['hotel_query']['excluded']=excluded
+        for p in items:
+            if chosen:
+                p['anchor_route']=p['access'].get('route');p['route_options']=p['access'].get('options',[]);p['anchor_name']=chosen[0]['name']
+                if p.get('location'):p['area_comparison']=[{'name':q['name'],'straight_km':round(journey.coordinate_distance(p,q),1)} for q in chosen[:8] if q.get('location')]
+                p['recommendation_basis']='以'+chosen[0]['name']+'为主要区域参照，结合'+str(len(chosen))+'个已选地点分布比较；'+('已核算参照路段。' if p['anchor_route'] else '实际通行尚待核实。')+'其余直线距离仅用于位置比较。'
         summary=await recommend(w,items,'根据已选景点和住宿偏好比较；结合所选地点分布和已计算路线比较，不把未核算路线当全程最优')
         w['hotel_query']['ids']=[p['id'] for p in items];w['candidates']=items;w['catalog'].update({p['id']:p for p in items});w['stage']='住宿'
         return summary+'\n可展开房型信息。选定酒店后再生成包含住宿往返的计划书。'
@@ -488,6 +501,11 @@ async def handle(w,action,args,progress):
         w.setdefault('tickets',{})[p['id']]=enrichment.ticket_snapshot(rows,requested,result['source'],query_name,p)
         return '门票结果已保存。区间起价可能对应其他日期，学生/老人票不能直接用于成人；商品存在不代表已取得入场预约。'
     if action=='plan':
+        from .locations import coordinate,locate_hotel
+        h=w['catalog'].get((w.get('hotel') or {}).get('id'))
+        if h and not coordinate((w.get('hotel') or {}).get('location')):
+            progress('正在重新核对已选住宿的位置')
+            await locate_hotel(w,h,local_tool)
         w['plan']=await generate(w,progress);w['stage']='计划书'
         return '旅行计划书已生成，请查看右侧每日安排。**如需调整，直接发送消息告诉我**，例如调整某天景点、更换餐厅或放慢节奏；未核实条件仍标为草稿。'
     raise DataError('暂不支持这个操作')
