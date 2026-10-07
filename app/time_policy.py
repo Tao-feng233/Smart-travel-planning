@@ -164,9 +164,10 @@ def transfer_note(preparation, label='前往车站或机场'):
 
 
 def station_place(workspace, transport, key):
-    """查找车站/机场实体：只使用已有候选坐标，找不到就返回空壳对象。
+    """查找车站/机场实体：只使用已有坐标，找不到就返回空壳对象。
 
-    站点实体的定位由协调者负责；这里不调用供应商，也不猜坐标。
+    站点实体的定位由数据服务负责（成员一的 search_transport_places 给出候选）。
+    这里不调用供应商、也不猜坐标，只读工作区里已经保存的坐标。
     """
     name = (transport or {}).get(key) or ''
     if not name:
@@ -179,5 +180,72 @@ def station_place(workspace, transport, key):
             continue
         if place.get('name') == wanted and coordinate(place.get('location')):
             return {**place, 'location_status': place.get('location_status') or 'verified'}
+    # 数据服务取到的站点候选坐标：可用但未确认终端，标 candidate 而不是 verified。
+    mode='arrival' if key=='arrival_station' else 'return'
+    candidate=station_candidate(transport,mode)
+    if candidate and coordinate(candidate.get('location')):
+        return {'id':candidate.get('id') or ('station:'+wanted),'kind':'station','name':candidate.get('name') or wanted,
+                'location':coordinate(candidate['location']),'location_status':'candidate',
+                'endpoint_scope':candidate.get('endpoint_scope'),'source':candidate.get('source')}
     return {'id': 'station:' + wanted, 'kind': 'station', 'name': wanted,
             'location': None, 'location_status': 'needs_coordinator', 'source': None}
+
+
+STATION_KEYS={'arrival':('selected_transport','arrival_station','arrival'),
+              'return':('selected_return','departure_station','departure')}
+
+def station_is_resolved(transport,mode):
+    """该方向的站点坐标是否已经查过：查过就不再重复消耗额度。"""
+    _,_,prefix=STATION_KEYS[mode]
+    return isinstance(transport,dict) and (prefix+'_station_candidate') in transport
+
+def station_candidate(transport,mode):
+    """已保存的站点候选（可能为 None，表示查过但没找到）。"""
+    _,_,prefix=STATION_KEYS[mode]
+    return (transport or {}).get(prefix+'_station_candidate')
+
+def station_candidate_note(transport,mode):
+    """站点候选是"地图文本匹配"，不是承运方确认的端点：必须如实说明。"""
+    candidate=station_candidate(transport,mode) or {}
+    name=candidate.get('name') or (transport or {}).get(STATION_KEYS[mode][1]) or '车站或机场'
+    if not candidate.get('location'):
+        return '站点定位：'+str(name)+'未取得可用坐标，接驳只能按待核实估计预留'
+    scope={'primary':'主出入口','terminal':'航站楼','access_point':'进出站点'}.get(candidate.get('endpoint_scope'),'地图地点')
+    return ('站点定位：'+str(name)+'按地图文本匹配取到坐标（'+str(scope)+'），'
+            '尚未由用户或承运方确认终端，接驳耗时按该坐标估算')
+
+async def resolve_station(w, transport, mode, city, tool):
+    """通过数据服务的交通地点工具取站点坐标候选，并写回班次记录。
+
+    只在尚未查过时调用一次；工具失败或没有候选时记为 None（查过），
+    后续生成不再重复查询，也不把未知当成零耗时。
+    """
+    if not isinstance(transport,dict):return None
+    _,key,prefix=STATION_KEYS[mode]
+    if station_is_resolved(transport,mode):return station_candidate(transport,mode)
+    name=transport.get(key)
+    if not name:return None
+    # 工作区已经有同名且带坐标的站点实体：不必再查供应商。
+    from .locations import coordinate
+    for place in ((w or {}).get('catalog') or {}).values():
+        if isinstance(place,dict) and place.get('name')==str(name) and coordinate(place.get('location')):
+            return None
+    from .providers import DataError
+    candidate=None
+    if city:
+        try:
+            items=await tool('search_transport_places',{'city':city,'keywords':str(name),
+                                                       'kind':'airport' if '机场' in str(name) else 'station'})
+            rows=[p for p in (items or {}).get('items',[])
+                  if isinstance(p,dict) and coordinate(p.get('location'))]
+            # 同名候选可能多个（不同站场/航站楼）：只取唯一候选，多个就交回业务层确认。
+            if len(rows)==1:
+                p=rows[0]
+                candidate={'id':p.get('id'),'name':p.get('name'),'location':coordinate(p.get('location')),
+                           'endpoint_scope':p.get('endpoint_scope'),'match_status':p.get('match_status'),
+                           'terminal_confirmed':bool(p.get('terminal_confirmed')),
+                           'source':p.get('source')}
+        except DataError:
+            candidate=None
+    transport[prefix+'_station_candidate']=candidate
+    return candidate
