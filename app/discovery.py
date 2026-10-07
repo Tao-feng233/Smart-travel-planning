@@ -3,6 +3,7 @@ import asyncio,json,re,math
 from .config import ROOT
 from .tools import local_tool
 from .providers import DataError
+from .data_contracts import guide_conditions
 
 PAGE_SIZE=4
 
@@ -77,7 +78,7 @@ async def search(w,args,progress,recommend):
     for p in items:
         p['classic']=any(clean_name(n)==clean_name(p['name']) for n in classic)
         if p['classic']:p['discovery_label']='城市代表景点'
-    guides=(await local_tool('retrieve_guides',{'city':city,'query':' '.join(p['name'] for p in items[:8])+' 游览 特色'}))['items']
+    guides=(await local_tool('retrieve_guides',guide_conditions(city,' '.join(p['name'] for p in items[:8])+' 游览 特色',w['requirements'])))['items']
     progress('正在按旅行偏好比较推荐顺序')
     summary=await recommend(w,items,'优先匹配用户条件，其次参考城市代表景点；给出有依据的推荐顺序，不把评分当作实时热门榜',guides)
     items.sort(key=lambda p:((not p.get('classic')) if args.get('prefer_known') else False,p.get('recommendation_rank',99),not p.get('classic'),-(float(p.get('rating') or 0) if str(p.get('rating') or '').replace('.','',1).isdigit() else 0)))

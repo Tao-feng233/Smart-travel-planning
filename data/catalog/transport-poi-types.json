@@ -1,0 +1,6 @@
+{
+  "source_url": "https://developer.amap.com/api/webservice/download",
+  "checked_at": "2026-10-08",
+  "station": {"query_types": "150200", "primary": ["150200"], "access": ["150202", "150203"]},
+  "airport": {"query_types": "150100", "primary": ["150104"], "access": ["150105"]}
+}

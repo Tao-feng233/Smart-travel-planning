@@ -1,9 +1,11 @@
 import asyncio, json, math, time, logging
+import unicodedata
 from datetime import date
 import httpx
 from jsonschema import validate
 from .config import ROOT, setting
 from .storage import now, cache_key, cached, put_cache, connect, RUNTIME
+from .data_contracts import coordinate,scalar,place_quality
 
 # HTTP logs can contain Amap's key query parameter. Never enable URL debug logs.
 for _name in ('httpx','httpcore','httpx2','httpcore2'):
@@ -56,7 +58,10 @@ async def search_poi(city, keywords, category='spot',page=1,page_size=6,location
         params.update(location=location,radius=min(10000,max(100,int(radius))))
     r=await amap(path,params)
     items=[]
-    for p in r['data'].get('pois',[]):
+    pois=r['data'].get('pois',[])
+    if not isinstance(pois,list):raise DataError('高德地点列表格式异常')
+    for p in pois:
+        if not isinstance(p,dict) or not p.get('id') or not p.get('name'):raise DataError('高德地点缺少必要字段')
         code=str(p.get('typecode') or '')
         if category=='spot' and (code.startswith('05') or any(x in p.get('type','') for x in ('餐饮服务','中餐厅'))):continue
         if category=='food' and code and not code.startswith('05'):continue
@@ -67,14 +72,14 @@ async def search_poi(city, keywords, category='spot',page=1,page_size=6,location
 
 def normalize_place(p,provenance,category=None):
     """Search and detail use the same factual fields; empty vendor arrays mean unknown."""
-    def value(x):return None if x in (None,'',[]) else x
-    b=p.get('business') or {};n=p.get('navi') or {};code=str(p.get('typecode') or '')
+    value=scalar
+    b=p.get('business') if isinstance(p.get('business'),dict) else {};n=p.get('navi') if isinstance(p.get('navi'),dict) else {};code=str(p.get('typecode') or '')
     kind=category or ('food' if code.startswith('05') else 'hotel' if code.startswith('10') else 'spot')
     tags=b.get('tag') or ''
     if isinstance(tags,str):tags=[s.strip() for s in tags.replace('；',';').split(';') if s.strip()]
     if not isinstance(tags,list):tags=[]
-    return dict(id='amap:'+p['id'],provider_id=p['id'],kind=kind,name=p['name'],address=value(p.get('address')),
-                location=value(p.get('location')),entrance=value(n.get('entr_location')),exit=value(n.get('exit_location')),
+    row=dict(id='amap:'+p['id'],provider_id=p['id'],kind=kind,name=p['name'],address=value(p.get('address')),
+                location=coordinate(p.get('location'),False),entrance=coordinate(n.get('entr_location'),False),exit=coordinate(n.get('exit_location'),False),
                 citycode=value(p.get('citycode')),city=value(p.get('cityname')),district=value(p.get('adname')),
                 rating=value(b.get('rating')),parent_id='amap:'+p['parent'] if p.get('parent') else None,
                 children=p.get('children') or [],typecode=code,poi_type=value(p.get('type')),cost=value(b.get('cost')),
@@ -84,9 +89,34 @@ def normalize_place(p,provenance,category=None):
                 opening_scope='地图当前营业资料，出游日期需核实',
                 photos=[x['url'] for x in (p.get('photos') or [])[:8] if isinstance(x,dict) and x.get('url')],
                 source=provenance,ticket_price=None,reservation='尚未核实',selected=False)
+    row['_data']=place_quality(row,provenance)
+    return row
 
 async def poi_detail(poi_id):
     return await amap('/v5/place/detail',{'id':poi_id,'show_fields':'business,navi,photos,children'})
+
+async def search_transport_places(city,keywords,kind='station',include_access_points=False):
+    """Factual endpoint candidates; matching a name never confirms a terminal."""
+    definitions=json.loads((ROOT/'data/catalog/transport-poi-types.json').read_text(encoding='utf-8'))
+    if kind not in ('station','airport'):raise DataError('交通地点类型应为station或airport')
+    if not city or not keywords or len(keywords)>80:raise DataError('请提供交通地点所在城市与具体名称')
+    definition=definitions[kind]
+    result=await amap('/v5/place/text',{'region':city,'city_limit':'true','keywords':keywords,
+                                     'types':definition['query_types'],'page_size':20,'show_fields':'navi,children,business'})
+    rows=result['data'].get('pois',[])
+    if not isinstance(rows,list):raise DataError('高德交通地点列表格式异常')
+    allowed=set(definition['primary']+(definition['access'] if include_access_points else []))
+    items=[]
+    for raw in rows:
+        if not isinstance(raw,dict) or str(raw.get('typecode')) not in allowed:continue
+        if not isinstance(raw.get('id'),str) or not isinstance(raw.get('name'),str):raise DataError('交通地点缺少必要字段')
+        def endpoint_name(text):return ''.join(unicodedata.normalize('NFKC',text).split()).replace('国际','')
+        if endpoint_name(keywords) not in endpoint_name(raw['name']):continue
+        p=normalize_place(raw,result['source'],kind)
+        p.update(match_status='candidate',endpoint_scope='access_point' if raw['typecode'] in definition['access'] else 'terminal' if '航站楼' in raw['name'] else 'primary',
+                 terminal_confirmed=False)
+        items.append(p)
+    return items
 
 async def place_details(ids):
     result=await poi_detail('|'.join(i.removeprefix('amap:') for i in ids[:10]))

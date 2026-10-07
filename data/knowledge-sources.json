@@ -1,0 +1,36 @@
+[
+  {
+    "id": "official-cd-dfct-tickets", "city": "成都", "title": "杜甫草堂博物馆购票须知",
+    "url": "https://www.cddfct.cn/go-c20.htm", "allowed_hosts": ["www.cddfct.cn"],
+    "selector": ".page-info-box7 .box3", "stop_before": "Chengdu Du Fu",
+    "terms": ["购票", "门票"], "entity_names": ["成都杜甫草堂博物馆", "杜甫草堂"],
+    "scope": "官方购票须知快照；节假日延时、实际价格及预约余量需按出游日期核实"
+  },
+  {
+    "id": "official-cd-panda-hours", "city": "成都", "title": "成都大熊猫繁育研究基地开放时间",
+    "url": "https://m.panda.org.cn/cn/service/opentime/", "allowed_hosts": ["m.panda.org.cn"],
+    "selector": ".tab_content", "terms": ["基地开园时间", "清园"],
+    "entity_names": ["成都大熊猫繁育研究基地", "熊猫基地", "熊猫塔"],
+    "scope": "官方季节性开放规则快照；场馆临时关闭、天气和预约余量需另行核实"
+  },
+  {
+    "id": "official-cd-panda-notice", "city": "成都", "title": "成都大熊猫繁育研究基地游客须知",
+    "url": "https://m.panda.org.cn/yd/service/notice/", "allowed_hosts": ["m.panda.org.cn"],
+    "selector": ".tab_content", "terms": ["游客", "熊猫"],
+    "entity_names": ["成都大熊猫繁育研究基地", "熊猫基地"],
+    "scope": "官方参观规则快照；部分场馆轮休及临时关闭仍应在出发前复查"
+  },
+  {
+    "id": "official-hz-westlake-background", "city": "杭州", "title": "西湖游览与文化背景资料",
+    "url": "https://www.hangzhou.gov.cn/art/2024/7/18/art_812262_59100193.html", "allowed_hosts": ["www.hangzhou.gov.cn"],
+    "selector": ".article", "terms": ["西湖"], "entity_names": ["杭州西湖风景名胜区", "西湖"],
+    "published_at": "2024-07-18", "source_kind": "background",
+    "scope": "历史文化背景报道，仅支持游览特色说明，不作为当前运营、活动或客流依据"
+  },
+  {
+    "id": "official-xa-citywall-background", "city": "西安", "title": "西安城墙景区背景资料",
+    "url": "https://qjxq.xa.gov.cn/zjqj/qyts/5df21c3a65cbd81235fc1bf1.html", "allowed_hosts": ["qjxq.xa.gov.cn"],
+    "selector": "#article", "terms": ["城墙"], "entity_names": ["西安城墙"], "published_at": "2026-02-10",
+    "source_kind": "background", "scope": "城墙背景资料，不作为运营时间、门票或客流证据"
+  }
+]

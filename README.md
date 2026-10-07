@@ -6,10 +6,11 @@
 
 ## 协作升级任务
 
-下一阶段按数据与知识服务、Agent与业务系统、推荐与行程规划三部分推进。当前实现仍为v11.2；MySQL、Qdrant、高德JS API和动态时间引擎为待开发工作，不能视为已上线能力。
+下一阶段按数据与知识服务、Agent与业务系统、推荐与行程规划三部分推进。v11.2基础上的数据服务升级已接入Qdrant、真实中文Embedding和父子块混合检索；当前验证采用Qdrant持久化本地模式。MySQL、独立Worker、高德JS API和动态时间引擎继续由对应分支开发。
 
 - [成员二任务说明](docs/collaboration/成员二任务说明.md)：MySQL、独立Worker、日期状态、地图SDK与应用集成。
 - [成员三任务说明](docs/collaboration/成员三任务说明.md)：统一时间、动态时长、推荐与排程、餐次联动、局部重排及预算。
+- [数据与知识服务接入说明](docs/collaboration/数据与知识服务接入说明.md)：已完成接口、索引初始化、日期适用状态及组员接入方式。
 
 从 `feat/shitu-v11-review-integration` 的最新提交创建各自工作分支，先统一公共接口，再通过PR分批整合。MCP、RAG和数据获取由协调者负责；共享模块的修改边界、验收与交接方式见上述两份文档。
 
@@ -37,12 +38,12 @@
 | 业务编排 | LangGraph 的 understand 与 execute 主链，以及独立业务模块 |
 | 后端 | Python、FastAPI、Pydantic、Uvicorn、HTTPX |
 | 工具 | MCP Python SDK；本地 stdio MCP 提供高德、天气与资料检索，Streamable HTTP MCP 接入途牛 |
-| 检索 | 官方资料字符 TF-IDF 与关键词重排，保留来源和适用范围 |
+| 检索 | 官方资料父子块、BM25、FastEmbed中文向量、Qdrant余弦召回与RRF融合，保留来源/版本/适用范围 |
 | 存储 | SQLite 保存账户、旅行、选择、版本、任务与有限期缓存 |
 | 前端 | HTML、CSS、JavaScript、Canvas 与任务 SSE，无需前端构建 |
 | 检查 | pytest 业务/API 检查与 Playwright 浏览器场景 |
 
-模型返回业务动作、需求补丁与候选 ID，程序校验后执行。规划限定于已选 ID 和有效日期，长行程分阶段生成；路线耗时由工具提供，程序检查时间，审核模型复核遗漏。当前未采用 Redis、消息队列、向量数据库或完整高德 JS SDK。
+模型返回业务动作、需求补丁与候选 ID，程序校验后执行。规划限定于已选 ID 和有效日期，长行程分阶段生成；路线耗时由工具提供，程序检查时间，审核模型复核遗漏。当前未采用 Redis、独立任务队列或完整高德 JS SDK。Qdrant支持本地持久化及服务端连接，多Worker部署须使用服务端。
 
 ## 本地安装与启动
 
@@ -55,6 +56,14 @@ Copy-Item .env.example .env
 ```
 
 在本机编辑 `.env`，填写 DeepSeek、高德、和风和途牛配置。和风 Host 需要替换为账号实际分配的地址；仓库中的 `.env.example` 仅为占位模板，不包含可用密钥。
+
+首次初始化中文模型与知识索引：
+
+```powershell
+.\.venv\Scripts\python.exe scripts/build_knowledge_index.py --download-model
+```
+
+后续正常检索不自动下载模型。没有初始化或索引过期时会明确降级为BM25；采集、更新与服务端部署说明见[数据服务文档](docs/collaboration/数据与知识服务接入说明.md)。
 
 然后双击 `启动.cmd` 或执行：
 

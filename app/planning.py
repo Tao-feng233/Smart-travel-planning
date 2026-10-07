@@ -1,6 +1,7 @@
 from .enrichment import model_facts
 import asyncio, json, math
 from datetime import date,timedelta
+from .data_contracts import guide_conditions
 from .providers import llm, DataError
 from .tools import local_tool
 from .storage import now,RUNTIME
@@ -102,7 +103,7 @@ async def _generate(w, progress):
     if not spots:raise DataError('请先选择想去的景点')
     if not r.get('start_date'):raise DataError('请先确定出游日期')
     days=int(r.get('days',2)); start=date.fromisoformat(r['start_date'])
-    guides=(await local_tool('retrieve_guides',{'city':r['city'],'query':' '.join(x['name'] for x in spots)+' 开放 预约'}))['items']
+    guides=(await local_tool('retrieve_guides',guide_conditions(r['city'],' '.join(x['name'] for x in spots)+' 开放 预约',r)))['items']
     progress('主助手正在组织每天的景点顺序与游览建议')
     schema='{"title":"旅行主题","days":[{"date":"YYYY-MM-DD","theme":"当日主题","items":[{"candidate_id":"真实候选ID","period":"morning/afternoon/evening/any","duration":90,"note":"游玩建议与日期时段安排理由","evidence_ids":["资料ID"]}]}],"packing":["携带建议"],"todos":["出发前待办"]}'
     prompt=('你是旅游规划助手，输出 JSON。只用给定已选景点ID，每个ID恰好出现一次，不得新增景点、酒店、餐厅或事实。'

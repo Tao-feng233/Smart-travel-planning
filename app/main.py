@@ -13,6 +13,7 @@ from .text import readable
 from . import replies
 from .config import ROOT,configured,setting
 from .providers import DataError
+from .data_settings import mcp_environment
 from .agent import handle,run_chat
 
 LOCKS={};TASKS={};CANCELLED=set();SHUTTING_DOWN=False
@@ -27,7 +28,7 @@ async def lifespan(app):
     global SHUTTING_DOWN
     SHUTTING_DOWN=False;storage.interrupt_jobs()
     async with AsyncExitStack() as stack:
-        params=StdioServerParameters(command=sys.executable,args=[str(ROOT/'app/mcp_server.py')],cwd=str(ROOT))
+        params=StdioServerParameters(command=sys.executable,args=[str(ROOT/'app/mcp_server.py')],cwd=str(ROOT),env=mcp_environment())
         read,write=await stack.enter_async_context(stdio_client(params))
         session=await stack.enter_async_context(ClientSession(read,write))
         await session.initialize();tools.SESSION=session
