@@ -81,7 +81,7 @@ const experienceFinishJob=finishJob;finishJob=function(j,name,args={}){
  if(j.error&&j.ui?.conflict){$('#error').innerHTML=conflictHTML({...j.ui.conflict,message:j.error})}
  const performed=(name||j.action)==='chat'?workspace?.last_action:(name||j.action);
  if(j.status!=='completed')return;
- if(performed==='meal_choice'&&args.meal_mode!=='self' || performed==='meal_choice'&&args.meal_date){
+ if(performed==='meal_choice'&&args.mode!=='remove'&&(args.meal_mode!=='self'||args.meal_date)){
   const before=JSON.parse(previousMeals),changed=Object.keys(workspace.meal_choices||{}).find(key=>JSON.stringify(before[key])!==JSON.stringify(workspace.meal_choices[key]));const chosenKey=args.meal_date&&args.meal_period?args.meal_date+'|'+args.meal_period:changed||previousSlot;
   const next=nextMealSlot(chosenKey);clearTimeout(mealAdvanceTimer);clearTimeout(foodRefreshTimer);
   if(next){mealDate=next.date;mealPeriod=next.period;foodAnchor='';render();toast('已保存当前餐次，接下来选择 '+next.date+' '+mealNames[next.period]);mealAdvanceTimer=setTimeout(()=>{if(tripEpoch===epoch&&workspace.id===wid&&!busy)action('search_foods',{meal_date:next.date,meal_period:next.period})},220)}
