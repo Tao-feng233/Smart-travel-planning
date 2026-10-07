@@ -45,3 +45,11 @@ dialog:not([open]){display:none!important}dialog[open]{position:fixed;inset:50% 
 
 #candidate-dialog[open]{inset:0;margin:auto;transform:none;height:fit-content}
 button.inline-execute{background:transparent!important;color:#405fae!important}button.timeline-entry{background:transparent!important;color:#8090ac!important}button.timeline-entry.active{background:#eaf0ff!important;color:#405faa!important}button.timeline-entry:hover{background:#f3f6fc!important}
+
+/* Compact map launcher is also a draggable surface. */
+.selection-minimap.collapsed{width:48px;height:48px;border-radius:14px;box-shadow:0 5px 18px #334e7b1c;background:#f8faff}
+.selection-minimap #mini-expand{padding:4px;gap:1px;cursor:grab;touch-action:none;user-select:none;background:linear-gradient(150deg,#fff,#eef3ff);color:#526daa}
+.selection-minimap #mini-expand svg{display:block;width:27px;height:27px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.selection-minimap #mini-expand svg .mini-pin{fill:#edf2ff;stroke:#4764ab}.selection-minimap #mini-expand svg circle{fill:#4764ab;stroke:none}
+.selection-minimap #mini-expand span{font-size:9px;line-height:10px;font-weight:600}.selection-minimap #mini-expand:hover{transform:none;filter:none;background:linear-gradient(150deg,#fff,#e5edff)}
+.selection-minimap.mini-dragging,.selection-minimap.mini-dragging #mini-expand,.selection-minimap.mini-dragging .mini-handle{cursor:grabbing}.selection-minimap.mini-dragging{box-shadow:0 8px 24px #334e7b30}

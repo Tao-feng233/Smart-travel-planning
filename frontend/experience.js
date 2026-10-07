@@ -25,21 +25,39 @@ const experienceOpenCandidate=openCandidate;openCandidate=function(id,...args){m
 
 function ensureExperienceUI(){
  if($('#selection-minimap'))return;
- const mini=document.createElement('section');mini.id='selection-minimap';mini.className='selection-minimap';mini.setAttribute('aria-label','可拖动的选择地图');mini.innerHTML='<div class="mini-handle" tabindex="0" aria-label="拖动小地图，方向键可移动"><strong>位置预览</strong><button class="ghost" id="mini-collapse" aria-label="收起小地图" aria-expanded="true">−</button></div><button id="mini-expand" class="ghost" aria-label="展开选择地图" aria-expanded="false" hidden>⌖<span>地图</span></button><div class="mini-body"></div>';$('#application').append(mini);
+ const mini=document.createElement('section');mini.id='selection-minimap';mini.className='selection-minimap';mini.setAttribute('aria-label','可拖动的选择地图');mini.innerHTML='<div class="mini-handle" tabindex="0" aria-label="拖动小地图，方向键可移动"><strong>位置预览</strong><button class="ghost" id="mini-collapse" aria-label="收起小地图" aria-expanded="true">−</button></div><button id="mini-expand" class="ghost" aria-label="展开选择地图" aria-expanded="false" title="拖动移动，点击展开地图" hidden><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M3 7.5 10 5l8 3 7-2.5v16L18 24l-8-3-7 2.5Z"/><path d="M10 5v16m8-3v6"/><path class="mini-pin" d="M22 10c0 3-4 7-4 7s-4-4-4-7a4 4 0 1 1 8 0Z"/><circle cx="18" cy="10" r="1.3"/></svg><span>地图</span></button><div class="mini-body"></div>';$('#application').append(mini);
  const rail=document.createElement('aside');rail.id='selection-timeline';rail.className='selection-timeline';rail.setAttribute('aria-label','旅行时间轴');rail.innerHTML='<div class="timeline-title"><strong>旅行时间轴</strong><button id="timeline-pin" class="text-button" aria-label="固定时间轴" aria-pressed="false">固定</button></div><p class="timeline-note"></p><div class="timeline-entries"></div>';$('#application').append(rail);
  const photo=document.createElement('dialog');photo.id='photo-dialog';photo.innerHTML='<div class="dialog-head"><h2>来源参考图片</h2><button data-close="photo-dialog" class="ghost">关闭</button></div><img alt="来源参考图片"><p>来源原图按窗口比例展示，拍摄日期与现场情况请以实际为准。</p>';document.body.append(photo);
  $('#candidate-dialog').addEventListener('close',()=>{const mini=$('#selection-minimap');if(mini)$('#application').append(mini)});
  const panel=$('.workspace');panel.addEventListener('pointerenter',()=>showTimeline());panel.addEventListener('pointerleave',hideTimeline);rail.addEventListener('pointerenter',()=>showTimeline());rail.addEventListener('pointerleave',hideTimeline);rail.addEventListener('focusin',()=>showTimeline());rail.addEventListener('focusout',hideTimeline);
  $('#timeline-pin').onclick=()=>{timelinePinned=!timelinePinned;$('#timeline-pin').setAttribute('aria-pressed',String(timelinePinned));$('#timeline-pin').textContent=timelinePinned?'取消固定':'固定';if(!timelinePinned)hideTimeline()};
- $('#mini-collapse').onclick=()=>setMiniCollapsed(true);$('#mini-expand').onclick=()=>setMiniCollapsed(false);
- let drag=null;const handle=mini.querySelector('.mini-handle');
- handle.addEventListener('pointerdown',e=>{if(e.button!==0||e.target.closest('button'))return;e.preventDefault();const r=mini.getBoundingClientRect();drag={id:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top};handle.setPointerCapture(e.pointerId)});
- handle.addEventListener('pointermove',e=>{if(drag?.id!==e.pointerId)return;moveMini(e.clientX-drag.dx,e.clientY-drag.dy)});
- const end=e=>{if(drag?.id===e.pointerId){drag=null;if(handle.hasPointerCapture(e.pointerId))handle.releasePointerCapture(e.pointerId)}};handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);
- handle.addEventListener('keydown',e=>{const step={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!step)return;e.preventDefault();const r=mini.getBoundingClientRect();moveMini(r.left+step[0],r.top+step[1])});
+ let drag=null,suppressExpand=false;
+ $('#mini-collapse').onclick=()=>setMiniCollapsed(true);
+ $('#mini-expand').onclick=e=>{if(suppressExpand&&e.detail){e.preventDefault();e.stopPropagation();return}setMiniCollapsed(false)};
+ const installDrag=source=>{
+  source.addEventListener('pointerdown',e=>{
+   if(e.button!==0||source.id!=='mini-expand'&&e.target.closest('button'))return;
+   if(source.id!=='mini-expand')e.preventDefault();
+   const r=mini.getBoundingClientRect();drag={id:e.pointerId,source,x:e.clientX,y:e.clientY,dx:e.clientX-r.left,dy:e.clientY-r.top,moved:false};source.setPointerCapture(e.pointerId);
+  });
+  source.addEventListener('pointermove',e=>{
+   if(drag?.id!==e.pointerId||drag.source!==source)return;
+   if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>5)drag.moved=true;
+   if(!drag.moved)return;e.preventDefault();mini.classList.add('mini-dragging');moveMini(e.clientX-drag.dx,e.clientY-drag.dy);
+  });
+  const end=e=>{
+   if(drag?.id!==e.pointerId||drag.source!==source)return;
+   if(drag.moved&&source.id==='mini-expand'){suppressExpand=true;setTimeout(()=>{suppressExpand=false},0)}
+   drag=null;mini.classList.remove('mini-dragging');if(source.hasPointerCapture(e.pointerId))source.releasePointerCapture(e.pointerId);
+  };
+  source.addEventListener('pointerup',end);source.addEventListener('pointercancel',end);source.addEventListener('lostpointercapture',end);
+  source.addEventListener('keydown',e=>{const step={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!step)return;e.preventDefault();const r=mini.getBoundingClientRect();moveMini(r.left+step[0],r.top+step[1])});
+ };
+ installDrag(mini.querySelector('.mini-handle'));installDrag($('#mini-expand'));
+
 }
-function moveMini(x,y){const el=$('#selection-minimap'),r=el.getBoundingClientRect();el.style.left=Math.max(8,Math.min(innerWidth-r.width-8,x))+'px';el.style.top=Math.max(70,Math.min(innerHeight-r.height-8,y))+'px';el.style.bottom='auto';el.style.right='auto'}
-function setMiniCollapsed(value){miniCollapsed=value;const el=$('#selection-minimap');el.classList.toggle('collapsed',value);el.querySelector('.mini-body').hidden=value;el.querySelector('.mini-handle').hidden=value;$('#mini-expand').hidden=!value;$('#mini-expand').setAttribute('aria-expanded',String(!value));$('#mini-collapse').setAttribute('aria-expanded',String(!value));if(!value){const r=el.getBoundingClientRect();moveMini(r.left,r.top);syncMiniMap()}}
+function moveMini(x,y){const el=$('#selection-minimap'),r=el.getBoundingClientRect();el.style.left=Math.max(0,Math.min(Math.max(0,innerWidth-r.width),x))+'px';el.style.top=Math.max(0,Math.min(Math.max(0,innerHeight-r.height),y))+'px';el.style.bottom='auto';el.style.right='auto'}
+function setMiniCollapsed(value){miniCollapsed=value;const el=$('#selection-minimap'),position=el.classList.contains('collapsed')!==value?el.getBoundingClientRect():null;el.classList.toggle('collapsed',value);el.querySelector('.mini-body').hidden=value;el.querySelector('.mini-handle').hidden=value;$('#mini-expand').hidden=!value;$('#mini-expand').setAttribute('aria-expanded',String(!value));$('#mini-collapse').setAttribute('aria-expanded',String(!value));if(position)moveMini(position.left,position.top);if(!value)syncMiniMap()}
 function miniPoints(){const cat=workspace.catalog,ps=workspace.selected_spots.map(id=>cat[id]).filter(p=>p?.location);if(workspace.hotel?.location)ps.push(workspace.hotel);ps.push(...Object.values(workspace.meal_choices||{}).map(c=>cat[c.food_id]).filter(p=>p?.location));if(cat[mapFocusId]?.location)ps.push(cat[mapFocusId]);return [...new Map(ps.map(p=>[p.id,p])).values()].filter(validMapPoint)}
 function syncMiniMap(){
  if(!workspace||$('#application').hidden)return;ensureExperienceUI();const el=$('#selection-minimap'),points=miniPoints();el.hidden=!points.length;
