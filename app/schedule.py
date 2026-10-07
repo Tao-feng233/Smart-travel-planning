@@ -9,6 +9,9 @@ from . import time_policy
 
 PERIODS={'breakfast':('早餐',480,45),'lunch':('午餐',720,75),'dinner':('晚餐',1020,60)}
 MEAL_WINDOWS={'breakfast':(450,600),'lunch':(720,900),'dinner':(1020,1260)}
+MIN_VISIT_MINUTES=30   # 与规划阶段"不足30分钟就跳过并说明"一致
+REST_BETWEEN_MINUTES=20  # 与规划阶段两处参观之间的"休息与机动时间"一致
+TRANSFER_DAY_MINUTES=60  # 一天内往返住宿与景点间通行的保守估计（含规划缓冲）
 
 def minutes(s,default=0):
  try:
@@ -24,12 +27,11 @@ def transport_time(p,key):
 def windows(w,dt):
  arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure')
  start=0;end=1440
- if arrival:
-  if dt<arrival.date().isoformat():return 1440,0
-  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+arrival_ready_minutes(w,dt)
- if back:
-  if dt>back.date().isoformat():return 1440,0
-  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-return_preparation_minutes(w,dt))
+ if arrival and dt<arrival.date().isoformat():return 1440,0
+ if back and dt>back.date().isoformat():return 1440,0
+ start=arrival_start_minutes(w,dt)
+ cutoff=return_cutoff_minutes(w,dt)
+ end=max(0,cutoff) if cutoff is not None else 1440
  return start,end
 
 def arrival_ready_minutes(w,dt):
@@ -48,14 +50,42 @@ def return_preparation_minutes(w,dt):
   return entry['minutes']
  return time_policy.return_preparation(w.get('selected_return'),None)['minutes']
 
+def arrival_start_minutes(w,dt):
+ """抵达日最早可开始活动的分钟数：与 windows/容量共用同一份 time_policy 结果。"""
+ arrival=transport_time(w.get('selected_transport'),'arrival')
+ if not arrival or dt!=arrival.date().isoformat():return 0
+ return arrival.hour*60+arrival.minute+arrival_ready_minutes(w,dt)
+
+def return_cutoff_minutes(w,dt):
+ """返程日最后一项活动必须结束的分钟数；不是返程日返回 None。"""
+ back_source=w.get('selected_return')
+ back=transport_time(back_source,'departure')
+ if not back or dt!=back.date().isoformat():return None
+ depart=back.hour*60+back.minute
+ preparation=(w.get('time_policy') or {}).get('return',{}).get(dt)
+ # 只复用与当前班次一致的口径；班次被换掉后必须重新计算，不能用旧值。
+ if isinstance(preparation,dict) and isinstance(preparation.get('minutes'),int) and preparation.get('transport_id')==(back_source or {}).get('id'):
+  return time_policy.return_cutoff(depart,preparation)
+ return depart-return_preparation_minutes(w,dt)
+
 def day_end(w,dt):
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})
  evening=any((pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('date')==dt and (pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('period')=='evening' for cid in w.get('selected_spots',[]))
  return max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
 
+def day_limit(w,dt):
+ """当天最后一次活动允许结束的分钟数：每日结束时刻与返程截止时刻取更早者。
+
+ 餐次窗口与容量判断都必须用它，否则会出现"餐次窗口说可以、容量说不行"，
+ 或反过来把返程日的晚餐排到接驳准备之后。
+ """
+ limit=day_end(w,dt)
+ cutoff=return_cutoff_minutes(w,dt)
+ return limit if cutoff is None else min(limit,cutoff)
+
 def meal_window(w,dt,period):
  low,high=windows(w,dt);begin,end=MEAL_WINDOWS[period]
- return max(begin,low),min(end,high,day_end(w,dt))
+ return max(begin,low),min(end,high,day_limit(w,dt))
 
 def meal_start(w,dt,period,preferred=None):
  begin,end=meal_window(w,dt,period);_,at,duration=PERIODS[period]
@@ -63,6 +93,45 @@ def meal_start(w,dt,period,preferred=None):
  return max(begin,min(at if preferred is None else preferred,end-duration))
 
 def point(w,cid):return w.get('catalog',{}).get(cid)
+
+def capacity(w,dt):
+ """当天真正能装多少分钟游览：与规划阶段同口径的唯一容量来源。
+
+ 口径 = 左闭右开窗口 ∩ 每日结束时刻（含晚间 22:00 预留，返程日取
+ time_policy 截止时刻）− 当天可用的餐次时长 − 往返住宿的通行与缓冲。
+
+ 餐次与通行是"固定开销"而不是"无限可扣"：短日子（例如中午返程）扣完会
+ 变成负数，但规划阶段确实还能放下一处短时参观。所以固定开销最多扣到
+ 留一处 MIN_VISIT_MINUTES 的位置，避免把可排的一天判成零。
+ 这是估计不是承诺，结果带依据与 status。
+ """
+ req=w.get('requirements') or {}
+ low,high=windows(w,dt);day_start=max(low,minutes(req.get('day_start','09:00')));limit=min(high,day_limit(w,dt))
+ base=max(0,limit-day_start)
+ # 餐次只在窗口内可用；早餐 45、午餐 75、晚餐 60，与规划阶段一致。
+ # 但餐次是可调整建议、景点是用户已选：容量不够时先让餐次让位，
+ # 不能让"必须吃午饭"把一天判成零可排，再让景点被静默跳过。
+ usable_meals={}
+ remaining=base
+ for period in ('breakfast','lunch','dinner'):
+  low_m,high_m=meal_window(w,dt,period)
+  duration=PERIODS[period][2]
+  if low_m+duration>high_m:continue
+  if remaining-duration<MIN_VISIT_MINUTES:continue
+  usable_meals[period]=duration;remaining-=duration
+ meals_minutes=sum(usable_meals.values())
+ # 往返住宿与景点之间的通行按每天 TRANSFER_DAY_MINUTES 估计（含规划缓冲），
+ # 而不是把窗口上界当成可排时间。这是估计不是承诺：实际用时由生成阶段查询。
+ with_stay=bool((w.get('hotel') or {}).get('location'))
+ transfer_minutes=min(TRANSFER_DAY_MINUTES if with_stay else 0,max(0,base-meals_minutes-MIN_VISIT_MINUTES))
+ overhead=meals_minutes+transfer_minutes
+ available=max(MIN_VISIT_MINUTES,base-overhead) if base>=MIN_VISIT_MINUTES else max(0,base-overhead)
+ return {'date':dt,'window':[low,high],'start':day_start,'limit':limit,'base_minutes':base,
+         'meals_minutes':meals_minutes,'transfer_minutes':transfer_minutes,'rest_minutes':0,
+         'available_minutes':available,
+         'basis':'窗口∩每日结束时刻'+str(base)+'分钟 − 餐次'+str(meals_minutes)+'分钟 − 往返住宿估计'+str(transfer_minutes)+'分钟'
+                 +('（不足一处最短参观，按最短参观时长计）' if base-overhead<MIN_VISIT_MINUTES else ''),
+         'meals':usable_meals,'status':'estimated'}
 
 def provisional(w):
  from . import visit_analysis
@@ -96,6 +165,8 @@ def provisional(w):
    t=finish+20;last=p
   rows+=arranged
   for period,(label,at,duration) in PERIODS.items():
+   # 餐次时刻只由 meal_start（同一份窗口与每日截止口径）决定，
+   # 不能再用"当前时间与固定基准取大"的另一套摆放规则。
    at=meal_start(w,dt,period)
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
@@ -104,7 +175,8 @@ def provisional(w):
    before=[x for x in arranged if minutes(x['time'])<=at]
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
-   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
+   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True,
+                'basis':'按餐次窗口与当日结束时刻取整后的预计开餐时间'})
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
