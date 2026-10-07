@@ -229,12 +229,24 @@ async def _generate(w, progress):
     for d in groups:
         seq=([base] if base else [])+[catalog[x['candidate_id']] for x in d['items']]+([base] if base else [])
         for a,b in zip(seq,seq[1:]):all_pairs[(a['id'],b['id'])]=(a,b)
-    # 站点与机场实体由协调者定位：只有在已取得坐标时才纳入路线查询，
-    # 否则不查询、也不猜，由 time_policy 输出带依据的待核实估计。
+    # 站点与机场实体：优先用工作区里已有坐标；没有则通过数据服务的交通地点
+    # 工具取一次候选坐标并写回班次记录（每个方向只查一次）。候选是地图文本
+    # 匹配、terminal_confirmed=false，只在计划说明里如实标注，不当成承运方确认。
     return_source=w.get('selected_return');arrival_source=w.get('selected_transport')
     return_status=journey.return_date_status(w)
+    notes_head=[]
+    progress('正在核对车站或机场位置，用于计算首尾日接驳时间')
+    for source,mode in ((arrival_source,'arrival'),(return_source,'return')):
+        if source is not None:
+            await time_policy.resolve_station(w,source,mode,r.get('city'),local_tool)
     arrival_hub=time_policy.station_place(w,arrival_source,'arrival_station') if arrival_source else None
     return_hub=time_policy.station_place(w,return_source,'departure_station') if return_source else None
+    if arrival_source is not None:
+        hub_note=time_policy.station_candidate_note(arrival_source,'arrival')
+        if hub_note:notes_head.append(hub_note)
+    if return_source is not None:
+        hub_note=time_policy.station_candidate_note(return_source,'return')
+        if hub_note:notes_head.append(hub_note)
     arrival_hub_key=None
     if base and arrival_hub and arrival_hub.get('location'):
         arrival_hub_key=(arrival_hub['id'],base['id']);all_pairs[arrival_hub_key]=(arrival_hub,base)
@@ -249,7 +261,7 @@ async def _generate(w, progress):
     routes=dict(await asyncio.gather(*(pair(k,v) for k,v in all_pairs.items())))
     computed=[]
     scheduled_meals=set()
-    day_notes=[];day_ready={}
+    day_notes=list(notes_head);day_ready={}
     # 被跳过的景点只用本地列表记录，不写进工作区：否则中途抛错时
     # 这个内部字段会随 storage.save 落库，下次生成又混进旧条目。
     # 旧版本可能已经把该字段写进存储，这里一并清掉。
