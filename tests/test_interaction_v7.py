@@ -53,6 +53,12 @@ def test_same_city_does_not_query_intercity_provider(monkeypatch):
 
 
 def test_long_plan_proposals_are_batched_and_keep_all_ids(tmp_path):
+ """分批提案：每批不超过 16 个地点，所有 ID 一个不少。
+
+ 模型在每批里把景点全堆在同一天，本就会被当日容量校验拒绝并要求修订，
+ 所以调用次数是"每批 1 至 2 次"；这里不再断言恰好等于批次数，
+ 改为断言批次上限与"每个 ID 都保留"这两条业务语义。
+ """
  import json
  from datetime import date,timedelta
  from app.proposals import create
@@ -61,9 +67,14 @@ def test_long_plan_proposals_are_batched_and_keep_all_ids(tmp_path):
   payload=json.loads(messages[1]['content']);calls.append(payload)
   return {'content':json.dumps({'title':'分阶段旅行','days':[{'date':payload['tour_dates'][0],'items':[{'candidate_id':p['id'],'duration':60} for p in payload['spots']]}]})},{}
  draft,groups,usage=asyncio.run(create(trip(),spots,{'dates':dates,'tour_dates':dates},'约束',lambda _:None,model,tmp_path))
- assert len(calls)==3 and max(len(p['spots']) for p in calls)<=16
+ assert 3<=len(calls)<=6 and max(len(p['spots']) for p in calls)<=16
  assert {i['candidate_id'] for d in groups for i in d['items']}=={p['id'] for p in spots}
- assert len({d['date'] for d in groups})==3
+ # 15 个 60 分钟地点按当天容量（已扣餐次）应摊到多天，而不是塞进少数几天
+ assert len({d['date'] for d in groups})>=3
+ from app import schedule
+ for day in groups:
+  load=sum(i['duration'] for i in day['items'])
+  assert load<=schedule.capacity(trip(),day['date'])['available_minutes'],(day['date'],load)
 
 
 def test_excess_selection_and_distance_produce_soft_warnings():
