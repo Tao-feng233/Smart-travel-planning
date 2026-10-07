@@ -23,6 +23,10 @@ def save(w,requests,order=None):
   w['visit_order']=order
   messages.append('优先顺序：'+' → '.join(w['catalog'][cid]['name'] for cid in order))
  w['visit_requests']=current
+ # 景点改期/移除后重算受影响餐次：固定日期餐次不动，明确跟随的只提示不挪期。
+ from . import foods
+ affected=foods.bindings_clear_or_mark(w)
+ messages.extend(affected)
  if w.get('plan'):w['plan']['stale']=True
  return '已记录游玩安排：'+('；'.join(messages) or '恢复由助手安排')+'。生成或重排时会按这些要求核对日期与时段，若时间或交通冲突会说明。'
 
