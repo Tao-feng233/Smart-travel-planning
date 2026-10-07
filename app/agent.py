@@ -338,7 +338,7 @@ async def handle(w,action,args,progress):
             if w.get(slot):continue
             try:
                 await handle(w,'train',{'direction':direction,'recommend':True},progress)
-                candidates=[p for p in w['transport']['items'] if str(p.get('seats'))!='0' and (direction=='return' or (p.get('arrival') or '')[:10]<=journey.travel_date(r))]
+                candidates=[p for p in w['transport']['items'] if str(p.get('seats'))!='0' and (direction=='return' or not r.get('return_date') or (p.get('arrival') or '')[:10]<=journey.travel_date(r))]
                 candidates.sort(key=lambda p:(0 if p.get('train_type')=='highspeed' else 1,p.get('departure','')))
                 if candidates:transport_select(w,candidates[0],recommended=True)
                 else:errors.append('未找到符合日期的'+('返程' if direction=='return' else '去程')+'列车')
