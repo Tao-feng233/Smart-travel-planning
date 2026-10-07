@@ -8,8 +8,8 @@
 | 目标分支 | `feat/shitu-v11-review-integration` |
 | 基线提交 | `40374bc590bedefd78e03b759f61d7c9b1ddeb82` |
 | 工作分支 | `feat/shitu-v12-planning` |
-| 提交数 | 7 |
-| 测试 | 148 → **179 全部通过**（新增 31 条，无删除） |
+| 提交数 | 9 |
+| 测试 | 148 → **189 全部通过**（新增 41 条，无删除） |
 
 创建 PR：
 https://github.com/Tao-feng233/Smart-travel-planning/pull/new/feat/shitu-v12-planning
@@ -62,6 +62,13 @@ https://github.com/Tao-feng233/Smart-travel-planning/compare/feat/shitu-v11-revi
 `agent` 的返程候选筛选只在用户明确给出返程日时才做上界过滤。被跳过景点
 的记录改为本地列表，并在入口清理历史遗留字段，不再落库。
 
+### 8. `3e69510` 餐次绑定语义
+两类餐次：`fixed_date`（固定日期，任何重排不挪期，旧记录按此处理）与
+`follow_spot`（明确跟随某景点，保存 `bind_spot_id` 与绑定方式）。景点改期、
+移除或日期未定时，`foods.binding_status()` 按当前安排现算 `affected`，
+只提示并保留餐厅选择；景点改回原日期时状态自动解除。跟随餐次查餐厅时用
+绑定景点作参照点。时间轴、计划书与前端都展示绑定方式与受影响原因。
+
 ## 需要的数据字段（请协调者提供）
 
 | 输入 | 用途 | 缺失时行为 |
@@ -112,6 +119,7 @@ limit  = schedule.day_limit(w, date)     # 每日结束与返程截止取更早�
 | 无返程班次 | `suggested`，计划警告"返程日期尚未确认"，不再当既定条件 | `test_return_date_status.py` |
 | 预检查与生成对同一餐次的结论 | 相同 `minutes_needed` 与可行判定 | `test_meal_consistency.py` |
 | 跳过景点 | 计划里点名，工作区无内部状态残留 | `test_skip_state_is_local.py` |
+| 固定日期 vs 跟随景点餐次 | 固定不挪期；跟随景点改期只提示且保留餐厅；旧记录按固定日期 | `test_meal_binding.py` |
 
 ## 已知边界
 
@@ -122,6 +130,9 @@ limit  = schedule.day_limit(w, date)     # 每日结束与返程截止取更早�
 3. 未确认返程时仍按游玩天数生成行程骨架，只是标为待确认；没有改成"先问再生成"。
 4. 本期未做 `schema_version` 迁移器与 `expected_revision` 写入门槛（属成员二范围）。
 5. `rebalance` 是有限顺序比较，不承诺全局最优；节点数上限 20000，超限即放弃并给出原因。
+6. 跟随餐次只做"日期跟随"：景点改到哪天，餐次就提示哪天受影响；不自动改写
+   餐次日期，也不自动重查餐厅（重查由用户确认后触发）。
+7. 餐次绑定不含"跨天跟随"：景点与餐次不在同一游玩日期范围时只提示受影响。
 
 ## 旧记录处理
 
