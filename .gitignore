@@ -23,3 +23,9 @@ tmp/
 *.db
 *.db-wal
 *.db-shm
+
+# 本地运行产物与依赖目录：不要提交
+backend/.local/
+node_modules/
+frontend/node_modules/
+last-plan-proposal.json
