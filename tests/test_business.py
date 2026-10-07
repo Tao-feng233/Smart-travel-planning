@@ -92,3 +92,61 @@ def test_review_handles_missing_summary_but_rejects_invalid_issues():
     assert parse_review('```json\n{"issues":[],"summary":"待确认"}\n```')['summary']=='待确认'
     with pytest.raises(ValueError):parse_review('{"issues":"没有问题"}')
     with pytest.raises(ValueError):parse_review('{"issues":[{"message":"问题"}]}')
+
+def test_review_survives_overview_guide_that_has_scope_instead_of_date_scope(monkeypatch,tmp_path):
+    """回归：目的地概览类资料只有 scope、没有 date_scope，审核投影不得因直接下标取值而 KeyError。"""
+    import asyncio,json
+    import app.planning as p
+    monkeypatch.setattr(p,'RUNTIME',tmp_path)
+    dt=(date.today()+timedelta(days=2)).isoformat();seen=[]
+    async def fake_llm(messages,**kwargs):
+        seen.append(messages)
+        if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"审核完成"}'},{}
+        return {'content':json.dumps({'days':[{'date':dt,'items':[{'candidate_id':'spot:1','duration':120}]}]})},{}
+    async def fake_tool(name,args):
+        if name=='retrieve_guides':
+            return {'items':[{'id':'destination-qingdao','title':'青岛目的地概览','text':'背景介绍，不使用页面历史交通价格作当前报价。',
+                              'scope':'背景介绍，不使用页面历史交通价格作当前报价','city':'青岛','url':'https://example.com','fetched_at':'2026-10-01'}]}
+        return {'items':[]}
+    monkeypatch.setattr(p,'llm',fake_llm);monkeypatch.setattr(p,'local_tool',fake_tool)
+    w=workspace();w['hotel']=None;w['requirements']['days']=1
+    plan=asyncio.run(p.generate(w,lambda x:None))
+    assert '背景介绍' in seen[-1][-1]['content'],'审核请求必须带上该资料，否则本用例未覆盖到回归路径'
+    assert plan['review']['status']=='completed'
+
+def test_meal_choice_is_rejected_upfront_when_arrival_or_return_makes_it_impossible():
+    """方案B：抵达/返程时刻与餐次规划时段冲突时，选择当场被拒绝并说明原因，不再静默丢弃。"""
+    from app import foods
+    from app.providers import DataError
+    d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
+    w=workspace();w['catalog']['food:1']={'id':'food:1','kind':'food','name':'陈麻婆豆腐'}
+    w['selected_transport']={'id':'go','departure':d0+' 09:29','arrival':d0+' 22:26'}
+    with pytest.raises(DataError,match='来不及安排'):
+        foods.select_meal(w,{'meal_date':d0,'meal_period':'lunch','food_id':'food:1'})
+    assert not w.get('meal_choices'),'被拒绝的餐次不得写入选择，否则计划书阶段仍会静默丢弃'
+    assert '午餐' in foods.select_meal(w,{'meal_date':d1,'meal_period':'lunch','food_id':'food:1'})
+    w2=workspace();w2['catalog']['food:1']={'id':'food:1','kind':'food','name':'陈麻婆豆腐'}
+    w2['selected_return']={'id':'back','departure':d1+' 07:05'}
+    with pytest.raises(DataError,match='来不及安排'):
+        foods.select_meal(w2,{'meal_date':d1,'meal_period':'dinner','food_id':'food:1'})
+    assert not w2.get('meal_choices')
+
+def test_dropped_meal_warning_names_the_restaurant_and_period(monkeypatch,tmp_path):
+    """先选餐、后改交通时仍可能排不进日程，此时遗留提示必须点名是哪家餐厅的哪一餐。"""
+    import asyncio,json
+    import app.planning as p
+    monkeypatch.setattr(p,'RUNTIME',tmp_path)
+    d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
+    async def fake_llm(messages,**kwargs):
+        if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"审核完成"}'},{}
+        days=[{'date':d0,'items':[]},{'date':d1,'items':[{'candidate_id':'spot:1','duration':120}]}]
+        return {'content':json.dumps({'days':days})},{}
+    async def fake_tool(name,args):return {'items':[]}
+    monkeypatch.setattr(p,'llm',fake_llm);monkeypatch.setattr(p,'local_tool',fake_tool)
+    w=workspace();w['hotel']=None
+    w['catalog']['food:1']={'id':'food:1','kind':'food','name':'陈麻婆豆腐'}
+    w['selected_transport']={'id':'go','name':'G2213','departure':d0+' 09:29','arrival':d0+' 22:26'}
+    w['meal_choices']={d0+'|lunch':{'mode':'chosen','food_id':'food:1'}};w['meal_mode']='optional'
+    plan=asyncio.run(p.generate(w,lambda x:None))
+    dropped=[x for x in plan['warnings'] if '未能放入当前日程' in x]
+    assert len(dropped)==1 and '陈麻婆豆腐' in dropped[0] and '午餐' in dropped[0]

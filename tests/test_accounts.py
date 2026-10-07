@@ -273,3 +273,14 @@ def test_failed_place_detail_is_quiet_and_retains_snapshot(client,monkeypatch):
     j=wait(client,submit(client,w,'place_detail',{'id':'amap:B1','view':'food'}).json()['job_id'])
     assert j['status']=='failed' and j['ui']['reply_text']=='' and j['workspace']['messages']==w['messages']
     p=j['workspace']['catalog']['amap:B1'];assert p['place_detail_status']=='query_failed' and p['cost']=='60'
+
+
+def test_security_headers_keep_scripts_strict_while_allowing_map_photo_origin(client):
+    """回归：图片源需放行高德照片域名（http），但脚本、基础URI、外域访问必须保持收紧。"""
+    headers=client.get('/').headers
+    csp=headers.get('Content-Security-Policy','')
+    assert "img-src 'self' data: blob: https: http://store.is.autonavi.com" in csp
+    assert "script-src 'self'" in csp and 'unsafe-inline' not in csp and 'unsafe-eval' not in csp
+    assert "object-src 'none'" in csp and "frame-ancestors 'none'" in csp and "base-uri 'self'" in csp
+    assert headers.get('X-Content-Type-Options')=='nosniff'
+    assert TestClient(main.app,base_url='http://evil.example').get('/').status_code==400

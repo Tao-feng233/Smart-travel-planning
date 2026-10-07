@@ -1,10 +1,36 @@
 """Optional, provider-backed dining candidates and per-date meal choices."""
 import asyncio
+from datetime import datetime
 from .providers import DataError
 from .tools import local_tool
 from .journey import meal_dates
 
 PERIODS={'breakfast':'早餐','lunch':'午餐','dinner':'晚餐'}
+# 各餐次在计划书中的规划时段（分钟），与 planning 的排程常量保持一致
+PERIOD_WINDOWS={'breakfast':(7*60+30,8*60+45),'lunch':(12*60,13*60+15),'dinner':(17*60,18*60)}
+
+def clock(minutes):return f'{minutes//60:02d}:{minutes%60:02d}'
+
+def moment(text):
+    """解析 'YYYY-MM-DD HH:MM'；格式不可识别时返回 None，不因此拦住用户。"""
+    try:return datetime.fromisoformat(str(text or '').replace(' ','T'))
+    except ValueError:return None
+
+def infeasible(w,dt,period):
+    """去程到达日或返程出发日与该餐次的规划时段冲突时，返回可读理由；否则返回 None。
+
+    与 planning 的排程口径一致：到达日只有晚于该餐次结束时间的班次才算冲突，
+    返程日只有早于该餐次开始时间的班次才算冲突。
+    """
+    start,end=PERIOD_WINDOWS[period]
+    arrive=moment((w.get('selected_transport') or {}).get('arrival'))
+    leave=moment((w.get('selected_return') or {}).get('departure'))
+    name=PERIODS[period]
+    if arrive and arrive.date().isoformat()==dt and arrive.hour*60+arrive.minute>=end:
+        return f'{dt} 的到达时间是 {arrive.strftime("%H:%M")}，{name}（规划时段 {clock(start)}–{clock(end)}）来不及安排，请改选到达日之后的餐次。'
+    if leave and leave.date().isoformat()==dt and leave.hour*60+leave.minute<=start:
+        return f'{dt} 的返程出发时间是 {leave.strftime("%H:%M")}，{name}（规划时段 {clock(start)}–{clock(end)}）来不及安排，请改选返程日之前的餐次。'
+    return None
 
 def anchors(w,args):
     catalog=w['catalog'];explicit=catalog.get(args.get('anchor_id'))
@@ -93,6 +119,8 @@ def select_meal(w,args):
     if mode=='chosen':
         item=w.get('catalog',{}).get(cid)
         if not item or item.get('kind')!='food':raise DataError('餐厅候选不存在，请重新查询或选择自行安排。')
+        blocked=infeasible(w,dt,period)
+        if blocked:raise DataError(blocked)
     w['meal_mode']='optional';w.setdefault('meal_choices',{})[dt+'|'+period]={'mode':mode,'food_id':cid if item else None}
     if w.get('plan'):w['plan']['stale']=True
     return dt+'的'+PERIODS[period]+'已'+('选定：'+item['name'] if item else '改为自行安排')+'。可随时更换，不代表已预订。'
