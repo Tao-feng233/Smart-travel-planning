@@ -1,0 +1,58 @@
+"""Bounded proposal batches for long trips; every selected ID is validated once."""
+import json,math
+
+async def create(w,spots,payload,prompt,progress,model,runtime):
+    from .providers import DataError
+    from .planning import round_up
+    requests=w.get('visit_requests',{})
+    spots=sorted(spots,key=lambda p:requests.get(p['id'],{}).get('date') or (p.get('visit_suggestion') or {}).get('date') or '9999')
+    chunks=[spots[i:i+16] for i in range(0,len(spots),16)]
+    dates=payload['dates'];tour_dates=payload['tour_dates'];by_date={};draft={'packing':[],'todos':[]};usage={}
+    for index,chunk in enumerate(chunks):
+        first=math.floor(index*len(tour_dates)/len(chunks));last=max(first+1,math.floor((index+1)*len(tour_dates)/len(chunks)))
+        allowed_tour=tour_dates[min(first,len(tour_dates)-1):min(last,len(tour_dates))]
+        if len(chunks)==1:allowed_tour=tour_dates
+        fixed=[requests[p['id']]['date'] for p in chunk if p['id'] in requests]
+        if any(d not in tour_dates for d in fixed):raise DataError('景点指定日期不在当前游玩范围，请先调整景点日期安排。')
+        allowed_tour=sorted(set(allowed_tour+fixed))
+        allowed_dates=[d for d in dates if allowed_tour[0]<=d<=allowed_tour[-1]]
+        allowed_ids={p['id'] for p in chunk}
+        if len(chunks)>1:progress(f'正在安排第{index+1}/{len(chunks)}阶段的地点与日期')
+        content={**payload,'spots':chunk,'dates':allowed_dates,'tour_dates':allowed_tour,'visit_requests':{cid:requests[cid] for cid in allowed_ids if cid in requests},'phase':index+1,'phases':len(chunks)}
+        messages=[{'role':'system','content':prompt+' candidate_id逐字复制输入ID，不能用名称或酒店ID。只在tour_dates安排景点；仅输出有景点的日期，避免填充大量空白天。'}, {'role':'user','content':json.dumps(content,ensure_ascii=False)}]
+        for attempt in range(2):
+            message,used=await model(messages,json_mode=True,max_tokens=5000)
+            raw=message.get('content','');(runtime/'last-plan-proposal.json').write_text(raw or '{}',encoding='utf-8')
+            errors=[];seen=set();groups=[]
+            try:
+                value=json.loads(raw)
+                for day in value.get('days',[]):
+                    dt=day.get('date');items=[]
+                    if dt not in dates:errors.append('无效日期：'+str(dt))
+                    if day.get('items') and dt not in allowed_tour:errors.append('当前阶段之外的游玩日期：'+str(dt))
+                    for item in day.get('items',[]):
+                        cid=item.get('candidate_id')
+                        if cid not in allowed_ids:errors.append('未选择ID：'+str(cid));continue
+                        if cid in seen:errors.append('重复ID：'+cid);continue
+                        pin=requests.get(cid,{})
+                        if pin.get('date') and dt!=pin['date']:errors.append('必须遵守指定日期：'+cid+' '+pin['date'])
+                        period=pin.get('period') or item.get('period') or 'any'
+                        if period not in ('any','morning','afternoon','evening'):period='any'
+                        seen.add(cid);items.append({**item,'period':period,'duration':round_up(max(30,min(240,int(item.get('duration',90)))),15)})
+                    groups.append({**day,'items':items})
+                if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(allowed_ids-seen))
+                if len({d['date'] for d in groups})!=len(groups):errors.append('日期重复')
+            except (ValueError,TypeError,KeyError,AttributeError):errors.append('JSON日程结构或时长无效')
+            if not errors:break
+            if attempt:raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
+            progress('正在根据候选与日期校验结果修订草稿')
+            messages.extend([{'role':'assistant','content':raw or '{}'}, {'role':'user','content':json.dumps({'validation_errors':errors,'allowed_ids':sorted(allowed_ids),'allowed_dates':allowed_tour},ensure_ascii=False)}])
+        for key,n in used.items():
+            if isinstance(n,(int,float)):usage[key]=usage.get(key,0)+n
+        if not draft.get('title'):draft['title']=value.get('title')
+        for key in ('packing','todos'):draft[key]=list(dict.fromkeys(draft[key]+[x for x in value.get(key,[]) if isinstance(x,str)]))
+        for day in groups:
+            dt=day['date']
+            if dt not in by_date:by_date[dt]=day
+            else:by_date[dt]['items']+=day['items']
+    return draft,list(by_date.values()),usage

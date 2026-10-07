@@ -1,0 +1,6 @@
+[
+ {"id":"destination-qingdao","city":"青岛","title":"青岛目的地概览","text":"青岛市政府文旅资料介绍了栈桥、八大关、五四广场等滨海地标和历史街区。适合作为海滨与城市观光的候选方向，具体步行负担、开放、门票和出游日条件仍需查询。","url":"https://www.qingdao.gov.cn/yfqd/","fetched_at":"2026-10-05","scope":"背景介绍，不作为未来日期开放或客流证据"},
+ {"id":"destination-chengdu","city":"成都","title":"成都目的地概览","text":"四川省旅游目的地规划包含成都武侯祠和宽窄巷子主题线路。成都机场的景区资料列出熊猫基地、武侯祠、杜甫草堂等目的地。可用于选择历史文化、城市休闲或大熊猫主题，不据此保证游玩时长、实时班次或票价。","url":"https://www.cdairport.com/traffic3.aspx?t=37","fetched_at":"2026-10-05","scope":"背景介绍，不使用页面历史交通价格作当前报价"},
+ {"id":"destination-hangzhou","city":"杭州","title":"杭州目的地概览","text":"杭州市文化旅游精品线路包含西湖与西溪湿地组合，提及断桥、雷峰塔等景观。灵隐景区也有市文旅部门的独立介绍。可用于自然与人文方向筛选；预约、开放和游览条件需要按实际日期核实。","url":"https://wgly.hangzhou.gov.cn/module/download/downfile.jsp?classid=0&filename=c3ccb4250d3143a09047ee20fbe1170c.pdf","fetched_at":"2026-10-05","scope":"背景介绍，不将线路中的季节活动套用到当前日期"},
+ {"id":"destination-xian","city":"西安","title":"西安目的地概览","text":"西安曲江新区资料介绍西安城墙的历史文化体验，以及大雁塔、大唐不夜城周边旅游环境。可用作古城与人文观光候选，出游日客流、预约和场次不在这些背景资料的确认范围内。","url":"https://qjxq.xa.gov.cn/zjqj/gyqj/tsqj/5df21c5565cbd81235fc1efa.html","fetched_at":"2026-10-05","scope":"背景介绍，非实时客流资料"}
+]

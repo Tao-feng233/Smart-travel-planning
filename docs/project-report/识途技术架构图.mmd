@@ -1,0 +1,11 @@
+flowchart TD
+ UI[聊天与旅行工作台 HTML CSS JavaScript Canvas] --> API[FastAPI 鉴权 任务与SSE]
+ API --> BIZ[LangGraph understand与execute 加业务动作]
+ BIZ --> LLM[DeepSeek 意图 推荐 规划提案 独立审核]
+ BIZ --> DB[(SQLite 账户 旅行 选择 任务 版本与缓存)]
+ BIZ --> LOCAL[本地stdio MCP]
+ BIZ --> REMOTE[途牛 Streamable HTTP MCP]
+ LOCAL --> AMAP[高德 地点 路线与底图]
+ LOCAL --> WEATHER[和风天气]
+ LOCAL --> RAG[官方资料 TF-IDF与关键词检索]
+ REMOTE --> TUNIU[酒店 房型 火车 航班 门票查询]

@@ -1,155 +1,104 @@
-# AI旅行决策与动态行程助手
+# 识途智能旅游规划 Agent
 
-仓库：`Smart-travel-planning`　契约版本：**v0.4**　三人团队项目
-（A 数据/RAG/MCP　B LLM/前端　C LangGraph/规划/后端）
+识途是面向自由行用户的交互式旅行规划原型。通过自然语言与可视化工作台协作，完成需求收集、景点选择、住宿房型、往返交通、餐饮安排、旅行地图及计划书生成，并保存用户偏好、选择和版本。
 
-## 项目是什么
+当前版本为 v10，已接入 DeepSeek、高德地图、和风天气及途牛 MCP，适用于本机和小规模体验。计划包含建议安排与待确认事项，不构成实际预订、实时导航或全部事实已核实的保证。
 
-系统通过自然语言收集用户需求，**只从知识库数据覆盖达到规划门槛的目的地中**推荐，
-把模糊的旅行想法变成一份带约束验证、可修改、可局部重规划的七部分定制攻略。
+## 功能与业务流程
 
-第一版强调**“覆盖范围有限、业务闭环完整”**。它不是全国旅游平台，
-不负责真实支付、出票或酒店预订。
+1. 输入目的地、出发地、日期、人数、预算及偏好；缺少信息可通过对话补充或手动编辑。
+2. 查询与比较景点，查看详情、图片、地图和景区分支；支持指定游玩日期与时段。
+3. 比较住宿位置与房型报价，核对面积、餐食、人数、退改和查询时可售状态；支持暂不安排住宿。
+4. 选择高铁、火车或航班，独立设置往返日期与时段；默认游玩结束次日返程，同城出游无需外地往返。
+5. 按日期与餐次选择景点或住宿周边餐厅，查看标签、人均、营业资料和电话，也可自行安排。
+6. 生成每日计划，查询多种通行方式、计算时间与缓冲、校验冲突，并进行独立模型审核。
+7. 查看、调整、撤销或导出计划；修改影响现有安排时标记旧计划待更新。
 
-## 现在做到哪了
+地图支持全国范围拖动、鼠标位置滚轮缩放、双击放大、百分比显示与中心复位；操作由 Canvas 即时响应，手势停止后更新高德底图。已取得道路坐标的日程绘制实际查询路线，其他情况下明确显示顺序示意。
 
-完整进度台账见 **[PROGRESS_REPORT.md](PROGRESS_REPORT.md)**（每完成一步追加一条记录）。
+账户支持注册登录、恢复码、个人数据导出和账户隔离。用户可创建、切换、重命名、归档及删除多次旅行。任务状态持久化，支持刷新查看进度、停止和重启中断标记。
 
-```text
-步骤 0  ✅ Git 仓库与三条分支
-步骤 1  ✅ 共享 Schema（v0.3 版，将被 v0.4 替换）
-步骤 2  ✅ FastAPI + LangGraph 追问/推荐回路
-步骤 3  🔄 迁移到 v0.4：契约重写 + 共享 Schema 重建（进行中）
-```
+## 技术栈与执行机制
 
-> ✅ **共享 Schema v0.4 已交付并冻结**（标签 `schema-v0.4`）。
-> A、B 现在可以全速开工：`from app.schemas import ...` 拿到的就是 v0.4 对象。
-> 缺对象时仍按 [docs/SHARED_SCHEMA_HANDOFF.md](docs/SHARED_SCHEMA_HANDOFF.md)
-> 第 4 节发 `SCHEMA_BLOCKER`，不要自己定义或用 `dict` 顶替。
+| 层次 | 技术与职责 |
+| --- | --- |
+| 模型 | DeepSeek，Function Calling 意图识别、JSON 规划提案、SSE 流式回复与独立审核 |
+| 业务编排 | LangGraph 的 understand 与 execute 主链，以及独立业务模块 |
+| 后端 | Python、FastAPI、Pydantic、Uvicorn、HTTPX |
+| 工具 | MCP Python SDK；本地 stdio MCP 提供高德、天气与资料检索，Streamable HTTP MCP 接入途牛 |
+| 检索 | 官方资料字符 TF-IDF 与关键词重排，保留来源和适用范围 |
+| 存储 | SQLite 保存账户、旅行、选择、版本、任务与有限期缓存 |
+| 前端 | HTML、CSS、JavaScript、Canvas 与任务 SSE，无需前端构建 |
+| 检查 | pytest 业务/API 检查与 Playwright 浏览器场景 |
 
-后端当前可运行（基于 v0.3 对象，正在按 v0.4 重写）：
+模型返回业务动作、需求补丁与候选 ID，程序校验后执行。规划限定于已选 ID 和有效日期，长行程分阶段生成；路线耗时由工具提供，程序检查时间，审核模型复核遗漏。当前未采用 Redis、消息队列、向量数据库或完整高德 JS SDK。
 
-```powershell
-cd backend
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload   # 接口文档 http://127.0.0.1:8000/docs
-python -m pytest
-```
+## 本地安装与启动
 
-## 仓库结构
-
-```text
-Smart-travel-planning/
-├── README.md                  ← 本文件
-├── AGENTS.md                  AI 助手必须遵守的协作与编码规则（每次开会话必读）
-├── CONTRACTS.md               ⭐ 契约 v0.4：唯一字段、枚举、状态和接口标准
-├── PROGRESS_REPORT.md         ⭐ 共享进度台账（看「⚡ 最新变更」一节即可）
-│
-├── docs/                      查阅型资料，见 docs/README.md
-│   ├── README.md                    本目录导览：什么阶段读哪份
-│   ├── SCOPE_MATRIX.md              ⭐ P0/P1 唯一裁决源
-│   ├── SHARED_SCHEMA_HANDOFF.md     ⭐ C 必须交付的共享模型 + A/B 暂停规则
-│   ├── DATA_PROVIDER_ARCHITECTURE.md Mock/快照/实时/混合 Provider 架构
-│   ├── PROVIDER_ASSESSMENT_TEMPLATE.md 单个 API 的评估模板
-│   ├── CHANGELOG.md                 v0.4 相对 v0.3 的修正记录
-│   ├── PROJECT_OVERVIEW.md          项目全局说明
-│   ├── CONTEXT.md                   统一术语
-│   ├── PROJECT_DESIGN.md            范围、架构、三人分工
-│   ├── TRAVEL_GUIDE_SPEC.md         七部分攻略的内容与字段要求
-│   ├── TEAM_PROJECT_PLAN.md         三人任务、依赖、联调与演示计划
-│   ├── DATA_REQUIREMENTS_CATALOG.md 数据字段全集
-│   ├── DATA_SOURCE_ASSESSMENT_TEMPLATE.md 数据源可行性表（A 线填写）
-│   ├── DATA_RESEARCH_TASK_BRIEF.md  数据调研任务说明
-│   ├── MODEL_PROVIDER_AND_SECRETS.md 模型抽象与密钥规则
-│   ├── AI_TASK_PROMPTS.md           三条开发线的 AI 启动提示词
-│   ├── contract-open-questions.md   契约待确认项（C 线登记）
-│   ├── adr/                         架构决策记录（6 条）
-│   └── requirements/                原始需求文档 + 需求→设计对应表
-│
-├── contracts/                 v0.4 基线：契约模型基线 + fixtures 自检脚本
-│                              （C 线将把它实现进 backend/app/schemas/ 后移除）
-├── fixtures/                  ⭐ v0.4 契约测试数据（valid / invalid / business）
-├── handoff/                   给 A / B 的交接说明（含可直接复制的提示词）
-├── backend/                   C 线后端
-│   ├── app/{api,core,graph,schemas,services}/
-│   └── tests/
-├── frontend/                  B 线 Vue（尚未创建）
-└── data/                      A 线数据与导入脚本（尚未创建）
-```
-
-根目录刻意只保留**每天都要动**的四份文件，其余文档全部收在 `docs/`。
-
-## 三个人各自怎么开始
-
-```bash
-git clone https://github.com/Tao-feng233/Smart-travel-planning
-cd Smart-travel-planning
-git checkout feature/<你的分支>
-```
-
-| 成员 | 分支 | 交接说明 |
-|---|---|---|
-| A 数据、RAG 与 MCP | `feature/data-rag-mcp` | [handoff/A_交接说明.md](handoff/A_交接说明.md) |
-| B LLM 决策与 Vue 前端 | `feature/llm-vue` | [handoff/B_交接说明.md](handoff/B_交接说明.md) |
-| C LangGraph、规划与验证 | `feature/graph-planner` | — |
-
-开工前必看四处：
-
-1. `PROGRESS_REPORT.md` 的「⚡ 最新变更」——**需要你做什么**；
-2. [docs/SHARED_SCHEMA_HANDOFF.md](docs/SHARED_SCHEMA_HANDOFF.md)——哪些共享对象已就绪、缺了要怎么暂停；
-3. [docs/SCOPE_MATRIX.md](docs/SCOPE_MATRIX.md)——P0 到底做什么；
-4. [docs/contract-open-questions.md](docs/contract-open-questions.md)——契约里还没定死的地方。
-
-> 如果 clone 时连不上 github.com（国内网络常见），加代理参数：
-> `git -c http.proxy=http://127.0.0.1:7897 clone https://github.com/Tao-feng233/Smart-travel-planning`
-
-## 文档索引
-
-| 我想… | 看哪份 |
-|---|---|
-| 知道现在做到哪、下一步谁做什么 | `PROGRESS_REPORT.md` |
-| 知道 P0/P1 边界 | `docs/SCOPE_MATRIX.md` |
-| 知道某个字段/接口长什么样 | `CONTRACTS.md` v0.4 |
-| 知道 C 要交付哪些共享模型、自己何时该暂停 | `docs/SHARED_SCHEMA_HANDOFF.md` |
-| 知道数据从哪来、怎么降级 | `docs/DATA_PROVIDER_ARCHITECTURE.md`、`docs/DATA_REQUIREMENTS_CATALOG.md` |
-| 第一次了解项目全貌 | `docs/README.md` → `docs/PROJECT_OVERVIEW.md` |
-| 知道为什么这么设计 | `docs/PROJECT_DESIGN.md`、`docs/adr/` |
-| 看用户最初提了什么需求 | `docs/requirements/` |
-| 让 AI 助手开工 | `handoff/*_交接说明.md` 里的提示词 |
-| v0.4 改了什么 | `docs/CHANGELOG.md` |
-
-## 契约自检
+使用兼容的 Python 3.11 或之后版本；便携包已验证 Python 3.13.9。Windows PowerShell 示例：
 
 ```powershell
-cd contracts
-python validate_fixtures.py
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+Copy-Item .env.example .env
 ```
 
-验证 6 个合法 fixture、6 个非法 fixture 和 1 个业务用例（锁定节点不可变）。
-待 C 把模型实现进 `backend/app/schemas/` 后，这套校验会并入 `backend/tests/`。
+在本机编辑 `.env`，填写 DeepSeek、高德、和风和途牛配置。和风 Host 需要替换为账号实际分配的地址；仓库中的 `.env.example` 仅为占位模板，不包含可用密钥。
 
-## 三人使用AI的统一方法
+然后双击 `启动.cmd` 或执行：
 
-每位成员开启新的AI对话时：
+```powershell
+.\启动.ps1
+```
 
-1. 把本目录放入代码仓库根目录。
-2. 要求AI依次阅读 `AGENTS.md` 中的文件清单。
-3. 使用 `docs/AI_TASK_PROMPTS.md` 中对应角色的提示词。
-4. 要求AI先复述自己的边界、输入、输出和依赖，再开始写代码。
-5. AI不得自行修改 `CONTRACTS.md`；确需修改时，必须由三人确认后先更新文档，再改代码。
+浏览器访问 http://127.0.0.1:8767 ，首次使用注册账户并保存恢复码。手动启动亦可：
 
-## 开始编码的最低条件
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8767 --no-access-log
+```
 
-- 已导入至少一组能通过 KnowledgeCoverage / PlanningReadiness 检查的试点数据。
-- 三人认可 `docs/CONTEXT.md` 中的术语。
-- `CONTRACTS.md v0.4` 的 Schema 和 fixtures 通过验证。
-- 每条开发线都能使用模拟数据独立运行。
-- 已建立覆盖主要业务分支的回归测试场景，不要求提前固定最终演示文案。
+查询供应商接口需要网络与相应账号权限；缺少配置时按启动提示处理，不使用代码内置密钥。当前服务用于本机，正式公网部署仍需 HTTPS、访问域名、监控、共享存储及运行保障。
 
-## 推荐的三条演示场景
+## 数据来源与能力边界
 
-1. 用户不知道去哪：系统追问、RAG检索、LLM比较目的地并生成完整攻略。
-2. 用户已确定一个目的地：系统生成包含抵达、准备、住宿、多个游玩地点、餐饮和交通的完整攻略。
-3. 用户起晚或遇到下雨：系统锁定已完成/已预约节点，只重规划剩余部分。
+- 高德：地点、餐厅、营业资料、电话、人均、图片、地图与路线。营业资料不保证出游当天状态，人均不是门票价格。
+- 途牛：酒店房型、往返交通与门票产品。区间最低价不等于当天准确报价，销售区间不代表可预约名额；选择与推荐不代表已预订。
+- 和风：接口实际覆盖窗口内天气及当前预警；超出窗口的日期保留待确认。
+- 官方资料：部分景区资料及城市概览。城市、规则及日期覆盖仍需完善，采集时间不等于未来适用日期。
 
-双目的地真实规划为P1演示，有余力时再加入。
+支持 1 至 60 个游玩日，过密或跨度较大的选择会提示调整，但不保证全局最优排程。客流预测、自动支付/出票、跨城多住宿、完整接驳、完整预算和所有局部重规划尚未实现。查询失败、无结果和字段缺失分别处理，不补造数据。
+
+## 检查与文件结构
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+核心目录：
+
+```text
+app/                    Agent、业务模块、工具、鉴权与持久化
+frontend/               当前旅行工作台与地图
+data/catalog/           目的地概览目录
+data/knowledge/         公共官方资料与城市背景
+scripts/                启动、只读联调、资料收集与验收脚本
+tests/                  当前后端检查
+docs/project-report/    技术资料、商业化方案与三张流程/架构图
+docs/legacy/            旧项目可继续参考的设计资料及适用说明
+```
+
+浏览器检查脚本中的 Playwright 与 Chrome 路径需按本机环境调整；真实联调脚本会进行供应商请求，应留意额度。界面隔离场景不等同于真实供应商验证。
+
+详细实现与进度见 [CONTEXT.md](CONTEXT.md)、[开发状态.md](开发状态.md) 和 [官方接口核对.md](官方接口核对.md)。项目技术资料见 [项目说明](docs/project-report/识途项目面试技术资料.md)，业务、架构和后台执行图一并保留。
+
+## 历史资料与仓库迁移
+
+旧仓库全部文件已独立备份到本地，并按原提交逐文件校验。保留的 25 份需求、产品规格、数据契约、领域模型和架构决策位于 [历史资料](docs/legacy/README.md)，其旧技术选型和完成状态不作为当前运行依据。
+
+当前源码替换主分支文件快照，原提交保留为父提交，不重写历史。旧代码、交接待办、旧测试报告和原开发控制文件未进入当前源码。具体思想延续见 [设计思想延续](docs/legacy/DESIGN_CONTINUITY.md)。
+
+## 密钥与本地记录
+
+实际 `.env`、本地账户与旅行、数据库、缓存、日志、截图、完整旧项目备份、临时文件、虚拟环境和可能带配置的体验包均不提交。仓库仅提供空白配置模板和公开资料。
+
+体验包由 `scripts/build_trial.py` 构建，默认不带配置；附带环境的分享包属于本机授权场景，不进入公开仓库。源项目与体验包启动、数据隔离方式分别说明，公开仓库不分发调用额度。

@@ -1,33 +1,25 @@
-# 密钥：任何情况下不得提交
 .env
 .env.*
 !.env.example
-
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
 .venv/
-venv/
+__pycache__/
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
+data/runtime/
+.展示检查/*-真实*
+*.log
+.展示检查/真实-*
 
-# 前端
-node_modules/
+# 体验包可能包含授权分享的接口配置，勿提交
 dist/
 
-# 本地数据与向量库
-chroma_db/
-*.sqlite
-*.sqlite3
-
-# C 线本地会话快照（内存状态的 JSON 落盘目录）
-.local/
-
-# 日志与编辑器
-*.log
+# Local backups, generated reports and temporary authoring files
+repository-backups/
+output/
+tmp/
 .idea/
-.vscode/
-.DS_Store
-Thumbs.db
+.agents/
+.codex/
+.展示检查/
+*.db
+*.db-wal
+*.db-shm

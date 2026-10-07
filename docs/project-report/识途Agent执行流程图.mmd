@@ -1,0 +1,13 @@
+flowchart TD
+ U[自然语言或手动操作] --> API[FastAPI 鉴权 版本检查 幂等 持久化任务]
+ API --> KIND{请求类型}
+ KIND -->|对话| LLM[understand 当前需求与状态 → submit_intent]
+ KIND -->|手动| MANUAL[明确动作与参数]
+ LLM --> EXEC[execute或handle 校验并更新业务状态]
+ MANUAL --> EXEC
+ EXEC --> QUERY[只读查询或保存选择 → 更新工作台]
+ EXEC --> PLAN[规划提案 → ID与日期校验 → 路线时间计算 → 独立审核]
+ EXEC --> CHAT[基于已存事实解释 → 提示下一步]
+ QUERY --> JOB[任务状态与SSE 保存结果]
+ PLAN --> JOB
+ CHAT --> JOB
