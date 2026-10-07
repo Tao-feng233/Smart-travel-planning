@@ -6,6 +6,31 @@ def travel_date(r,direction='return'):
     if direction=='outbound':return r.get('outbound_date') or r.get('start_date')
     return r.get('return_date') or ((date.fromisoformat(r['start_date'])+timedelta(days=int(r.get('days') or 2))).isoformat() if r.get('start_date') else None)
 
+def return_date_confirmed(w):
+    """返程日期是否由用户明确给定：明确返程日或已选返程班次才算确定。"""
+    r=w.get('requirements') or {}
+    if r.get('return_date'):return True
+    return bool((w.get('selected_return') or {}).get('departure'))
+
+def return_date_status(w):
+    """返程日期口径：不把"游玩结束次日"当成用户确认的条件。
+
+    返回 {'date','status','basis'}；status 为 confirmed 或 suggested。
+    未确定时给出待确认建议，由业务层保存来源与确认状态。
+    """
+    r=w.get('requirements') or {}
+    explicit=r.get('return_date')
+    if explicit:
+        return {'date':explicit,'status':'confirmed','basis':'用户明确给出的返程日期'}
+    departure=(w.get('selected_return') or {}).get('departure','')
+    if departure:
+        return {'date':departure[:10],'status':'confirmed','basis':'已选定返程班次的出发日期'}
+    suggested=travel_date(r)
+    if not suggested:
+        return {'date':None,'status':'suggested','basis':'出游日期尚未确定，无法给出返程建议'}
+    return {'date':suggested,'status':'suggested',
+            'basis':'按游玩天数推算的待确认建议（'+str(r.get('days'))+'天游玩后一日），尚未由用户确认'}
+
 def meal_dates(r):
     if not r.get('start_date'):return []
     start=date.fromisoformat(r['start_date'])
