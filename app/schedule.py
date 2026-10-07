@@ -92,6 +92,15 @@ def meal_start(w,dt,period,preferred=None):
  if begin+duration>end:return None
  return max(begin,min(at if preferred is None else preferred,end-duration))
 
+def _binding_summary(w,dt,period,choice):
+ """时间轴用的绑定摘要：让用户看到这餐是固定日期还是跟随某景点。"""
+ from . import foods
+ status=foods.binding_status(w,dt,period)
+ return {'binding':status['binding'],'label':status['label'],'method':status.get('method'),
+         'spot_id':status.get('spot_id'),'spot_name':status.get('spot_name'),
+         'affected':bool(status.get('affected')),'reason':status.get('reason')}
+
+
 def point(w,cid):return w.get('catalog',{}).get(cid)
 
 def capacity(w,dt):
@@ -175,6 +184,7 @@ def provisional(w):
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True,
+                'binding':_binding_summary(w,dt,period,choice),
                 'basis':'按餐次窗口与当日结束时刻取整后的预计开餐时间'})
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows

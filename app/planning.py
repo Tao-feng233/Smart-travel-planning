@@ -482,6 +482,22 @@ async def _generate(w, progress):
                          'arrival':arrival_policy,'return':return_policy,
                          'return_date_status':return_status,
                          'notes':day_notes}
+    # 跟随餐次的受影响状态：只提示需要调整，绝不自动挪期。
+    binding_rows=[]
+    for key,value in w.get('meal_choices',{}).items():
+        if not isinstance(value,dict):continue
+        parts=key.split('|')
+        if len(parts)!=2:continue
+        meal_date,meal_period=parts
+        status=foods.binding_status(w,meal_date,meal_period)
+        binding_rows.append({'date':meal_date,'period':meal_period,'key':key,**status})
+        if status['affected']:
+            food_name=(w.get('catalog',{}).get(value.get('food_id')) or {}).get('name')
+            plan['warnings'].append(meal_date+'的'+foods.PERIODS.get(meal_period,'用餐')
+                                    +(f'（{food_name}）' if food_name else '')
+                                    +'已受景点变动影响：'+str(status['reason'])
+                                    +'。已保留这餐的餐厅选择，请确认是否跟随改期或重新查餐厅。')
+    plan['meal_bindings']=binding_rows
     for key,value in w.get('meal_choices',{}).items():
         if value.get('mode')=='chosen' and key not in scheduled_meals:
             meal_date,meal_period=key.split('|')

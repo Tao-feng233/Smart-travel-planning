@@ -1,4 +1,4 @@
-import asyncio, json, re
+﻿import asyncio, json, re
 from datetime import date,timedelta
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -109,7 +109,7 @@ FUNCTION={'type':'function','function':{'name':'submit_intent','description':'�
   'answer':{'type':'string','description':'简短确认、解释或询问缺项。不宣称尚未执行的查询已完成。'}},'required':['action','patch','answer']}}}
 
 FUNCTION['function']['parameters']['properties'].update(keyword={'type':'string','description':'用户指定的酒店品牌、名称或住宿区域，原样用于酒店查询'},room_id={'type':'string','description':'来自给定room_choices的房型报价ID'},replace={'type':'boolean','description':'用户明确要求改选已有班次时为true'},time_start={'type':'string','description':'出发时间段起点 HH:MM'},time_end={'type':'string','description':'出发时间段终点 HH:MM'},train_type={'type':'string','enum':['all','highspeed','regular']})
-FUNCTION['function']['parameters']['properties'].update(acknowledgement={'type':'string','description':'执行前回应本轮要求的一句简短确认，不宣称已完成查询或选择'},include_food={'type':'boolean'},food_keywords={'type':'array','items':{'type':'string'}},prefer_known={'type':'boolean'},auto_select={'type':'boolean','description':'用户明确让助手代选班次时true'},meal_mode={'type':'string','enum':['chosen','self']},meal_date={'type':'string'},meal_period={'type':'string','enum':['breakfast','lunch','dinner']},food_id={'type':'string'},anchor_id={'type':'string','description':'当前景点或酒店参照ID，用于餐饮查询'},departure_date={'type':'string','description':'本轮交通查询日期，不能覆盖整趟开始日期'})
+FUNCTION['function']['parameters']['properties'].update(acknowledgement={'type':'string','description':'执行前回应本轮要求的一句简短确认，不宣称已完成查询或选择'},include_food={'type':'boolean'},food_keywords={'type':'array','items':{'type':'string'}},prefer_known={'type':'boolean'},auto_select={'type':'boolean','description':'用户明确让助手代选班次时true'},meal_mode={'type':'string','enum':['chosen','self']},meal_date={'type':'string'},meal_period={'type':'string','enum':['breakfast','lunch','dinner']},food_id={'type':'string'},anchor_id={'type':'string','description':'当前景点或酒店参照ID，用于餐饮查询'},bind_spot_id={'type':'string','description':'用户明确让这餐跟随某个景点时填该景点ID'},departure_date={'type':'string','description':'本轮交通查询日期，不能覆盖整趟开始日期'})
 FUNCTION['function']['parameters']['properties']['visit_requests']={'type':'array','items':{'type':'object','properties':{'candidate_id':{'type':'string'},'date':{'type':'string'},'period':{'type':'string','enum':list(visits.PERIODS)},'clear':{'type':'boolean'}},'required':['candidate_id']},'description':'用户明确指定某景点哪天哪个时段游玩，使用真实ID和旅行日期；取消指定用clear。'}
 FUNCTION['function']['parameters']['properties']['visit_order']={'type':'array','items':{'type':'string'},'description':'用户明确指定先后游玩顺序时，按顺序返回已选景点真实ID。使用visit_schedule；不可自动修改明确日期时段。'}
 FUNCTION['function']['parameters']['properties']['view']={'type':'string','enum':sorted(guidance.VALID_VIEWS),
@@ -188,7 +188,7 @@ async def execute(s):
         if p['kind']=='spot' and cid not in w['selected_spots']:w['selected_spots'].append(cid);w['spots_confirmed']=False;mark_stale(w)
         elif p['kind']!='spot':selection_answer=await handle(w,'select',{'id':cid,'replace':intent.get('replace',False),**{k:intent[k] for k in ('meal_date','meal_period','meal_mode') if k in intent}},s['progress'])
         if action=='chat':w['ui']=guidance.describe(w,'select',{'id':cid},status='loading')
-    answer=await handle(w,intent.get('action','chat'),{'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('id','view','visit_date','keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','visit_requests','visit_order') if k in intent}},s['progress'])
+    answer=await handle(w,intent.get('action','chat'),{'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('id','view','visit_date','keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','bind_spot_id','visit_requests','visit_order') if k in intent}},s['progress'])
     if (intent.get('include_food') or w['requirements'].get('food_preferences')) and action in ('search_spots','spots_page'):
         try:answer+='\n'+await handle(w,'search_foods',{'keywords':intent.get('food_keywords') or w['requirements'].get('food_preferences')},s['progress']);w['ui']=guidance.describe(w,action,view='spot',status='loading')
         except DataError:answer+='\n本次未取得餐饮候选，已保留餐饮偏好，可稍后单独查询。'

@@ -13,9 +13,17 @@ def markdown(w):
         lines += [f"已选房型：{room['name']}，{room['quantity']}间；参考报价：¥{room.get('price','待核实')}，报价覆盖日期与整段总价需核实。",f"餐食：{room.get('meal') or '待核实'}；退改：{room.get('cancel') or '待核实'}"]
         lines += ['- '+x for x in room.get('review',{}).get('issues',[])]+['']
     lines+=['## 用餐选择（可选）','']
+    bindings={row['key']:row for row in p.get('meal_bindings',[])}
     for key,value in w.get('meal_choices',{}).items():
         restaurant=w.get('catalog',{}).get(value.get('food_id'),{})
-        lines+=['- '+key.replace('|',' · ').replace('breakfast','早餐').replace('lunch','午餐').replace('dinner','晚餐')+ '：'+(restaurant.get('name','餐厅待核实') if value.get('mode')=='chosen' else '自行安排')]
+        binding=bindings.get(key) or {}
+        suffix=''
+        if binding.get('binding')=='follow_spot':
+            suffix='；跟随'+str(binding.get('spot_name') or '景点')+'（'+str(binding.get('method') or '用户指定跟随')+'）'
+        elif binding.get('binding')=='fixed_date':
+            suffix='；固定日期，重排不挪期'
+        if binding.get('affected'):suffix+='；**已受景点变动影响：'+str(binding.get('reason'))+'**'
+        lines+=['- '+key.replace('|',' · ').replace('breakfast','早餐').replace('lunch','午餐').replace('dinner','晚餐')+ '：'+(restaurant.get('name','餐厅待核实') if value.get('mode')=='chosen' else '自行安排')+suffix]
     if not w.get('meal_choices'):lines+=['用餐自行安排，可临时调整，不影响其他选择。']
     lines+=['','## 往返交通','']
     for label,key in [('去程','selected_transport'),('返程','selected_return')]:
