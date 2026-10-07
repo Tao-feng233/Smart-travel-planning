@@ -5,6 +5,7 @@ Estimates are labelled; only the generated plan contains queried road timings.
 from datetime import date,datetime,timedelta
 from . import visits
 from .journey import coordinate_distance
+from . import time_policy
 
 PERIODS={'breakfast':('早餐',480,45),'lunch':('午餐',720,75),'dinner':('晚餐',1020,60)}
 MEAL_WINDOWS={'breakfast':(450,600),'lunch':(720,900),'dinner':(1020,1260)}
@@ -25,11 +26,27 @@ def windows(w,dt):
  start=0;end=1440
  if arrival:
   if dt<arrival.date().isoformat():return 1440,0
-  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+90
+  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+arrival_ready_minutes(w,dt)
  if back:
   if dt>back.date().isoformat():return 1440,0
-  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-120)
+  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-return_preparation_minutes(w,dt))
  return start,end
+
+def arrival_ready_minutes(w,dt):
+ """抵达日需要的准备分钟数：统一由 time_policy 计算，缺路线依据时标明待核实。"""
+ solution=w.get('time_policy') or {}
+ entry=(solution.get('arrival') or {}).get(dt)
+ if isinstance(entry,dict) and isinstance(entry.get('minutes'),int) and entry.get('transport_id')==(w.get('selected_transport') or {}).get('id'):
+  return entry['minutes']
+ return time_policy.arrival_ready(w.get('selected_transport'),None)['minutes']
+
+def return_preparation_minutes(w,dt):
+ """返程日需要提前的分钟数：统一由 time_policy 计算；班次变了就不能复用旧值。"""
+ solution=w.get('time_policy') or {}
+ entry=(solution.get('return') or {}).get(dt)
+ if isinstance(entry,dict) and isinstance(entry.get('minutes'),int) and entry.get('transport_id')==(w.get('selected_return') or {}).get('id'):
+  return entry['minutes']
+ return time_policy.return_preparation(w.get('selected_return'),None)['minutes']
 
 def day_end(w,dt):
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})
