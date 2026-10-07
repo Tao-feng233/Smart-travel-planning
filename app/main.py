@@ -82,7 +82,12 @@ def health():
 
 @app.get('/api/status')
 def status(user=Depends(auth.current_user)):
-    return {'configured':configured(),'tools':getattr(app.state,'tool_names',[]),'knowledge_cities':['青岛','成都','杭州','西安'],'knowledge_scope':'青岛景区资料及四城目的地概览'}
+    from .rag import corpus
+    knowledge=corpus()
+    return {'configured':configured(),'tools':getattr(app.state,'tool_names',[]),
+            'knowledge_cities':sorted({p['city'] for p in knowledge['parents'].values()}),
+            'knowledge_records':knowledge['records'],
+            'knowledge_scope':'已收录的官方特色、历史背景及部分运营快照；出游日适用性需核实'}
 
 def owned(wid,user):
     w=storage.get(wid,user['id'])

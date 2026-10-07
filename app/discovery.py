@@ -8,7 +8,13 @@ from .data_contracts import guide_conditions
 PAGE_SIZE=4
 
 def destinations():
-    return json.loads((ROOT/'data/catalog/destinations.json').read_text(encoding='utf-8'))
+    items={}
+    for filename in ('destinations.json','shandong-destinations.json'):
+        path=ROOT/'data/catalog'/filename
+        if not path.exists():continue
+        for item in json.loads(path.read_text(encoding='utf-8')):
+            items.setdefault(item['id'],item)
+    return list(items.values())
 
 def classic_names(city):
     return next((d['highlights'] for d in destinations() if d['name'] in city),[])

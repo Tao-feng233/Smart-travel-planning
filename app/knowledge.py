@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .config import ROOT
 
-SCHEMA_VERSION=2
+SCHEMA_VERSION=3
 class CorpusError(ValueError):pass
 
 def digest(value):
@@ -34,7 +34,7 @@ def normalize_record(row):
             try:date.fromisoformat(value[key])
             except (ValueError,TypeError):raise CorpusError('资料适用日期无效') from None
     if value.get('valid_from') and value.get('valid_to') and value['valid_from']>value['valid_to']:raise CorpusError('资料适用日期倒置')
-    for key in ('entity_ids','entity_names'):
+    for key in ('entity_ids','entity_names','city_aliases'):
         if not isinstance(value.get(key,[]),list) or any(not isinstance(x,str) for x in value.get(key,[])):raise CorpusError('资料实体列表无效')
         value[key]=list(dict.fromkeys(value.get(key,[])))
     value['date_scope']=value.get('date_scope') or value.get('scope') or '查询资料快照，出游日适用性待核实'
@@ -108,7 +108,7 @@ def load_corpus(directory=None):
     return {'fingerprint':fingerprint,'parents':parents,'children':children,'records':len(records)}
 
 def applicable(parent,city='',visit_date=None,entity_ids=None,end_date=None):
-    if city and city_key(parent['city'])!=city_key(city):return False
+    if city and city_key(city) not in {city_key(parent['city']),*(city_key(x) for x in parent.get('city_aliases',[]))}:return False
     if entity_ids and not set(entity_ids).intersection(parent.get('entity_ids',[])):return False
     if not visit_date and parent['source_kind']=='historical_notice':return False
     if visit_date:

@@ -1,0 +1,807 @@
+[
+  {
+    "id": "mct-shandong",
+    "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+    "allowed_hosts": [
+      "lyfw.mct.gov.cn"
+    ],
+    "format": "mct_directory",
+    "city_overrides": {
+      "26493": "德州"
+    },
+    "city_alias_overrides": {
+      "26493": [
+        "齐河"
+      ]
+    }
+  },
+  {
+    "id": "sd-jn-firstspring",
+    "city": "济南",
+    "province": "山东",
+    "title": "天下第一泉景区介绍",
+    "url": "https://jnly.jinan.gov.cn/col38755/art/2023/art_38755_4761649.html",
+    "allowed_hosts": [
+      "jnly.jinan.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2023-10-13",
+    "entity_names": [
+      "天下第一泉",
+      "趵突泉",
+      "大明湖",
+      "黑虎泉",
+      "五龙潭"
+    ],
+    "terms": [
+      "天下第一泉",
+      "趵突泉"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-jn-spring-service",
+    "city": "济南",
+    "province": "山东",
+    "title": "天下第一泉运营与入园问答",
+    "url": "https://www.jinan.gov.cn/col/col118356/art/2026/art_5091525fd2244615b82340ef347bab01.html",
+    "allowed_hosts": [
+      "www.jinan.gov.cn"
+    ],
+    "selector": "#zoom, #zoomcon, .TRS_Editor",
+    "published_at": "2026-09-20",
+    "entity_names": [
+      "天下第一泉",
+      "趵突泉",
+      "大明湖",
+      "五龙潭"
+    ],
+    "terms": [
+      "天下第一泉",
+      "趵突泉"
+    ],
+    "city_aliases": [],
+    "source_kind": "official_snapshot",
+    "scope": "官方运营问答快照，出游日开放、票价及预约余量需再核实"
+  },
+  {
+    "id": "sd-jn-qianfoshan",
+    "city": "济南",
+    "province": "山东",
+    "title": "千佛山景区介绍",
+    "url": "https://jnly.jinan.gov.cn/col38754/art/2023/art_38754_3349388.html",
+    "allowed_hosts": [
+      "jnly.jinan.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2023-08-03",
+    "entity_names": [
+      "千佛山"
+    ],
+    "terms": [
+      "千佛山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-jn-qianfoshan-area",
+    "city": "济南",
+    "province": "山东",
+    "title": "千佛山与佛慧山风景名胜区",
+    "url": "https://jnly.jinan.gov.cn/col117783/art/2024/art_117783_4773271.html",
+    "allowed_hosts": [
+      "jnly.jinan.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": null,
+    "entity_names": [
+      "千佛山",
+      "佛慧山",
+      "蚰蜒山",
+      "金鸡岭"
+    ],
+    "terms": [
+      "千佛山",
+      "佛慧山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ta-taishan",
+    "city": "泰安",
+    "province": "山东",
+    "title": "泰山景区与登山游览特色",
+    "url": "https://whlyj.taian.gov.cn/art/2024/1/2/art_69508_4676522.html",
+    "allowed_hosts": [
+      "whlyj.taian.gov.cn"
+    ],
+    "selector": ".articleBox",
+    "published_at": "2024-01-02",
+    "entity_names": [
+      "泰山",
+      "中天门",
+      "南天门",
+      "玉皇顶"
+    ],
+    "terms": [
+      "泰山",
+      "中天门"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ta-geopark",
+    "city": "泰安",
+    "province": "山东",
+    "title": "泰山世界地质公园简介",
+    "url": "https://tsgw.taian.gov.cn/TaiShanGeopark/col363465/index.html",
+    "allowed_hosts": [
+      "tsgw.taian.gov.cn"
+    ],
+    "selector": ".about_jj .paragraph",
+    "published_at": null,
+    "entity_names": [
+      "泰山"
+    ],
+    "terms": [
+      "泰山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ta-attractions",
+    "city": "泰安",
+    "province": "山东",
+    "title": "泰安A级景区特色介绍",
+    "url": "https://whlyj.taian.gov.cn/art/2026/4/13/art_366264_10312071.html",
+    "allowed_hosts": [
+      "whlyj.taian.gov.cn"
+    ],
+    "selector": ".articleBox",
+    "published_at": "2026-04-13",
+    "entity_names": [
+      "泰山",
+      "岱庙",
+      "东平湖",
+      "太阳部落",
+      "泰山石敢当"
+    ],
+    "terms": [
+      "泰山",
+      "岱庙"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-yt-penglaige",
+    "city": "烟台",
+    "province": "山东",
+    "title": "蓬莱阁与蓬莱水城介绍",
+    "url": "https://tga.yantai.gov.cn/art/2017/2/13/art_6828_708373.html",
+    "allowed_hosts": [
+      "tga.yantai.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2017-02-13",
+    "entity_names": [
+      "蓬莱阁",
+      "蓬莱水城",
+      "田横山",
+      "戚继光故里"
+    ],
+    "terms": [
+      "蓬莱阁",
+      "蓬莱水城"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-yt-yantaishan",
+    "city": "烟台",
+    "province": "山东",
+    "title": "烟台山景区介绍",
+    "url": "https://tga.yantai.gov.cn/art/2017/2/13/art_6828_708371.html",
+    "allowed_hosts": [
+      "tga.yantai.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2017-02-13",
+    "entity_names": [
+      "烟台山",
+      "冰心纪念馆"
+    ],
+    "terms": [
+      "烟台山",
+      "冰心纪念馆"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-yt-changdao",
+    "city": "烟台",
+    "province": "山东",
+    "title": "长岛旅游景区介绍",
+    "url": "https://tga.yantai.gov.cn/art/2017/2/13/art_6828_708310.html",
+    "allowed_hosts": [
+      "tga.yantai.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2017-02-13",
+    "entity_names": [
+      "长岛",
+      "九丈崖",
+      "月牙湾"
+    ],
+    "terms": [
+      "长岛",
+      "九丈崖"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-wh-liugongdao-tickets",
+    "city": "威海",
+    "province": "山东",
+    "title": "刘公岛预约与票价资料",
+    "url": "https://qsyxxgk.weihai.gov.cn/art/2026/4/20/art_85585_2871057.html",
+    "allowed_hosts": [
+      "qsyxxgk.weihai.gov.cn"
+    ],
+    "selector": ".art_con",
+    "published_at": "2026-04-20",
+    "entity_names": [
+      "刘公岛"
+    ],
+    "terms": [
+      "刘公岛"
+    ],
+    "city_aliases": [],
+    "source_kind": "official_snapshot",
+    "scope": "官方运营问答快照，出游日开放、票价及预约余量需再核实"
+  },
+  {
+    "id": "sd-wh-naxianghai",
+    "city": "威海",
+    "province": "山东",
+    "title": "那香海景区介绍",
+    "url": "https://www.naxianghai.com/content/about.aspx",
+    "allowed_hosts": [
+      "www.naxianghai.com"
+    ],
+    "selector": ".about-content, .about_txt, .about_cont, .content, #ContentPlaceHolder1_content",
+    "published_at": null,
+    "entity_names": [
+      "那香海",
+      "海驴岛",
+      "小五队抱海驿站"
+    ],
+    "terms": [
+      "那香海",
+      "海驴岛"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-zb-zhoucun",
+    "city": "淄博",
+    "province": "山东",
+    "title": "周村古商城景区与夜景特色",
+    "url": "https://www.zibo.gov.cn/art/2023/7/19/art_19722_2744387.html",
+    "allowed_hosts": [
+      "www.zibo.gov.cn"
+    ],
+    "selector": ".content",
+    "published_at": "2023-07-19",
+    "entity_names": [
+      "周村古商城"
+    ],
+    "terms": [
+      "周村古商城"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-zb-zhoucun-streets",
+    "city": "淄博",
+    "province": "山东",
+    "title": "周村古商城古街与民俗",
+    "url": "https://wh.zibo.gov.cn/art/2017/6/19/art_260_1606556.html",
+    "allowed_hosts": [
+      "wh.zibo.gov.cn"
+    ],
+    "selector": "#zoom, #zoomcon, .TRS_Editor",
+    "published_at": "2017-06-19",
+    "entity_names": [
+      "周村古商城",
+      "大街",
+      "丝市街",
+      "银子市街"
+    ],
+    "terms": [
+      "周村古商城",
+      "大街"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ly-canyon",
+    "city": "临沂",
+    "province": "山东",
+    "title": "萤火虫水洞与地下大峡谷介绍",
+    "url": "https://www.linyi.gov.cn/info/4748/345323.htm",
+    "allowed_hosts": [
+      "www.linyi.gov.cn"
+    ],
+    "selector": ".v_news_content",
+    "published_at": "2026-07-27",
+    "entity_names": [
+      "萤火虫水洞",
+      "地下大峡谷",
+      "生态蝴蝶谷"
+    ],
+    "terms": [
+      "萤火虫水洞",
+      "地下大峡谷"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ly-yunmeng",
+    "city": "临沂",
+    "province": "山东",
+    "title": "沂蒙山云蒙景区介绍",
+    "url": "https://wgxj.linyi.gov.cn/info/1494/52916.htm",
+    "allowed_hosts": [
+      "wgxj.linyi.gov.cn"
+    ],
+    "selector": ".v_news_content",
+    "published_at": "2024-03-25",
+    "entity_names": [
+      "沂蒙山",
+      "云蒙景区"
+    ],
+    "terms": [
+      "沂蒙山",
+      "云蒙景区"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ly-yunpudongtian",
+    "city": "临沂",
+    "province": "山东",
+    "title": "沂蒙云瀑洞天介绍",
+    "url": "https://www.linyi.gov.cn/info/4748/345324.htm",
+    "allowed_hosts": [
+      "www.linyi.gov.cn"
+    ],
+    "selector": ".v_news_content",
+    "published_at": "2026-07-27",
+    "entity_names": [
+      "沂蒙云瀑洞天",
+      "指动石",
+      "天蒙湖",
+      "通天峡"
+    ],
+    "terms": [
+      "沂蒙云瀑洞天",
+      "指动石"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-ly-mengshan",
+    "city": "临沂",
+    "province": "山东",
+    "title": "蒙山各游览区特色",
+    "url": "https://www.linyi.gov.cn/info/4748/209638.htm",
+    "allowed_hosts": [
+      "www.linyi.gov.cn"
+    ],
+    "selector": ".v_news_content",
+    "published_at": "2026-07-27",
+    "entity_names": [
+      "蒙山",
+      "龟蒙",
+      "云蒙",
+      "天蒙",
+      "彩蒙"
+    ],
+    "terms": [
+      "蒙山",
+      "龟蒙"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-qd-beijiushui",
+    "city": "青岛",
+    "province": "山东",
+    "title": "崂山北九水溪谷介绍",
+    "url": "https://www.qingdao.gov.cn/yfqd/qdwl/cjfw/wyqtsjd/202009/t20200910_521977.shtml",
+    "allowed_hosts": [
+      "www.qingdao.gov.cn"
+    ],
+    "selector": ".TRS_Editor, #zoom",
+    "published_at": "2020-09-10",
+    "entity_names": [
+      "北九水"
+    ],
+    "terms": [
+      "北九水"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-qd-erlongshan",
+    "city": "青岛",
+    "province": "山东",
+    "title": "崂山二龙山生态旅游区介绍",
+    "url": "https://www.qingdao.gov.cn/yfqd/qdwl/cjfw/wyqps/202009/t20200903_519806.shtml",
+    "allowed_hosts": [
+      "www.qingdao.gov.cn"
+    ],
+    "selector": ".TRS_Editor, #zoom",
+    "published_at": "2020-09-03",
+    "entity_names": [
+      "二龙山"
+    ],
+    "terms": [
+      "二龙山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-jn-jiurushan",
+    "city": "济南",
+    "province": "山东",
+    "title": "九如山山水与乡村游资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1495.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "九如山"
+    ],
+    "terms": [
+      "九如山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-jn-pingyin",
+    "city": "济南",
+    "province": "山东",
+    "title": "平阴玫瑰与农旅休闲资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1496.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "平阴",
+      "玫瑰"
+    ],
+    "terms": [
+      "平阴",
+      "玫瑰"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-ly-feixian",
+    "city": "临沂",
+    "province": "山东",
+    "title": "费县沂蒙乡村度假资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1497.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "费县",
+      "沂蒙"
+    ],
+    "terms": [
+      "费县",
+      "沂蒙"
+    ],
+    "city_aliases": [
+      "费县"
+    ],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-qd-laoshan-villages",
+    "city": "青岛",
+    "province": "山东",
+    "title": "崂山乡村赏花品茶资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1498.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "崂山"
+    ],
+    "terms": [
+      "崂山"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-wf-heritage",
+    "city": "潍坊",
+    "province": "山东",
+    "title": "潍坊山水风筝与文化游资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1499.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "潍坊"
+    ],
+    "terms": [
+      "潍坊"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-hz-peony-villages",
+    "city": "菏泽",
+    "province": "山东",
+    "title": "菏泽牡丹主题游览资料",
+    "url": "https://zhuanti.mct.gov.cn/csxz2022/shandong/detail/1500.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2022-04-25",
+    "entity_names": [
+      "中国牡丹园",
+      "驴聪聪亲子农场"
+    ],
+    "terms": [
+      "中国牡丹园",
+      "驴聪聪亲子农场"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-dz-film-villages",
+    "city": "德州",
+    "province": "山东",
+    "title": "德州影视与乡村游览特色",
+    "url": "https://zhuanti.mct.gov.cn/xcsshfghlxj/jpxl/detail/9164.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2025-07-24",
+    "entity_names": [
+      "乐陵影视城",
+      "千年枣林",
+      "德百杂技蟋蟀谷",
+      "德影城",
+      "华林园"
+    ],
+    "terms": [
+      "乐陵影视城",
+      "千年枣林"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "start_at": "二  线路亮点："
+  },
+  {
+    "id": "sd-lc-donge",
+    "city": "聊城",
+    "province": "山东",
+    "title": "东阿阿胶文化与景区体验",
+    "url": "https://zhuanti.mct.gov.cn/xcszbwg2022/shandong/detail/2043.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": null,
+    "entity_names": [
+      "阿胶世界",
+      "东阿药王山",
+      "东阿阿胶城"
+    ],
+    "terms": [
+      "阿胶世界",
+      "东阿药王山"
+    ],
+    "city_aliases": [
+      "东阿"
+    ],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "stop_before": "五、特色美食"
+  },
+  {
+    "id": "sd-hz-juye",
+    "city": "菏泽",
+    "province": "山东",
+    "title": "巨野金山与石寨历史游览",
+    "url": "https://zhuanti.mct.gov.cn/xcss2024_xcygj/shandong/detail/7272.html",
+    "allowed_hosts": [
+      "zhuanti.mct.gov.cn"
+    ],
+    "selector": ".article-cont",
+    "published_at": "2024-07-19",
+    "entity_names": [
+      "金山景区",
+      "前王庄石头寨",
+      "大汉不夜城",
+      "永丰塔",
+      "文庙"
+    ],
+    "terms": [
+      "金山景区",
+      "前王庄石头寨"
+    ],
+    "city_aliases": [
+      "巨野"
+    ],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "start_at": "二  线路亮点介绍：",
+    "stop_before": "四  特色美食和创意产品："
+  },
+  {
+    "id": "sd-bz-weishi",
+    "city": "滨州",
+    "province": "山东",
+    "title": "魏氏庄园历史建筑资料",
+    "url": "https://shandong-chorography.org/database/g0/section/47/article/38/",
+    "allowed_hosts": [
+      "shandong-chorography.org"
+    ],
+    "selector": "#original-content",
+    "published_at": null,
+    "entity_names": [
+      "魏氏庄园"
+    ],
+    "terms": [
+      "魏氏庄园"
+    ],
+    "city_aliases": [
+      "惠民"
+    ],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-hz-caozhou",
+    "city": "菏泽",
+    "province": "山东",
+    "title": "曹州牡丹园历史与园林特色",
+    "url": "https://shandong-chorography.org/database/bh/section/19/article/82/",
+    "allowed_hosts": [
+      "shandong-chorography.org"
+    ],
+    "selector": "#original-content",
+    "published_at": null,
+    "entity_names": [
+      "曹州牡丹园"
+    ],
+    "terms": [
+      "曹州牡丹园"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-lc-oldcity",
+    "city": "聊城",
+    "province": "山东",
+    "title": "聊城古城与运河历史景观",
+    "url": "https://shandong-chorography.org/database/liaocheng-prefecture/section/2/article/2/",
+    "allowed_hosts": [
+      "shandong-chorography.org"
+    ],
+    "selector": "#original-content",
+    "published_at": null,
+    "entity_names": [
+      "东昌湖",
+      "光岳楼",
+      "山陕会馆",
+      "海源阁",
+      "阳谷狮子楼"
+    ],
+    "terms": [
+      "东昌湖",
+      "光岳楼"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据",
+    "start_at": "聊城地区名胜古迹",
+    "stop_before": "被称为“五百里沃野”"
+  },
+  {
+    "id": "sd-rz-wanpingkou",
+    "city": "日照",
+    "province": "山东",
+    "title": "万平口海滨景观介绍",
+    "url": "https://rz.wenming.cn/csmp/202303/t20230324_8018396.html",
+    "allowed_hosts": [
+      "rz.wenming.cn"
+    ],
+    "selector": ".TRS_Editor, #zoom",
+    "published_at": "2023-03-24",
+    "entity_names": [
+      "万平口"
+    ],
+    "terms": [
+      "万平口"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  }
+]

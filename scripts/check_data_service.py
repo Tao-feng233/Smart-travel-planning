@@ -17,7 +17,7 @@ def result_data(result):
     return result.structuredContent or json.loads('\n'.join(part.text for part in result.content if part.type=='text'))
 
 
-async def check(live_poi=False):
+async def check(live_poi=False,shandong=False):
     evidence=[]
     parameters=StdioServerParameters(command=sys.executable,args=[str(ROOT/'app/mcp_server.py')],cwd=str(ROOT),env=mcp_environment())
     async with stdio_client(parameters) as (read,write):
@@ -33,6 +33,15 @@ async def check(live_poi=False):
                 ('成都','杜甫草堂学生购票优惠','2026-10-12','official-cd-dfct-tickets'),
                 ('西安','城墙的历史和建筑特色','2026-10-12','official-xa-citywall-background'),
             ]
+            if shandong:
+                cases.extend([
+                    ('济南','趵突泉和大明湖分别有什么游览特色','2026-10-12','sd-jn-firstspring'),
+                    ('泰安','泰山登山与岱庙历史建筑','2026-10-12','sd-ta-attractions'),
+                    ('曲阜','孔庙孔府孔林的历史文化与建筑','2026-10-12','mct-shandong:1427'),
+                    ('滨州','魏氏庄园的建筑和防御特色','2026-10-12','sd-bz-weishi'),
+                    ('日照','山海天海滨度假区有哪些景观特色','2026-10-12','mct-shandong:277'),
+                    ('威海','刘公岛门票预约规则','2026-10-12','sd-wh-liugongdao-tickets'),
+                ])
             for city,query,visit_date,expected in cases:
                 begin=time.perf_counter()
                 response=await session.call_tool('retrieve_guides',{'city':city,'query':query,'visit_date':visit_date})
@@ -55,7 +64,7 @@ async def check(live_poi=False):
                     assert result['status']=='available' and all(p['_data']['coordinate_system']=='GCJ-02' for p in result['items'])
                     evidence.append({'transport_query':arguments,'count':len(result['items']),
                                      'names':[p['name'] for p in result['items']]})
-    output={'status':'passed','knowledge':status,'checks':evidence,'live_poi':live_poi}
+    output={'status':'passed','knowledge':status,'checks':evidence,'live_poi':live_poi,'shandong':shandong}
     folder=ROOT/'data/runtime/data-service-validation';folder.mkdir(parents=True,exist_ok=True)
     (folder/'mcp-check.json').write_text(json.dumps(output,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(output,ensure_ascii=False,indent=2))
@@ -64,4 +73,6 @@ async def check(live_poi=False):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live-poi',action='store_true')
-    asyncio.run(check(parser.parse_args().live_poi))
+    parser.add_argument('--shandong',action='store_true',help='Also verify Shandong scenery, operating snapshots and county aliases')
+    args=parser.parse_args()
+    asyncio.run(check(args.live_poi,args.shandong))

@@ -1,0 +1,396 @@
+[
+  {
+    "id": "city:jinan",
+    "name": "济南",
+    "province": "山东",
+    "tags": [
+      "泉水",
+      "湖泊",
+      "山岳"
+    ],
+    "summary": "泉群、大明湖与山岳景观形成不同游览方向，可比较城市慢游和山水体验。",
+    "highlights": [
+      "趵突泉",
+      "大明湖",
+      "千佛山",
+      "九如山"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1415",
+        "sd-jn-firstspring",
+        "sd-jn-qianfoshan",
+        "sd-jn-spring-service",
+        "sd-jn-qianfoshan-area",
+        "sd-jn-jiurushan"
+      ]
+    }
+  },
+  {
+    "id": "city:taian",
+    "name": "泰安",
+    "province": "山东",
+    "tags": [
+      "山岳",
+      "历史文化",
+      "主题乐园"
+    ],
+    "summary": "以泰山和岱庙的山岳与历史文化为主，也可比较太阳部落等主题游览方向。",
+    "highlights": [
+      "泰山",
+      "岱庙",
+      "太阳部落",
+      "泰山石敢当"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1425",
+        "sd-ta-attractions",
+        "sd-ta-geopark",
+        "sd-ta-taishan"
+      ]
+    }
+  },
+  {
+    "id": "city:zibo",
+    "name": "淄博",
+    "province": "山东",
+    "tags": [
+      "古街",
+      "商埠文化",
+      "民俗"
+    ],
+    "summary": "周村古商城保存传统商埠街区，可围绕古街建筑与民俗文化安排游览。",
+    "highlights": [
+      "周村古商城"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:26552",
+        "sd-zb-zhoucun",
+        "sd-zb-zhoucun-streets"
+      ]
+    }
+  },
+  {
+    "id": "city:yantai",
+    "name": "烟台",
+    "province": "山东",
+    "tags": [
+      "海滨",
+      "海岛",
+      "历史文化"
+    ],
+    "summary": "蓬莱阁、烟台山和长岛分别提供历史文化、滨海城市与海岛体验，区域间需核对接驳。",
+    "highlights": [
+      "蓬莱阁",
+      "烟台山",
+      "长岛",
+      "南山景区"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1429",
+        "sd-yt-penglaige",
+        "sd-yt-yantaishan",
+        "sd-yt-changdao",
+        "mct-shandong:1422"
+      ]
+    }
+  },
+  {
+    "id": "city:weihai",
+    "name": "威海",
+    "province": "山东",
+    "tags": [
+      "海滨",
+      "海岛",
+      "近代历史"
+    ],
+    "summary": "刘公岛以近代历史与海岛景观见长，可与华夏城或荣成好运角的不同游览方向比较。",
+    "highlights": [
+      "刘公岛",
+      "威海华夏城",
+      "荣成好运角"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1419",
+        "sd-wh-liugongdao-tickets",
+        "mct-shandong:1404",
+        "mct-shandong:26470"
+      ]
+    }
+  },
+  {
+    "id": "city:jining",
+    "name": "济宁",
+    "province": "山东",
+    "tags": [
+      "儒家文化",
+      "历史建筑",
+      "湖泊"
+    ],
+    "summary": "三孔与微山湖代表儒家历史建筑和湖泊生态两类方向，分处不同县市，宜分别核对距离。",
+    "highlights": [
+      "三孔",
+      "孔庙",
+      "微山湖"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1427",
+        "mct-shandong:26320"
+      ]
+    }
+  },
+  {
+    "id": "city:weifang",
+    "name": "潍坊",
+    "province": "山东",
+    "tags": [
+      "古城",
+      "山水",
+      "文化展馆"
+    ],
+    "summary": "青州古城与浮烟山、麓台文化博物馆分属不同游览区域，可按古城或山水文化主题选择。",
+    "highlights": [
+      "青州古城",
+      "浮烟山",
+      "潍坊麓台文化博物馆"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1408",
+        "sd-wf-heritage"
+      ]
+    }
+  },
+  {
+    "id": "city:rizhao",
+    "name": "日照",
+    "province": "山东",
+    "tags": [
+      "海滨",
+      "休闲度假"
+    ],
+    "summary": "山海天旅游度假区提供滨海休闲方向，可围绕海岸景观进一步查询具体游览地点。",
+    "highlights": [
+      "山海天旅游度假区"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:277"
+      ]
+    }
+  },
+  {
+    "id": "city:zaozhuang",
+    "name": "枣庄",
+    "province": "山东",
+    "tags": [
+      "古城",
+      "运河文化"
+    ],
+    "summary": "台儿庄古城以运河文化和古城街区为主要特色，可作为历史文化与水城游览方向。",
+    "highlights": [
+      "台儿庄古城"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1417"
+      ]
+    }
+  },
+  {
+    "id": "city:dongying",
+    "name": "东营",
+    "province": "山东",
+    "tags": [
+      "湿地",
+      "河口",
+      "生态观察"
+    ],
+    "summary": "黄河口生态旅游区以河海交汇与湿地生态为特色，具体开放区域和季节条件需另行核实。",
+    "highlights": [
+      "黄河口生态旅游区"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1400"
+      ]
+    }
+  },
+  {
+    "id": "city:linyi",
+    "name": "临沂",
+    "province": "山东",
+    "tags": [
+      "山岳",
+      "峡谷",
+      "乡村休闲"
+    ],
+    "summary": "沂蒙山、地下大峡谷和云瀑洞天提供山岳、洞穴与乡村休闲方向，分散区域需核对通行时间。",
+    "highlights": [
+      "沂蒙山",
+      "地下大峡谷",
+      "沂蒙云瀑洞天",
+      "云蒙景区"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://lyfw.mct.gov.cn/site/special/province?pkey=shandong&type=0",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "mct-shandong:1412",
+        "sd-ly-canyon",
+        "sd-ly-yunmeng",
+        "sd-ly-yunpudongtian",
+        "mct-shandong:1392"
+      ]
+    }
+  },
+  {
+    "id": "city:dezhou",
+    "name": "德州",
+    "province": "山东",
+    "tags": [
+      "影视体验",
+      "乡村休闲",
+      "民俗文化"
+    ],
+    "summary": "乐陵影视城、千年枣林与杂技主题项目形成不同体验方向，不能视为同一城区的连续游览点。",
+    "highlights": [
+      "乐陵影视城",
+      "千年枣林",
+      "德百杂技蟋蟀谷"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://zhuanti.mct.gov.cn/xcsshfghlxj/jpxl/detail/9164.html",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "sd-dz-film-villages"
+      ]
+    }
+  },
+  {
+    "id": "city:heze",
+    "name": "菏泽",
+    "province": "山东",
+    "tags": [
+      "牡丹",
+      "园林",
+      "历史村落"
+    ],
+    "summary": "牡丹主题园林与巨野金山、石头寨可分别比较，赏花情况和季节活动需按出游日期核实。",
+    "highlights": [
+      "曹州牡丹园",
+      "中国牡丹园",
+      "金山景区",
+      "前王庄石头寨"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://shandong-chorography.org/database/bh/section/19/article/82/",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "sd-hz-caozhou",
+        "sd-hz-peony-villages",
+        "sd-hz-juye"
+      ]
+    }
+  },
+  {
+    "id": "city:liaocheng",
+    "name": "聊城",
+    "province": "山东",
+    "tags": [
+      "运河文化",
+      "历史建筑",
+      "文化体验"
+    ],
+    "summary": "东昌湖、光岳楼与山陕会馆形成古城和运河文化方向，东阿阿胶城属于另一游览区域。",
+    "highlights": [
+      "东昌湖",
+      "光岳楼",
+      "山陕会馆",
+      "东阿阿胶城"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://zhuanti.mct.gov.cn/xcszbwg2022/shandong/detail/2043.html",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "sd-lc-oldcity",
+        "sd-lc-donge"
+      ]
+    }
+  },
+  {
+    "id": "city:binzhou",
+    "name": "滨州",
+    "province": "山东",
+    "tags": [
+      "历史建筑",
+      "民俗文化"
+    ],
+    "summary": "惠民魏氏庄园保存庄园建筑与防御格局，可作为历史建筑主题的游览方向。",
+    "highlights": [
+      "魏氏庄园"
+    ],
+    "source": {
+      "name": "文化和旅游部及地方官方景区资料",
+      "url": "https://shandong-chorography.org/database/g0/section/47/article/38/",
+      "queried_at": "2026-10-08",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "sd-bz-weishi"
+      ]
+    }
+  }
+]
