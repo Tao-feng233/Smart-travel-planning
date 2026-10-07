@@ -72,6 +72,87 @@ async def route_options(a,b):
         return fallback
     return options
 
+def meal_allocation(route_minutes,requirements):
+    """餐次通行的统一口径：向上取整后的用时、缓冲与依据。
+
+    预检查（access.check）与规划阶段（本模块 meal()）都调用它，
+    避免"预检查说可以、生成时报超时"的前后不一致。
+    """
+    relaxed=(requirements or {}).get('pace')=='relaxed'
+    buffer=15 if relaxed else 10
+    minutes=round_up(max(0,route_minutes)+buffer)
+    return {'minutes':minutes,'buffer':minutes-max(0,route_minutes),
+            'basis':('较宽松节奏' if relaxed else '常规节奏')+'预留'+str(buffer)+'分钟机动，向上取整到5分钟'}
+
+def route_allocation(route_minutes,requirements):
+    """景点间通行的统一口径：与 meal_allocation 同一规则，供各处复用。"""
+    return meal_allocation(route_minutes,requirements)
+
+def build_budget(w,plan,start,days):
+    """把费用分成"已核实金额 / 估计范围 / 未知项"三类，不把起价当已确认金额。
+
+    * verified：口径与金额都已确认，可直接相加（本期只有用户确认过的报价）。
+    * estimated：带区间与依据的估算，例如列表起价 × 晚数 × 房间数。
+    * unknown：缺少费用依据的项目，明确记未核实，不记零。
+    单价与总量不混用：estimated 只放区间，不做"起价当成应付总额"的表述。
+    """
+    r=w.get('requirements') or {}
+    hotel=w.get('hotel') or {}
+    room=w.get('selected_room') or {}
+    rooms=int(r.get('rooms') or 1)
+    # 报价覆盖的晚数：以 checkIn/checkOut 为准；没有就算不出口径。
+    conditions=hotel.get('query_conditions') or {}
+    quoted_nights=None
+    try:
+        checkin=date.fromisoformat(conditions['checkIn']);checkout=date.fromisoformat(conditions['checkOut'])
+        if checkout>checkin:quoted_nights=(checkout-checkin).days
+    except (KeyError,ValueError,TypeError):quoted_nights=None
+    # 实际需要的晚数：入住当晚到最后一天退房；没有返程班次时按游玩天数估算并标待确认。
+    return_time=(w.get('selected_return') or {}).get('departure','')[:10]
+    try:
+        check_in=date.fromisoformat(conditions.get('checkIn') or start.isoformat())
+        check_out=date.fromisoformat(return_time) if return_time else start+timedelta(days=days)
+        stay_nights=max(0,(check_out-check_in).days)
+    except (ValueError,TypeError):
+        check_in=start;stay_nights=max(0,days-1)
+    budget={'unit':'CNY','rooms':rooms,'nights':stay_nights,'quoted_nights':quoted_nights,
+            'verified':[],'estimated':[],'unknown':[],'basis':'','hotel_reference':None,
+            'selected_room_quote':room.get('price') if room else None}
+    unit=room.get('price') if room.get('price') not in (None,'') else hotel.get('price')
+    if unit not in (None,''):
+        nightly=float(unit)
+        total=nightly*stay_nights*rooms
+        covered=quoted_nights is not None and quoted_nights>=stay_nights
+        budget['estimated'].append({'item':'住宿','low':total,'high':total,'nights':stay_nights,'rooms':rooms,
+                                    'unit_price':nightly,'unit_basis':'每间每晚' if room else '列表起价',
+                                    'coverage':'已选房型报价' if room else '酒店列表起价',
+                                    'status':'estimated',
+                                    'basis':('已选房型报价' if room else '酒店列表起价')+' × '+str(stay_nights)+' 晚 × '+str(rooms)+' 间；'
+                                            +('报价覆盖本次入住日期' if covered else '报价覆盖日期与本次入住不一致，需核实延住或换房')})
+        budget['hotel_reference']=total
+        budget['basis']=budget['estimated'][0]['basis']
+        budget['status']='estimated'
+        if not covered:budget['notes']=['住宿报价未覆盖全部入住晚数，总额需重新确认后才可作为依据']
+    else:
+        budget['unknown'].append({'item':'住宿','reason':'尚未取得可用报价或房型单价','status':'unknown'})
+        budget['basis']='住宿费用尚未确认'
+        budget['status']='unknown'
+    for item,reason in [('往返交通','仅选定班次与席别，票价、儿童规则尚未核实'),
+                        ('门票实际日期及适用票种','区间最低价不等于指定日期金额'),
+                        ('餐饮','已选餐厅只形成人均估计，非结账金额'),
+                        ('市内交通','路线为查询时预计值，费用未核算'),
+                        ('额外项目','购物、保险、行李等未计入')]:
+        budget['unknown'].append({'item':item,'reason':reason,'status':'unknown'})
+    if room.get('price') in (None,'') and room:
+        budget['notes']=budget.get('notes',[])+['已选房型未提供具体报价，当前住宿估算来自酒店列表起价']
+    budget['per_person']=None
+    budget['per_person_note']='人均预算口径需先确认参与人数与费用分摊范围，本期只给已明确口径的合计估算'
+    budget['adults']=int(r.get('adults') or 0);budget['children']=int(r.get('children') or 0)
+    if budget['adults'] and budget['hotel_reference'] is not None:
+        budget['per_person']=round(budget['hotel_reference']/budget['adults'],2)
+        budget['per_person_note']='仅按住宿列表起价估算除以成人数，不含儿童规则，不能当作人均总预算'
+    return budget
+
 def choose_route(options,requirements):
     valid=[x for x in options if x.get('available')]
     if not valid: return None
@@ -146,6 +227,7 @@ async def _generate(w, progress):
     # 站点与机场实体由协调者定位：只有在已取得坐标时才纳入路线查询，
     # 否则不查询、也不猜，由 time_policy 输出带依据的待核实估计。
     return_source=w.get('selected_return');arrival_source=w.get('selected_transport')
+    return_status=journey.return_date_status(w)
     arrival_hub=time_policy.station_place(w,arrival_source,'arrival_station') if arrival_source else None
     return_hub=time_policy.station_place(w,return_source,'departure_station') if return_source else None
     arrival_hub_key=None
@@ -163,6 +245,15 @@ async def _generate(w, progress):
     computed=[]
     scheduled_meals=set()
     day_notes=[];day_ready={}
+    # 被跳过的景点只用本地列表记录，不写进工作区：否则中途抛错时
+    # 这个内部字段会随 storage.save 落库，下次生成又混进旧条目。
+    # 旧版本可能已经把该字段写进存储，这里一并清掉。
+    w.pop('_day_skips',None)
+    day_skips=[]
+    if return_status['status']!='confirmed':
+        # 未确认的返程日期不写进硬约束，只在口径说明里保留待确认状态。
+        day_notes.append('返程日期待确认：'+return_status['basis']
+                         +('；当前按 '+return_status['date']+' 预留返程日。' if return_status['date'] else '。'))
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
         if p:
@@ -175,7 +266,7 @@ async def _generate(w, progress):
                 reason='各方式均未返回方案' if options and all(x.get('status')=='no_route' for x in options) else '坐标或路线接口尚未核实'
                 raise DataError('从'+last['name']+'到'+p['name']+'的通行未能核实（'+reason+'），请更新位置或重试查询，也可调整本餐安排。',
                                 {'date':dt,'meal_period':period,'candidate_ids':[last['id'],p['id']],'view':'food','route_options':options,'phase':'route'})
-            allocation=round_up(chosen['minutes']+15)
+            allocation=meal_allocation(chosen['minutes'],r)['minutes']
             events.append({'kind':'route','name':'从'+last['name']+'前往'+p['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':[chosen],'buffer':allocation-chosen['minutes'],'note':'前往已选用餐地点，含规划缓冲。'})
             t+=allocation
         elif p and not last:raise DataError('缺少前往已选餐厅的出发位置，请确定住宿或改为自行安排后生成。')
@@ -211,6 +302,11 @@ async def _generate(w, progress):
             return_plan['station']={'id':return_hub['id'],'name':return_hub['name'],'location':return_hub.get('location'),'location_status':return_hub.get('location_status')} if return_hub else None
             if hub_leg:return_plan['route']=hub_leg
             return_cutoff=time_policy.return_cutoff(return_time.hour*60+return_time.minute,return_plan)
+            if return_status['status']!='confirmed':
+                # 未确认的返程日期只是待确认建议：截止时刻不是已核实条件。
+                return_plan['status']=time_policy.STATUS_NEEDS_CHECK
+                return_plan['unverified']=list(return_plan.get('unverified') or [])+['返程日期尚未确认，'+return_status['basis']]
+                day_notes.append(d['date']+' 返程日期待确认：'+return_status['basis']+'；计划书按该建议预留，确认班次后需重新生成。')
             day_notes.append(d['date']+' 返程准备：'+time_policy.transfer_note(return_plan))
         if transport and transport.get('departure','')[:10]==d['date'] and transport.get('arrival','')[:10]==d['date']:
             events.append({'kind':'transport','name':'乘坐'+transport['name']+'前往'+r['city'],'start':transport['departure'][-5:],'end':transport['arrival'][-5:],'note':'请注意核实出发时刻、车站或机场及席别；请携带并保管好身份证件。','source':transport.get('source')})
@@ -263,7 +359,7 @@ async def _generate(w, progress):
                 due_limit=min(due_limit,return_cutoff)
             elif any(x.get('period')=='evening' for x in d['items']):due_limit=max(due_limit,22*60)
             if due_limit-t-return_alloc-30<0:
-                w['_day_skips']=w.get('_day_skips',[])+[{'date':d['date'],'name':p['name'],'reason':'当日剩余时间不足'}]
+                day_skips.append({'date':d['date'],'name':p['name'],'reason':'当日剩余时间不足'})
                 continue
             if item.get('period') in ('afternoon','evening') and t<12*60 and not lunch:
                 events.append({'kind':'free','name':'自由活动与休息','start':clock(t),'end':'12:00','note':'为午餐及后续游玩时段保留弹性时间。'})
@@ -275,8 +371,7 @@ async def _generate(w, progress):
                 if not opts and last.get('kind')=='food':opts=await route_options(last,p)
                 chosen=choose_route(opts,r)
                 if chosen:
-                    base_buffer=15 if r.get('pace')=='relaxed' else 10
-                    allocation=round_up(chosen['minutes']+base_buffer);buffer=allocation-chosen['minutes']
+                    allocation=route_allocation(chosen['minutes'],r);buffer=allocation['buffer']
                     events.append({'kind':'route','name':'从'+last['name']+'前往'+p['name'],'start':clock(t),'end':clock(t+chosen['minutes']+buffer),
                                    'route':chosen,'options':opts,'buffer':buffer,'note':f'另留{buffer}分钟规划缓冲，非实测等待'})
                     t+=chosen['minutes']+buffer
@@ -299,7 +394,7 @@ async def _generate(w, progress):
                     warnings.append(d['date']+' 的'+p['name']+'游玩时长按当日时间从'+str(duration)+'分钟调整为'+str(int(room))+'分钟；如需完整游览请调整住宿位置、顺序或班次。')
                     duration=max(30,int(room))
                 else:
-                    w['_day_skips']=w.get('_day_skips',[])+[{'date':d['date'],'name':p['name'],'reason':'当日剩余时间不足以容纳最短游览时长'}]
+                    day_skips.append({'date':d['date'],'name':p['name'],'reason':'当日剩余时间不足以容纳最短游览时长'})
                     continue
             if w.get('visit_requests',{}).get(p['id'],{}).get('period')=='morning' and t+duration>12*60:raise DataError(p['name']+'的上午安排与当日交通或其他活动冲突，请减少活动或调整时段。')
             if w.get('visit_requests',{}).get(p['id'],{}).get('period')=='afternoon' and t+duration>18*60:raise DataError(p['name']+'的下午安排时间不足，请调整当日活动或游玩时段。')
@@ -386,6 +481,7 @@ async def _generate(w, progress):
     plan['time_policy']={'unit':time_policy.UNITS,'timezone':time_policy.TIMEZONE,
                          'schema_version':time_policy.SCHEMA_VERSION,
                          'arrival':arrival_policy,'return':return_policy,
+                         'return_date_status':return_status,
                          'notes':day_notes}
     for key,value in w.get('meal_choices',{}).items():
         if value.get('mode')=='chosen' and key not in scheduled_meals:
@@ -395,32 +491,29 @@ async def _generate(w, progress):
                                     +(f'（{food_name}）' if food_name else '')
                                     +'未能放入当前日程，请结合抵达和返程时间调整。')
     # 当日时间不足而被跳过的景点必须点名，不能静默消失。
-    for skip in w.pop('_day_skips',[]) or []:
+    for skip in day_skips:
         plan['warnings'].append(skip['date']+' 的'+skip['name']+'未放入当天行程（'+skip['reason']+'）；已保留该选择，可调整日期、顺序、住宿位置或班次后重新生成。')
     plan['warnings']+=validate_plan(plan,r)+journey.selection_assessment(w)['messages']
     if transport:plan['todos'].insert(0,'请注意核实去程'+transport.get('name','班次')+'与返程'+(w.get('selected_return') or {}).get('name','班次')+'的最终时刻、车站或机场及席别。')
     plan['packing'].insert(0,'请携带并妥善保管身份证件、手机和支付工具；出发前检查证件是否有效。')
     plan['warnings']+=['景点出游日期的开放/预约窗口与当前拥挤程度尚未全面核实。','游玩、用餐、休息和缓冲时长为建议值；地图路线为查询时预计值。',
                        '往返交通、酒店入住条件与房型总价未全部确认时，本计划为待完善草稿。']
-    if hotel and hotel.get('price') is not None:
-        nights=max(0,(date.fromisoformat((hotel.get('query_conditions') or {}).get('checkOut') or (start+timedelta(days=days)).isoformat())-start).days); rooms=int(r.get('rooms') or 1)
-        plan['budget']={'hotel_reference':float(hotel['price'])*nights*rooms,'nights':nights,'rooms':rooms,
-                        'basis':'列表起价 × 晚数 × 房间数，仅参考，不是已确认住宿总价',
-                        'unknown':['往返交通','门票实际日期及适用票种','餐饮','市内交通','额外项目']}
-    else:plan['budget']={'hotel_reference':None,'unknown':['住宿','往返交通','门票','餐饮','市内交通']}
+    if return_status['status']!='confirmed':
+        plan['warnings'].insert(0,'返程日期尚未确认：'+return_status['basis']
+                                +('；本计划按 '+return_status['date']+' 预留返程日，确认或调整返程后请重新生成。' if return_status['date'] else '；请先确定返程日期。'))
+        plan['return_date_status']=return_status
+    plan['budget']=build_budget(w,plan,start,days)
     plan['selected_room']=w.get('selected_room')
     plan['meal_choices']=w.get('meal_choices',{})
     checkout=(hotel or {}).get('query_conditions',{}).get('checkOut')
     if checkout and return_time and checkout!=return_time.date().isoformat():plan['warnings'].append('住宿报价截至'+checkout+'，返程为'+return_time.date().isoformat()+'；请确认是否需要延住、提前退房或寄存行李，当前房型报价未覆盖日期变化。')
     if w.get('selected_room'):
         plan['warnings'].extend(w['selected_room'].get('review',{}).get('issues',[]))
-        plan['budget']['selected_room_quote']=w['selected_room'].get('price')
-        plan['budget']['basis']=plan['budget'].get('basis','住宿费用尚未确认')+'；已选房型报价单独展示，报价覆盖的日期与总额需核实'
     for key in ('selected_transport','selected_return'):
         if (w.get(key) or {}).get('selection_status')=='recommended':plan['warnings'].append('推荐交通班次尚待用户确认。')
     budget_limit=r.get('budget')
-    if budget_limit and plan['budget']['hotel_reference'] is not None and plan['budget']['hotel_reference']>float(budget_limit):
-        plan['warnings'].append('仅住宿起价参考已超出总预算，需重新选择；其他费用尚未计入。')
+    if budget_limit and plan['budget'].get('hotel_reference') is not None and plan['budget']['hotel_reference']>float(budget_limit):
+        plan['warnings'].append('仅住宿列表起价估算已超出总预算，需重新选择；其他费用尚未计入。')
     progress('审核助手正在复核用户要求、来源和计划书遗漏')
     try:
         review_prompt=('你是独立审核助手。检查给定旅游草稿是否遗漏用户要求、是否不当地把建议当事实、是否存在时间/位置风险。'
