@@ -608,6 +608,20 @@ async def _generate(w, progress):
     arrival_policy,return_policy=publish_time_policy(day_ready)
     plan={'title':draft.get('title') or r['city']+'旅行计划','summary':'','days':computed,'created':now(),
           'packing':draft.get('packing',[]),'todos':draft.get('todos',[]),'guides':guides,'warnings':warnings,'stale':False,'usage':usage}
+    # 逐晚住宿随计划一起交给业务层：多酒店行程必须逐晚可见，不能只报一家。
+    # 注意：循环变量不能叫 hotel，否则会覆盖本函数前面用于容量与预算的 hotel。
+    from . import stay_plan
+    stay_hotels=[]
+    for stay_day,stay_id in stay_plan.assignment_map(w).items():
+        stay_hotel=(w.get('catalog') or {}).get(stay_id) or ({'id':stay_id} if stay_id else None)
+        if stay_hotel:
+            stay_hotels.append({'date':stay_day,'hotel_id':stay_hotel.get('id'),'name':stay_hotel.get('name'),
+                                'address':stay_hotel.get('address'),
+                                'is_primary':stay_hotel.get('id')==(w.get('hotel') or {}).get('id')})
+    if stay_hotels:
+        plan['stay_hotels']=stay_hotels
+        note=stay_plan.multi_stay_note(w)
+        if note:plan['warnings'].append(note)
     # 时间口径随计划一起交给业务层与展示层：同一输入不再各算一套。
     plan['time_policy']={'unit':time_policy.UNITS,'timezone':time_policy.TIMEZONE,
                          'schema_version':time_policy.SCHEMA_VERSION,

@@ -454,6 +454,7 @@ async def handle(w,action,args,progress):
         cid=args.get('id');p=w['catalog'].get(cid)
         if not p:raise DataError('候选不存在或已失效，请重新查询')
         if p.get('stale'):raise DataError('候选日期或人数条件已经变化，请重新查询后选择')
+        answer_extra=''
         if p['kind']=='spot':
             w['spots_confirmed']=False
             removed=cid in w['selected_spots']
@@ -462,18 +463,36 @@ async def handle(w,action,args,progress):
             else:raise DataError('当前选择已超过120个地点，请先确定优先级后分段规划')
         elif p['kind']=='food':return foods.select_meal(w,{**args,'food_id':cid})
         elif p['kind']=='hotel':
-            if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
-            w['hotel']=dict(p);w['stay_skipped']=False
+            from . import stay_plan
+            # 逐晚选择：带了夜晚就是这一晚的酒店，没带则作为主住宿并覆盖未分配的夜晚。
+            stay_dates=[d for d in (args.get('stay_dates') or ([args['stay_date']] if args.get('stay_date') else []))]
+            if stay_dates:
+                assigned=stay_plan.assign(w,p['id'],stay_dates)
+                if not assigned:raise DataError('这些日期不在本次住宿夜晚内，请选择住宿安排中的日期。')
+                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
+                if not w.get('hotel'):w['hotel']=dict(p)
+                answer_extra='已把'+('、'.join(assigned))+' 的住宿设为 '+p['name']+'。'
+            else:
+                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
+                w['hotel']=dict(p)
+                stay_plan.assign(w,p['id'])
+                answer_extra=''
+            w['stay_skipped']=False
+            w['stay_hotels']=w.get('stay_hotels') or {}
         elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
         elif p['kind']=='hotel':
             detail=p.get('detail') or {}
+            from . import stay_plan as _stay
+            leaves=_stay.unassigned(w);spread=_stay.multi_stay_note(w)
             if detail.get('availability_status')=='no_availability':
                 # 查过且供应商没有可售房型：不能只回"已选酒店"就结束，要给出下一步。
-                answer=f'已选择住宿：{p["name"]}。但'+enrichment.room_availability_message(detail)
+                answer=answer_extra+'已选择住宿：'+p["name"]+'。但'+enrichment.room_availability_message(detail)
             else:
-                answer=f'已选择住宿：{p["name"]}。请展开房型详情，选择具体报价后点击“完成住宿选择”。选定仅用于规划，尚未预订。'
+                answer=answer_extra+'已选择住宿：'+p["name"]+'。请展开房型详情，选择具体报价后点击“完成住宿选择”。选定仅用于规划，尚未预订。'
+            if leaves:answer+='\n还有'+str(len(leaves))+' 晚沿用主住宿（'+'、'.join(leaves)+'）；想每晚分开住可以点对应夜晚的“住这家”。'
+            if spread:answer+='\n'+spread
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer

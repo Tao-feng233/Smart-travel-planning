@@ -168,10 +168,33 @@ def dinner_options(w, day, hotel):
     return result
 
 
+def assignment_map(w):
+    """逐晚最终分配：显式分配优先，未分配的夜晚用主住宿补齐。"""
+    stays = w.get('stay_hotels') or {}
+    primary = (w.get('hotel') or {}).get('id')
+    return {day: (stays.get(day) or primary) for day in nights(w)}
+
+
+def stay_hotel_ids(w):
+    """本次住宿实际用到的酒店 ID（按夜晚顺序去重）。"""
+    return [h for h in dict.fromkeys(assignment_map(w).values()) if h]
+
+
+def multi_stay_note(w):
+    """跨酒店住宿的如实提示：换酒店当天要退房并带行李转场。"""
+    used = stay_hotel_ids(w)
+    if len(used) <= 1:
+        return None
+    return ('本次住宿跨 '+str(len(used))+' 家酒店，换酒店当天需要先办理退房并把行李带到下一个住宿；'
+            '行程已按此预留转场，如需少搬一次可把相邻夜晚改成同一家。')
+
+
 def plan(w):
     """住宿编排总览：每晚一行，含锚点、依据、查询参数与晚餐顺路建议。"""
     r = w.get('requirements') or {}
     rows = []
+    assignments = assignment_map(w)
+    primary_id = (w.get('hotel') or {}).get('id')
     for day in nights(w):
         anchor, basis = day_closure(w, day)
         next_day_early = False
@@ -192,11 +215,44 @@ def plan(w):
                      'anchor_basis': basis,
                      'anchor_is_station': bool(station),
                      'query_index': None, 'queried_at': None, 'candidate_ids': [],
+                     'hotel_id': assignments.get(day), 'is_primary': (assignments.get(day) == primary_id),
                      'dinner_hint': dinner_options(w, day, None) if anchor else []})
     return {'nights': [x['date'] for x in rows], 'rows': rows,
             'return_departure': (return_departure(w) or (None, None))[0].isoformat() if return_departure(w) else None,
+            'primary_hotel_id': primary_id, 'unassigned': unassigned(w),
             'note': ('返程当天不安排住宿；最后一晚只到返程前一天。'
                      if return_departure(w) else '尚未选定返程班次，暂按游玩日最后一天作为最后一晚。')}
+
+
+def assign(w, hotel_id, days=None):
+    """把某家酒店分配给指定夜晚；不指定夜晚时清理该酒店的逐晚分配。
+
+    逐晚分配是权威来源，w['hotel'] 只保留为"主住宿"，供默认分配与旧调用方使用。
+    返回实际分配的夜晚列表；传入不在住宿夜晚内的日期直接报错，
+    不能静默丢弃（否则用户以为改成了、实际没改）。
+    """
+    from .providers import DataError
+    stays = dict(w.get('stay_hotels') or {})
+    order = nights(w)
+    if days is None:
+        for day in [d for d, hid in stays.items() if hid == hotel_id]:
+            stays.pop(day, None)
+    else:
+        unknown = [d for d in days if d not in order]
+        if unknown:
+            raise DataError('这些日期不在本次住宿夜晚内：'+ '、'.join(unknown)
+                            + ('；本次住宿夜晚为'+ '、'.join(order) if order else '；当前没有需要住宿的夜晚')
+                            + '。请选择住宿安排里的日期。')
+        for day in days:
+            stays[day] = hotel_id
+    w['stay_hotels'] = stays
+    return [d for d in order if stays.get(d) == hotel_id]
+
+
+def unassigned(w):
+    """还没有专属酒店（只能靠主住宿兜底）的夜晚。"""
+    stays = w.get('stay_hotels') or {}
+    return [d for d in nights(w) if not stays.get(d)]
 
 
 def row_for(w, day):

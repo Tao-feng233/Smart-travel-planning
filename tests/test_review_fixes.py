@@ -528,6 +528,60 @@ def test_elders_is_accepted_into_requirements_for_pacing():
     assert 'invented_field' not in w['requirements']
 
 
+def test_per_night_hotel_selection_and_plan_lists_every_night():
+    """逐晚各选一家酒店：分配可查、计划书逐晚列出、跨酒店给出搬行李提示。"""
+    from app import agent, planning, stay_plan
+    w = workspace(days=3, spots=('s1',))
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'morning'}}
+    w['catalog']['hA'] = {'id': 'hA', 'kind': 'hotel', 'name': 'A酒店', 'location': '120.30,36.00'}
+    w['catalog']['hB'] = {'id': 'hB', 'kind': 'hotel', 'name': 'B酒店', 'location': '120.40,36.10'}
+    nights = stay_plan.nights(w)
+    assert len(nights) == 3
+    # 选 A 作为主住宿：未分配的夜晚都由它兜底
+    asyncio.run(agent.handle(w, 'select', {'id': 'hA'}, lambda _: None))
+    assert w['hotel']['id'] == 'hA'
+    assert set(stay_plan.assignment_map(w).values()) == {'hA'}
+    # 单独把中间那晚改成 B
+    reply = asyncio.run(agent.handle(w, 'select', {'id': 'hB', 'stay_date': nights[1]}, lambda _: None))
+    assert nights[1] in reply and 'B酒店' in reply
+    assert stay_plan.assignment_map(w)[nights[1]] == 'hB'
+    assert stay_plan.assignment_map(w)[nights[0]] == 'hA'
+    assert stay_plan.stay_hotel_ids(w) == ['hA', 'hB']
+    # 只有中间那晚有专属酒店，其余两晚靠主住宿兜底（不是"没有酒店"）
+    assert w['stay_hotels'] == {nights[1]: 'hB'}
+    assert stay_plan.unassigned(w) == [nights[0], nights[2]]
+    # 计划书逐晚列出住宿，并提示跨酒店需要转场
+    plan = {'days': [], 'warnings': [], 'todos': [], 'packing': [], 'guides': []}
+    stay_hotels = [{'date': d, 'hotel_id': hid, 'name': (w['catalog'][hid]['name'])}
+                   for d, hid in stay_plan.assignment_map(w).items()]
+    assert [x['hotel_id'] for x in stay_hotels] == ['hA', 'hB', 'hA']
+    note = stay_plan.multi_stay_note(w)
+    assert note and '退房' in note and '2 家酒店' in note
+    # 不在住宿夜晚内的日期要被拒绝，不能静默接受
+    with pytest.raises(Exception):
+        asyncio.run(agent.handle(w, 'select', {'id': 'hB', 'stay_date': '2030-01-01'}, lambda _: None))
+
+
+def test_plan_carries_stay_hotels_without_breaking_other_warnings(monkeypatch, tmp_path):
+    """计划书带上逐晚住宿；同时不能因为新增字段而丢掉既有的报价日期警告。"""
+    from app import planning
+    w = workspace(days=2, day_end='22:00', spots=('s1',))
+    w['hotel'] = {'id': 'hA', 'kind': 'hotel', 'name': 'A酒店', 'location': '120.30,36.00',
+                  'query_conditions': {'checkIn': D1, 'checkOut': '2026-10-13'}}
+    w['catalog']['hA'] = w['hotel']
+    w['selected_return'] = {'id': 'b', 'kind': 'train', 'name': 'G322',
+                            'departure': '2026-10-14 11:22', 'arrival': '2026-10-14 15:09',
+                            'selection_status': 'confirmed', 'source': SRC}
+    allocation = {'title': 't', 'days': [{'date': D1, 'items': [{'candidate_id': 's1', 'duration': 90}]}],
+                  'packing': [], 'todos': []}
+    install(monkeypatch, tmp_path, allocation, route_minutes=lambda o, d: 15)
+    plan = asyncio.run(planning.generate(w, lambda _: None))
+    assert [x['date'] for x in plan['stay_hotels']] == [D1, D2]
+    assert all(x['hotel_id'] == 'hA' for x in plan['stay_hotels'])
+    # 报价只到 10-13 而返程是 10-14：既有警告必须还在（变量遮蔽曾让它消失）
+    assert any('住宿报价截至' in x for x in plan['warnings']), plan['warnings']
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
