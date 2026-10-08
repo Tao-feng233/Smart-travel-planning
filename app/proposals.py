@@ -199,7 +199,11 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                                          'view':'spot','phase':'proposal','capacity':capacity(w,overloaded[0]),
                                          'available_dates':[d['date'] for d in repaired if d['date']!=overloaded[0]]})
                 if time_context:raise DataError(time_context['date']+'的活动与'+('返程冲突' if time_context['direction']=='return' else '去程到达时间冲突')+'，修订后仍无法容纳建议游玩时长。请调整相关景点日期、时段或班次。',time_context)
-                raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
+                # 用户看到的是结果，不是程序内部口径：说清发生了什么、数据没丢、下一步做什么。
+                raise DataError('这次的行程组合还没能排定：景点日期或往返班次之间有冲突，'
+                                '调整两次后仍放不下。你已经选的景点、住宿和班次都保留着，没有丢。'
+                                '可以点“重新生成”再排一版，或先改一下景点日期、减少一个景点、'
+                                '换个班次，也可以延长游玩日期后重排。',errors)
             progress('正在根据候选与日期校验结果修订草稿')
             messages.extend([{'role':'assistant','content':raw or '{}'}, {'role':'user','content':json.dumps({'validation_errors':errors,'allowed_ids':sorted(allowed_ids),'allowed_dates':allowed_tour},ensure_ascii=False)}])
         for key,n in used.items():

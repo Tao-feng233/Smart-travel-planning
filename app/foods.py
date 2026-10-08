@@ -39,11 +39,15 @@ def binding_method_label(choice):
 
 
 def spot_intent(w,spot_id):
-    """景点当前安排的日期与时段：visit_requests 是用户明确要求，优先于模型建议。"""
+    """景点当前安排的日期与时段，并标明来源级别（与成员二的三级命名对齐）。
+
+    user_explicit     用户在对话里明确给出的日期或时段，优先；
+    system_suggestion 模型/程序推算的建议日期，仅在用户未指定时采用。
+    """
     request=(w.get('visit_requests') or {}).get(spot_id)
-    if request and request.get('date'):return {'date':request['date'],'period':request.get('period','any'),'source':'user'}
+    if request and request.get('date'):return {'date':request['date'],'period':request.get('period','any'),'source':'user_explicit'}
     suggestion=((w.get('catalog') or {}).get(spot_id) or {}).get('visit_suggestion') or {}
-    if suggestion.get('date'):return {'date':suggestion['date'],'period':suggestion.get('period','any'),'source':'suggestion'}
+    if suggestion.get('date'):return {'date':suggestion['date'],'period':suggestion.get('period','any'),'source':'system_suggestion'}
     return {'date':None,'period':'any','source':None}
 
 

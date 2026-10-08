@@ -178,6 +178,46 @@ async def generate(w, progress):
         progress('时间衔接未通过，正在保留已选班次与明确安排、调整可变顺序后重新核对')
         return await _generate({**w,'planning_feedback':str(e)},progress)
 
+def stage_identity(w):
+    """规划阶段的输入身份：同一份身份可以复用已生成的计划，身份一变即失效。
+
+    供任务层（Worker）判断阶段复用，而不是重跑整轮模型调用。身份只由"会影响
+    排程结果的选择"构成，不含草稿与进度等过程字段；被选实体用 ID 表示，位置与
+    时刻这类会改变耗时的字段单独列出，避免只比 ID 导致"换了位置的同一家酒店
+    仍复用旧的时间口径"。
+    """
+    r=w.get('requirements') or {}
+    def entity(key):
+        p=w.get(key) or {}
+        return {'id':p.get('id'),'location':p.get('location'),'departure':p.get('departure'),
+                'arrival':p.get('arrival'),'selection_status':p.get('selection_status')}
+    return json.dumps({
+        'requirements':{k:r.get(k) for k in ('city','origin','start_date','days','end_date',
+                                             'return_date','outbound_date','adults','children',
+                                             'child_ages','rooms','budget','pace','transport_mode',
+                                             'day_start','day_end','preferences','food_preferences',
+                                             'hard_constraints','local_trip')},
+        'selected_spots':sorted(w.get('selected_spots') or []),
+        'visit_requests':{k:{'date':v.get('date'),'period':v.get('period')}
+                          for k,v in (w.get('visit_requests') or {}).items() if isinstance(v,dict)},
+        'visit_order':list(w.get('visit_order') or []),
+        'meal_choices':{k:{'mode':v.get('mode'),'food_id':v.get('food_id'),'binding':v.get('binding'),
+                           'binding_method':v.get('binding_method'),'bind_spot_id':v.get('bind_spot_id')}
+                        for k,v in (w.get('meal_choices') or {}).items() if isinstance(v,dict)},
+        'meal_mode':w.get('meal_mode'),
+        'hotel':entity('hotel'),'selected_room':(w.get('selected_room') or {}).get('id'),
+        'selected_transport':entity('selected_transport'),'selected_return':entity('selected_return'),
+    },ensure_ascii=False,sort_keys=True)
+
+def stage_reusable(w,stage):
+    """已保存的阶段结果是否仍适用于当前工作区：身份一致才可复用。
+
+    复用必须同时满足身份一致且阶段确实产出了计划；不满足就要重跑，不能拿
+    旧条件的结果冒充新结果。
+    """
+    if not isinstance(stage,dict) or not stage.get('identity'):return False
+    return stage.get('identity')==stage_identity(w) and bool(stage.get('has_plan'))
+
 async def _generate(w, progress):
     r=w['requirements']; catalog=w.get('catalog',{})
     spots=[catalog[i] for i in w['selected_spots'] if i in catalog]
@@ -574,6 +614,12 @@ async def _generate(w, progress):
                          'arrival':arrival_policy,'return':return_policy,
                          'return_date_status':return_status,
                          'notes':day_notes}
+    # 阶段身份随计划一起落库：任务层据此判断能否复用本阶段，不必重跑模型调用。
+    plan['stage']={'action':'plan','identity':stage_identity(w),'has_plan':True,
+                   'produces':'plan','depends_on':['requirements','selected_spots','visit_requests',
+                                                   'visit_order','meal_choices','hotel','selected_room',
+                                                   'selected_transport','selected_return'],
+                   'created':plan['created']}
     # 整合分支新增：把游玩强度分配的提醒一并带出。
     plan['selection_notices']=visit_analysis.notices(w,[{**item,'date':d['date']} for d in groups for item in d['items']])
     # 跟随餐次的受影响状态：只提示需要调整，绝不自动挪期。

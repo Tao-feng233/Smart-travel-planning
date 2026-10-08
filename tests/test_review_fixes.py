@@ -268,6 +268,85 @@ def test_day_end_is_the_single_deadline_including_return_cutoff():
     assert schedule.meal_window(w, D2, 'dinner')[1] <= schedule.day_end(w, D2)
 
 
+def test_spot_intent_uses_three_level_date_source_names():
+    """日期三级来源与成员二对齐：user_explicit / system_suggestion，不用旧字面值。"""
+    from app import foods, visits
+    w = workspace(days=2, spots=('s1',))
+    # 用户明确指定优先
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    intent = foods.spot_intent(w, 's1')
+    assert intent['source'] == 'user_explicit' and intent['date'] == D1
+    # 无用户指定时落到系统建议
+    w2 = workspace(days=2, spots=('s1',))
+    w2['catalog']['s1']['visit_suggestion'] = {'date': D2, 'period': 'afternoon'}
+    suggested = foods.spot_intent(w2, 's1')
+    assert suggested['source'] == 'system_suggestion' and suggested['date'] == D2
+    # 两者都无
+    w3 = workspace(days=2, spots=('s1',))
+    assert foods.spot_intent(w3, 's1') == {'date': None, 'period': 'any', 'source': None}
+    # 旧字面值不得再出现
+    import inspect
+    source = inspect.getsource(foods.spot_intent)
+    assert "'user'" not in source and "'suggestion'" not in source
+
+
+def test_plan_rejection_message_is_layman_and_keeps_data():
+    """成员二请求：排程失败提示不能出现"草稿/校验"这类内部口径，且要说清数据没丢。"""
+    import inspect
+    from app import proposals
+    source = inspect.getsource(proposals)
+    assert '行程草稿未通过候选/日期校验' not in source
+    assert '景点日期或往返班次之间有冲突' in source
+    assert '没有丢' in source
+    # 给出可执行动作，而不是只说"请重新生成"
+    assert '重新生成' in source and ('减少一个景点' in source or '换个班次' in source)
+
+
+def test_stage_identity_changes_with_planning_inputs():
+    """阶段复用：同一份输入身份一致，任一影响排程的选择一变即失效。"""
+    from app import planning
+    base = workspace(days=2, back=D2 + ' 16:00', spots=('s1', 's2'))
+    first = planning.stage_identity(base)
+    assert first == planning.stage_identity(workspace(days=2, back=D2 + ' 16:00', spots=('s1', 's2')))
+    assert planning.stage_reusable(base, {'identity': first, 'has_plan': True}) is True
+
+    # 身份未变但阶段没有产出计划：不能复用
+    assert planning.stage_reusable(base, {'identity': first, 'has_plan': False}) is False
+    assert planning.stage_reusable(base, None) is False
+
+    for label, mutate in (
+        ('换酒店', lambda w: w.update(hotel={'id': 'h2', 'kind': 'hotel', 'location': '120.60,36.30'})),
+        ('改节奏', lambda w: w['requirements'].update(pace='packed')),
+        ('改结束时刻', lambda w: w['requirements'].update(day_end='20:00')),
+        ('增减景点', lambda w: w.update(selected_spots=['s1'])),
+        ('改景点日期', lambda w: w.update(visit_requests={'s1': {'date': D2, 'period': 'morning'}})),
+        ('改餐次', lambda w: w.update(meal_choices={D1 + '|lunch': {'mode': 'chosen', 'food_id': 'f1'}})),
+        ('换班次', lambda w: w['selected_return'].update(departure=D2 + ' 18:00')),
+        ('班次改推荐态', lambda w: w['selected_return'].update(selection_status='recommended')),
+    ):
+        changed = workspace(days=2, back=D2 + ' 16:00', spots=('s1', 's2'))
+        mutate(changed)
+        assert planning.stage_identity(changed) != first, label
+        assert planning.stage_reusable(changed, {'identity': first, 'has_plan': True}) is False, label
+
+
+def test_generated_plan_carries_stage_identity(monkeypatch, tmp_path):
+    """生成的计划必须带上阶段身份，任务层才能据此复用。"""
+    from app import planning
+    w = workspace(days=1, day_end='22:00', spots=('s1',), back=D1 + ' 20:00')
+    allocation = {'title': 't', 'days': [{'date': D1, 'items': [{'candidate_id': 's1', 'duration': 120}]}],
+                  'packing': [], 'todos': []}
+    install(monkeypatch, tmp_path, allocation, route_minutes=lambda o, d: 20)
+    plan = asyncio.run(planning.generate(w, lambda _: None))
+    stage = plan['stage']
+    assert stage['action'] == 'plan' and stage['identity'] == planning.stage_identity(w)
+    assert stage['has_plan'] is True and 'hotel' in stage['depends_on']
+    assert planning.stage_reusable(w, stage) is True
+    # 计划生成后工作区再改选择，旧阶段立即失效
+    w['selected_spots'] = []
+    assert planning.stage_reusable(w, stage) is False
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
