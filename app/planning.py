@@ -241,24 +241,32 @@ async def _generate(w, progress):
     for source,mode in ((arrival_source,'arrival'),(return_source,'return')):
         if source is not None:
             await time_policy.resolve_station(w,source,mode,r.get('city'),local_tool)
+    # 站点实体必须在解析之后再取，否则说明会误报"尚未查询/未取得坐标"。
     arrival_hub=time_policy.station_place(w,arrival_source,'arrival_station') if arrival_source else None
     return_hub=time_policy.station_place(w,return_source,'departure_station') if return_source else None
     if arrival_source is not None:
-        hub_note=time_policy.station_candidate_note(arrival_source,'arrival')
-        if hub_note:notes_head.append(hub_note)
+        notes_head.append(time_policy.station_candidate_note(arrival_source,'arrival',arrival_hub))
     if return_source is not None:
-        hub_note=time_policy.station_candidate_note(return_source,'return')
-        if hub_note:notes_head.append(hub_note)
+        notes_head.append(time_policy.station_candidate_note(return_source,'return',return_hub))
     arrival_hub_key=None
     if base and arrival_hub and arrival_hub.get('location'):
         arrival_hub_key=(arrival_hub['id'],base['id']);all_pairs[arrival_hub_key]=(arrival_hub,base)
-    return_stop_key=None
+    new_stop_key=None
     for d in groups:
         items=[catalog[x['candidate_id']] for x in d['items'] if x['candidate_id'] in catalog]
         stop=items[-1] if items else base
         if return_hub and return_hub.get('location') and stop and stop.get('location'):
-            all_pairs[(stop['id'],return_hub['id'])]=(stop,return_hub)
-            if stop is not base:return_stop_key=stop['id']
+            if stop is not base:new_stop_key=stop['id']
+    # 返程日当天可能先返回酒店、再用餐：最终位置常常是酒店而不是末站景点。
+    # 规划阶段在这种日子一定会以"返回酒店"结束，所以准备时间必须按酒店→车站算，
+    # 否则会按景点→车站少留一大截（复核报告 P2）。酒店不可用或当天不回酒店时才退回末站。
+    if base and base.get('location') and return_hub and return_hub.get('location'):
+        return_stop_key=base['id']
+        all_pairs[(base['id'],return_hub['id'])]=(base,return_hub)
+    else:
+        return_stop_key=new_stop_key
+        if return_stop_key and return_hub and return_hub.get('location'):
+            all_pairs[(return_stop_key,return_hub['id'])]=(catalog[return_stop_key],return_hub)
     sem=asyncio.Semaphore(3)
     async def pair(k,ab):
         async with sem:return k,await route_options(*ab)
@@ -270,11 +278,13 @@ async def _generate(w, progress):
     # 当日循环，但计划书必须带上正确的准备时长，不能退回兜底值。
     if arrival:
         ready=time_policy.arrival_ready(arrival_source,
-                                        (choose_route(routes.get(arrival_hub_key,[]),r) or {}).get('minutes'))
+                                        (choose_route(routes.get(arrival_hub_key,[]),r) or {}).get('minutes'),
+                                        endpoint_confirmed=(arrival_hub or {}).get('location_status')=='verified')
         day_ready[arrival.date().isoformat()]={'ready':ready,'preparation':None}
     if return_time:
         hub_leg=choose_route(routes.get((return_stop_key,return_hub['id']),[]),r) if (return_stop_key and return_hub) else None
-        preparation=time_policy.return_preparation(return_source,hub_leg['minutes'] if hub_leg else None)
+        preparation=time_policy.return_preparation(return_source,hub_leg['minutes'] if hub_leg else None,
+                                                   endpoint_confirmed=(return_hub or {}).get('location_status')=='verified')
         if return_hub:
             preparation['station']={'id':return_hub['id'],'name':return_hub['name'],
                                     'location':return_hub.get('location'),
@@ -289,6 +299,22 @@ async def _generate(w, progress):
     # 旧版本可能已经把该字段写进存储，这里一并清掉。
     w.pop('_day_skips',None)
     day_skips=[]
+    # 本轮的时间口径必须在任何判断之前写回工作区：容量、选餐窗口与冲突检查都
+    # 通过 w['time_policy'] 读取它。否则同一轮里一部分用本轮新算的值、另一部分
+    # 用上一次生成的旧值或 120 分钟兜底（复核报告 P3）。
+    from .schedule import policy_identity as schedule_identity
+    def publish_time_policy(policy_ready):
+        arrival_policy={dt:{**v['ready'],'transport_id':(arrival_source or {}).get('id'),
+                            'identity':schedule_identity(w,dt,'arrival')}
+                        for dt,v in policy_ready.items() if v.get('ready')}
+        return_policy={dt:{**v['preparation'],'transport_id':(return_source or {}).get('id'),
+                           'identity':schedule_identity(w,dt,'return')}
+                       for dt,v in policy_ready.items() if v.get('preparation')}
+        w['time_policy']={'unit':time_policy.UNITS,'timezone':time_policy.TIMEZONE,
+                          'schema_version':time_policy.SCHEMA_VERSION,
+                          'arrival':arrival_policy,'return':return_policy}
+        return arrival_policy,return_policy
+    publish_time_policy(day_ready)
     if return_status['status']!='confirmed':
         # 未确认的返程日期不写进硬约束，只在口径说明里保留待确认状态。
         day_notes.append('返程日期待确认：'+return_status['basis']
@@ -327,12 +353,21 @@ async def _generate(w, progress):
         arrival_ready=None;return_plan=None;return_cutoff=None
         if arrival and d['date']==arrival.date().isoformat():
             transport_leg=choose_route(routes.get(arrival_hub_key,[]),r) if arrival_hub_key else None
-            arrival_ready=time_policy.arrival_ready(transport,transport_leg['minutes'] if transport_leg else None)
+            arrival_ready=time_policy.arrival_ready(transport,transport_leg['minutes'] if transport_leg else None,
+                                                   endpoint_confirmed=(arrival_hub or {}).get('location_status')=='verified')
             day_notes.append(d['date']+' 抵达日准备：'+time_policy.transfer_note(arrival_ready,'前往首站或住宿'))
         if return_time and d['date']==return_time.date().isoformat():
             stop=next((catalog[x['candidate_id']] for x in reversed(d['items']) if x['candidate_id'] in catalog),None) or base
-            hub_leg=choose_route(routes.get((stop['id'],return_hub['id']),[]),r) if stop and return_hub and return_hub.get('location') else None
-            return_plan=time_policy.return_preparation(return_source,hub_leg['minutes'] if hub_leg else None)
+            # 起终点必须与预扫一致：当天会先回酒店时，末站到车站的路线查不到也不该
+            # 退回兜底值，否则会把预扫算好的准备时间覆盖掉（复核报告 P2）。
+            hub_leg=None
+            if return_hub and return_hub.get('location'):
+                for origin in (base if return_stop_key==(base or {}).get('id') else stop,stop,base):
+                    if not origin or not origin.get('location'):continue
+                    hub_leg=choose_route(routes.get((origin['id'],return_hub['id']),[]),r)
+                    if hub_leg:break
+            return_plan=time_policy.return_preparation(return_source,hub_leg['minutes'] if hub_leg else None,
+                                                      endpoint_confirmed=(return_hub or {}).get('location_status')=='verified')
             return_plan['station']={'id':return_hub['id'],'name':return_hub['name'],'location':return_hub.get('location'),'location_status':return_hub.get('location_status')} if return_hub else None
             if hub_leg:return_plan['route']=hub_leg
             return_cutoff=time_policy.return_cutoff(return_time.hour*60+return_time.minute,return_plan)
@@ -522,10 +557,7 @@ async def _generate(w, progress):
         day_notes.append(return_time.date().isoformat()+' 返程准备：'+time_policy.transfer_note(preparation))
     # 统一时间结果写回工作区：时间轴、餐次与预检查复用同一份口径。
     # 记录班次 ID，班次一改就不能复用旧准备时长。
-    arrival_policy={dt:{**v['ready'],'transport_id':(arrival_source or {}).get('id')} for dt,v in day_ready.items() if v.get('ready')}
-    return_policy={dt:{**v['preparation'],'transport_id':(return_source or {}).get('id')} for dt,v in day_ready.items() if v.get('preparation')}
-    w['time_policy']={'unit':time_policy.UNITS,'timezone':time_policy.TIMEZONE,'schema_version':time_policy.SCHEMA_VERSION,
-                      'arrival':arrival_policy,'return':return_policy}
+    arrival_policy,return_policy=publish_time_policy(day_ready)
     plan={'title':draft.get('title') or r['city']+'旅行计划','summary':'','days':computed,'created':now(),
           'packing':draft.get('packing',[]),'todos':draft.get('todos',[]),'guides':guides,'warnings':warnings,'stale':False,'usage':usage}
     # 时间口径随计划一起交给业务层与展示层：同一输入不再各算一套。

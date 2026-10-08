@@ -93,31 +93,46 @@ def arrival_ready(transport, route_minutes, exit_minutes=None, buffer_minutes=No
     组成：到达时刻 + 出站/取行李估计 + 到首站或住宿的路线 + 机动。
     ``route_minutes`` 为 None 表示路线尚未核实。
     """
+def arrival_ready(transport, route_minutes, exit_minutes=None, buffer_minutes=None, endpoint_confirmed=False):
+    """抵达后可以开始活动的最早时刻（相对班次到达时刻的分钟数）。
+
+    组成：到达时刻 + 出站/取行李估计 + 到首站或住宿的路线 + 机动。
+    ``route_minutes`` 为 None 表示路线尚未核实。
+    只有"路线已查到"且"终端已确认"时才给 verified：出站与机动本身是估计值，
+    单凭一段道路耗时不能证明整套准备要求已核实（复核报告 P5）。
+    """
     exit_minutes = EXIT_AND_BAGGAGE_MINUTES if exit_minutes is None else int(exit_minutes)
     buffer_minutes = DEFAULT_CONNECTION_BUFFER_MINUTES if buffer_minutes is None else int(buffer_minutes)
     unverified = []
     route_known = route_minutes is not None
     route_minutes = 0 if route_minutes is None else int(route_minutes)
     if route_known:
-        # 关键依据齐备：出站估计 + 实查路线 + 机动，逐项可核对。
         total = route_minutes + exit_minutes + buffer_minutes
         parts = ['到达时刻', f'出站与取行李估计{exit_minutes}分钟',
                  f'到首站或住宿道路耗时{route_minutes}分钟', f'接驳机动{buffer_minutes}分钟']
+        unverified.append(f'出站与取行李按{exit_minutes}分钟估计、接驳机动按{buffer_minutes}分钟估计，均为可调整值')
+        if not endpoint_confirmed:
+            unverified.append('站点或机场终端尚未由用户或承运方确认，路线耗时按候选坐标估算')
     else:
         # 缺站点坐标或路线结果：保留原有保守估计，但必须标为待核实，
         # 不把未知当零，也不声称已经核实。
         total = FALLBACK_ARRIVAL_BUFFER_MINUTES
         parts = ['到达时刻', f'出站、接驳与到首站路线合计按{FALLBACK_ARRIVAL_BUFFER_MINUTES}分钟保守估计（沿用旧口径待替换）']
         unverified.append('站点或机场到首站/住宿的道路耗时尚未查询')
-    status = STATUS_VERIFIED if not unverified else STATUS_NEEDS_CHECK
+    # 终端未确认属于"待核实"（会改变接驳起终点），只有它确认后剩下的估计值才算"估计"。
+    if not route_known or not endpoint_confirmed:status=STATUS_NEEDS_CHECK
+    elif not unverified:status=STATUS_VERIFIED
+    else:status=STATUS_ESTIMATED
     return _result(total, status, '；'.join(parts), unverified)
 
 
-def return_preparation(transport, route_minutes, wait_minutes=None, buffer_minutes=None):
+def return_preparation(transport, route_minutes, wait_minutes=None, buffer_minutes=None, endpoint_confirmed=False):
     """返程日需要提前多少分钟从最后一项活动离开，才能赶上返程班次。
 
     组成：末站/末点到车站或机场的道路耗时 + 候车/值机要求 + 机动。
     ``route_minutes`` 为 None 表示末点到车站的路线尚未核实。
+    候车/值机是拟定的估计值、终端也可能尚未确认，因此这两种情况下整体保持
+    待核实，只有路线与终端都已核对才给 verified（复核报告 P5）。
     """
     mode = transport_mode(transport)
     default_wait, wait_basis = wait_requirement(mode)
@@ -131,12 +146,19 @@ def return_preparation(transport, route_minutes, wait_minutes=None, buffer_minut
         parts = [f'末站到车站或机场道路耗时{route_minutes}分钟',
                  ('值机' if mode == MODE_FLIGHT else '候车') + f'{wait_minutes}分钟（{wait_basis}）',
                  f'接驳机动{buffer_minutes}分钟']
+        unverified.append(('值机' if mode == MODE_FLIGHT else '候车')+f'{wait_minutes}分钟按'+wait_basis+'估计，'
+                          '承运方实际要求需出行前确认')
+        if not endpoint_confirmed:
+            unverified.append('车站或机场终端尚未由用户或承运方确认，路线耗时按候选坐标估算')
     else:
         # 原有固定"提前120分钟"仅作缺依据时的兜底，并明确标为待核实。
         total = FALLBACK_PREPARATION_MINUTES
         parts = [f'末站到车站、候车或值机与机动合计按{FALLBACK_PREPARATION_MINUTES}分钟保守估计（沿用旧口径待替换）']
         unverified.append('最后一站到车站或机场的道路耗时尚未查询')
-    status = STATUS_VERIFIED if not unverified else STATUS_NEEDS_CHECK
+    # 终端未确认属于"待核实"（会改变接驳起终点），只有它确认后剩下的估计值才算"估计"。
+    if not route_known or not endpoint_confirmed:status=STATUS_NEEDS_CHECK
+    elif not unverified:status=STATUS_VERIFIED
+    else:status=STATUS_ESTIMATED
     return _result(total, status, '；'.join(parts), unverified)
 
 
@@ -204,15 +226,25 @@ def station_candidate(transport,mode):
     _,_,prefix=STATION_KEYS[mode]
     return (transport or {}).get(prefix+'_station_candidate')
 
-def station_candidate_note(transport,mode):
-    """站点候选是"地图文本匹配"，不是承运方确认的端点：必须如实说明。"""
-    candidate=station_candidate(transport,mode) or {}
-    name=candidate.get('name') or (transport or {}).get(STATION_KEYS[mode][1]) or '车站或机场'
-    if not candidate.get('location'):
-        return '站点定位：'+str(name)+'未取得可用坐标，接驳只能按待核实估计预留'
-    scope={'primary':'主出入口','terminal':'航站楼','access_point':'进出站点'}.get(candidate.get('endpoint_scope'),'地图地点')
-    return ('站点定位：'+str(name)+'按地图文本匹配取到坐标（'+str(scope)+'），'
-            '尚未由用户或承运方确认终端，接驳耗时按该坐标估算')
+def station_candidate_note(transport,mode,place=None):
+    """站点坐标来源说明：区分已有坐标、查询无结果、尚未查询三种情况。
+
+    传入本轮实际采用的站点实体（place）时以它为准，避免"用了工作区已有坐标
+    却提示未取得坐标"（复核报告 S2）。坐标存在也不等于终端已由承运方确认。
+    """
+    _,key,_=STATION_KEYS[mode]
+    fallback_name=(transport or {}).get(key) or '车站或机场'
+    label=str((place or {}).get('name') or fallback_name)
+    if place and place.get('location'):
+        status=place.get('location_status')
+        if status=='verified':
+            return '站点定位：'+label+'使用已核对的坐标；接驳耗时为查询结果，终端是否与承运方一致仍需出行前确认'
+        scope={'primary':'主出入口','terminal':'航站楼','access_point':'进出站点'}.get(place.get('endpoint_scope'),'地图地点')
+        return ('站点定位：'+label+'按地图文本匹配取到坐标（'+str(scope)+'），'
+                '尚未由用户或承运方确认终端，接驳耗时按该坐标估算')
+    if station_is_resolved(transport,mode):
+        return '站点定位：'+label+'未取得可用坐标，接驳只能按待核实估计预留'
+    return '站点定位：'+label+'尚未查询坐标，接驳只能按待核实估计预留'
 
 async def resolve_station(w, transport, mode, city, tool):
     """通过数据服务的交通地点工具取站点坐标候选，并写回班次记录。

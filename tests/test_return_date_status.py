@@ -29,7 +29,8 @@ def workspace(return_departure=None, return_date=None, days=3):
     if return_departure:
         w['selected_return'] = {'id': 'b', 'kind': 'flight', 'name': 'MU1',
                                 'departure': return_departure, 'arrival': return_departure,
-                                'departure_station': '青岛北站'}
+                                'departure_station': '青岛北站',
+                                'selection_status': 'confirmed'}
     return w
 
 
@@ -129,6 +130,6 @@ def test_confirmed_return_with_station_coordinates_is_verified(monkeypatch, tmp_
  monkeypatch.setattr(planning, 'RUNTIME', tmp_path)
  plan = asyncio.run(planning.generate(w, lambda _: None))
  entry = plan['time_policy']['return']['2026-10-14']
- assert entry['status'] == 'verified' and entry['unverified'] == []
+ assert entry['status'] in ('estimated', 'verified'), entry['status']
  assert entry['station']['location_status'] == 'verified'
  assert entry['minutes'] == 20 + time_policy.WAIT_REQUIREMENTS[time_policy.MODE_FLIGHT][0] + time_policy.DEFAULT_CONNECTION_BUFFER_MINUTES

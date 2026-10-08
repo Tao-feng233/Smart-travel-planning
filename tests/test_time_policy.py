@@ -89,14 +89,22 @@ def test_unknown_route_is_marked_needs_check_not_zero():
  assert unknown['status']==time_policy.STATUS_NEEDS_CHECK
  assert unknown['unverified'] and '尚未查询' in unknown['unverified'][0]
  assert unknown['minutes']>0,'未知不能当成零耗时'
- verified=time_policy.return_preparation({'kind':'train','name':'G2259'},25)
- assert verified['status']==time_policy.STATUS_VERIFIED and verified['unverified']==[]
+ # 查到路线但终端未确认：整段仍是估计，不能声称已核实（复核 P5）
+ estimated=time_policy.return_preparation({'kind':'train','name':'G2259'},25)
+ assert estimated['status']==time_policy.STATUS_NEEDS_CHECK and estimated['minutes']==25+30+20
+ assert any('终端' in x for x in estimated['unverified'])
+ # 终端已确认：候车/值机仍是估计值，所以仍带待核实项，但不影响分钟数
+ confirmed=time_policy.return_preparation({'kind':'train','name':'G2259'},25,endpoint_confirmed=True)
+ assert confirmed['minutes']==estimated['minutes']
+ assert any('承运方实际要求' in x for x in confirmed['unverified'])
+ assert confirmed['status'] in (time_policy.STATUS_ESTIMATED,time_policy.STATUS_VERIFIED)
 
 
 def test_arrival_ready_uses_queried_route_when_available():
  known=time_policy.arrival_ready({'kind':'train','name':'G1'},35)
  assert known['minutes']==35+time_policy.EXIT_AND_BAGGAGE_MINUTES+time_policy.DEFAULT_CONNECTION_BUFFER_MINUTES
- assert known['status']==time_policy.STATUS_VERIFIED
+ assert known['status']==time_policy.STATUS_NEEDS_CHECK,'终端未确认时不能声称已核实'
+ assert any('估计' in x for x in known['unverified'])
  fallback=time_policy.arrival_ready({'kind':'train','name':'G1'},None)
  assert fallback['status']==time_policy.STATUS_NEEDS_CHECK
  assert fallback['unverified']
@@ -107,7 +115,10 @@ def test_plan_publishes_single_time_policy_for_all_stages(monkeypatch,tmp_path):
  policy=plan['time_policy']
  assert policy['unit']=='minutes' and policy['timezone']=='Asia/Shanghai'
  assert policy['return']['2026-10-13']['minutes']==30+time_policy.WAIT_REQUIREMENTS[time_policy.MODE_FLIGHT][0]+time_policy.DEFAULT_CONNECTION_BUFFER_MINUTES
- assert policy['arrival']['2026-10-12']['status']==time_policy.STATUS_VERIFIED
+ # 站点坐标来自工作区里已核对的实体、路线也查到了；但出站与机动仍是估计值，
+ # 所以本轮是 estimated：不能用一段道路耗时声称整套准备要求已核实（复核 P5）。
+ assert policy['arrival']['2026-10-12']['status']==time_policy.STATUS_ESTIMATED
+ assert any('估计' in x for x in policy['arrival']['2026-10-12']['unverified'])
  assert any('返程准备' in note for note in policy['notes'])
 
 
