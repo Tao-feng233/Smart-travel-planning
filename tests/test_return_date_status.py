@@ -9,7 +9,7 @@
 """
 import asyncio, json
 import pytest
-from app import journey, planning
+from app import journey, planning, time_policy
 
 
 def workspace(return_departure=None, return_date=None, days=3):
@@ -23,11 +23,13 @@ def workspace(return_departure=None, return_date=None, days=3):
          'selected_spots': ['s1', 's2'], 'catalog': cats, 'hotel': dict(cats['h1']),
          'meal_choices': {}, 'visit_requests': {}, 'messages': [], 'trace': [], 'warnings': {},
          'selected_transport': {'id': 'g', 'kind': 'train', 'name': 'G1',
-                                'departure': '2026-10-12 06:00', 'arrival': '2026-10-12 10:00'},
+                                'departure': '2026-10-12 06:00', 'arrival': '2026-10-12 10:00',
+                                'arrival_station': '青岛北站'},
          'selected_return': None}
     if return_departure:
         w['selected_return'] = {'id': 'b', 'kind': 'flight', 'name': 'MU1',
-                                'departure': return_departure, 'arrival': return_departure}
+                                'departure': return_departure, 'arrival': return_departure,
+                                'departure_station': '青岛北站'}
     return w
 
 
@@ -101,4 +103,32 @@ def test_confirmed_return_keeps_verified_cutoff(monkeypatch, tmp_path):
  assert 'return_date_status' not in plan, '只有未确认时才需要额外标注待确认状态'
  assert not any('返程日期尚未确认' in x for x in plan['warnings'])
  for entry in plan['time_policy']['return'].values():
-  assert entry['status'] == 'verified', '返程日期确认后，接驳准备不应再标待核实'
+  # 没有站点坐标时仍会因"接驳路线未核实"标待核实，但原因不能是返程日期未确认
+  assert all('返程日期尚未确认' not in reason for reason in entry.get('unverified',[]))
+
+
+def test_confirmed_return_with_station_coordinates_is_verified(monkeypatch, tmp_path):
+ """有站点坐标时，确认过的返程日接驳应给出已核实口径。"""
+ w = workspace(return_departure='2026-10-14 16:00')
+ w['catalog']['hub'] = {'id': 'hub', 'kind': 'station', 'name': '青岛北站',
+                        'location': '120.38,36.10', 'location_status': 'verified'}
+ alloc = draft_with_spots()
+ async def tool(name, args):
+  if name == 'retrieve_guides':
+   return {'items': []}
+  dest = str(args.get('destination') or ''); origin = str(args.get('origin') or '')
+  minutes = 20 if ('120.38' in dest or '120.38' in origin) else 15
+  return {'mode': args.get('mode'), 'available': True, 'status': 'ok', 'minutes': minutes,
+          'distance': 1800, 'polylines': []}
+ async def model(messages, **kw):
+  if '审核助手' in messages[0]['content']:
+   return {'content': json.dumps({'issues': [], 'summary': 'ok'})}, {}
+  return {'content': json.dumps(alloc)}, {}
+ monkeypatch.setattr(planning, 'local_tool', tool)
+ monkeypatch.setattr(planning, 'llm', model)
+ monkeypatch.setattr(planning, 'RUNTIME', tmp_path)
+ plan = asyncio.run(planning.generate(w, lambda _: None))
+ entry = plan['time_policy']['return']['2026-10-14']
+ assert entry['status'] == 'verified' and entry['unverified'] == []
+ assert entry['station']['location_status'] == 'verified'
+ assert entry['minutes'] == 20 + time_policy.WAIT_REQUIREMENTS[time_policy.MODE_FLIGHT][0] + time_policy.DEFAULT_CONNECTION_BUFFER_MINUTES

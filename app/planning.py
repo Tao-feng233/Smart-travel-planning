@@ -215,12 +215,6 @@ async def _generate(w, progress):
     progress('通过高德 MCP 比较步行、公交与驾车，检查时间衔接')
     hotel=w.get('hotel'); base=hotel if hotel and hotel.get('location') and not hotel.get('stale') else None
     all_pairs={};warnings=[]
-    return_time=None
-    if w.get('selected_return'):
-        try:
-            from datetime import datetime
-            return_time=datetime.fromisoformat(w['selected_return']['departure'].replace(' ','T'))
-        except (KeyError,ValueError):warnings.append('所选返程班次的出发时刻需核实。')
     for d in groups:
         seq=([base] if base else [])+[catalog[x['candidate_id']] for x in d['items']]+([base] if base else [])
         for a,b in zip(seq,seq[1:]):all_pairs[(a['id'],b['id'])]=(a,b)
@@ -229,6 +223,19 @@ async def _generate(w, progress):
     # 匹配、terminal_confirmed=false，只在计划说明里如实标注，不当成承运方确认。
     return_source=w.get('selected_return');arrival_source=w.get('selected_transport')
     return_status=journey.return_date_status(w)
+    # 班次时刻是硬条件，先解析出来：抵达与返程口径、当日循环都要用同一份。
+    arrival=None
+    if arrival_source:
+        try:
+            from datetime import datetime
+            arrival=datetime.fromisoformat(arrival_source['arrival'].replace(' ','T'))
+        except (KeyError,ValueError,TypeError):warnings.append('所选交通的到达时间格式需核实。')
+    return_time=None
+    if return_source:
+        try:
+            from datetime import datetime
+            return_time=datetime.fromisoformat(return_source['departure'].replace(' ','T'))
+        except (KeyError,ValueError,TypeError):warnings.append('所选返程班次的出发时刻需核实。')
     notes_head=[]
     progress('正在核对车站或机场位置，用于计算首尾日接驳时间')
     for source,mode in ((arrival_source,'arrival'),(return_source,'return')):
@@ -245,11 +252,13 @@ async def _generate(w, progress):
     arrival_hub_key=None
     if base and arrival_hub and arrival_hub.get('location'):
         arrival_hub_key=(arrival_hub['id'],base['id']);all_pairs[arrival_hub_key]=(arrival_hub,base)
+    return_stop_key=None
     for d in groups:
         items=[catalog[x['candidate_id']] for x in d['items'] if x['candidate_id'] in catalog]
         stop=items[-1] if items else base
         if return_hub and return_hub.get('location') and stop and stop.get('location'):
             all_pairs[(stop['id'],return_hub['id'])]=(stop,return_hub)
+            if stop is not base:return_stop_key=stop['id']
     sem=asyncio.Semaphore(3)
     async def pair(k,ab):
         async with sem:return k,await route_options(*ab)
@@ -257,6 +266,24 @@ async def _generate(w, progress):
     computed=[]
     scheduled_meals=set()
     day_notes=list(notes_head);day_ready={}
+    # 抵达日与返程日先按实查接驳算一次口径：这两天可能没有景点、不进入下面的
+    # 当日循环，但计划书必须带上正确的准备时长，不能退回兜底值。
+    if arrival:
+        ready=time_policy.arrival_ready(arrival_source,
+                                        (choose_route(routes.get(arrival_hub_key,[]),r) or {}).get('minutes'))
+        day_ready[arrival.date().isoformat()]={'ready':ready,'preparation':None}
+    if return_time:
+        hub_leg=choose_route(routes.get((return_stop_key,return_hub['id']),[]),r) if (return_stop_key and return_hub) else None
+        preparation=time_policy.return_preparation(return_source,hub_leg['minutes'] if hub_leg else None)
+        if return_hub:
+            preparation['station']={'id':return_hub['id'],'name':return_hub['name'],
+                                    'location':return_hub.get('location'),
+                                    'location_status':return_hub.get('location_status')}
+        if hub_leg:preparation['route']=hub_leg
+        if return_status['status']!='confirmed':
+            preparation['status']=time_policy.STATUS_NEEDS_CHECK
+            preparation['unverified']=list(preparation.get('unverified') or [])+['返程日期尚未确认，'+return_status['basis']]
+        day_ready[return_time.date().isoformat()]={'ready':None,'preparation':preparation}
     # 被跳过的景点只用本地列表记录，不写进工作区：否则中途抛错时
     # 这个内部字段会随 storage.save 落库，下次生成又混进旧条目。
     # 旧版本可能已经把该字段写进存储，这里一并清掉。
@@ -289,14 +316,9 @@ async def _generate(w, progress):
         scheduled_meals.add(dt+'|'+period)
         return events,t+duration,p or last
     if not base:warnings.append('未确定住宿位置，日程尚不包含住宿往返；选定酒店后请重新生成。')
-    transport=w.get('selected_transport'); arrival=None
+    transport=w.get('selected_transport')
     if not transport and r.get('origin'):
         warnings.append('尚未选择往返班次：每天开始时间是规划假设，不能保证到达日和返程日有完整游玩时间；确定班次后请重排。')
-    if transport:
-        try:
-            from datetime import datetime
-            arrival=datetime.fromisoformat(transport['arrival'].replace(' ','T'))
-        except (KeyError,ValueError): warnings.append('所选交通的到达时间格式需核实。')
     for d in groups:
         d['items'].sort(key=lambda item:{'morning':0,'any':1,'afternoon':2,'evening':3}.get(item.get('period','any'),1))
         t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=base; lunch=False
@@ -480,7 +502,24 @@ async def _generate(w, progress):
             events.append({'kind':'transport','name':'乘坐'+back.get('name','返程班次')+'返程','start':return_time.strftime('%H:%M'),'end':finish,'note':'请注意核实返程最终时刻、车站或机场及席别，提前准备身份证件。','source':back.get('source')})
         computed.append({'date':d['date'],'theme':d.get('theme','当日行程'),'events':events,'end':clock(t)})
         if arrival_ready or return_plan:
-            day_ready[d['date']]={'ready':arrival_ready,'preparation':return_plan}
+            # 当日循环用真实起终点算过接驳，比预填的兜底口径更准确，覆盖它。
+            entry=day_ready.get(d['date']) or {'ready':None,'preparation':None}
+            if arrival_ready:entry['ready']=arrival_ready
+            if return_plan:entry['preparation']=return_plan
+            day_ready[d['date']]=entry
+    # 抵达日/返程日若仍未记录（例如没有住宿可算接驳），用兜底口径补齐，
+    # 保证计划书一定带上首尾日的准备时长。
+    if arrival and arrival.date().isoformat() not in day_ready:
+        ready=time_policy.arrival_ready(arrival_source,None)
+        day_ready[arrival.date().isoformat()]={'ready':ready,'preparation':None}
+        day_notes.append(arrival.date().isoformat()+' 抵达日准备：'+time_policy.transfer_note(ready,'前往首站或住宿'))
+    if return_time and return_time.date().isoformat() not in day_ready:
+        preparation=time_policy.return_preparation(return_source,None)
+        if return_status['status']!='confirmed':
+            preparation['status']=time_policy.STATUS_NEEDS_CHECK
+            preparation['unverified']=list(preparation.get('unverified') or [])+['返程日期尚未确认，'+return_status['basis']]
+        day_ready[return_time.date().isoformat()]={'ready':None,'preparation':preparation}
+        day_notes.append(return_time.date().isoformat()+' 返程准备：'+time_policy.transfer_note(preparation))
     # 统一时间结果写回工作区：时间轴、餐次与预检查复用同一份口径。
     # 记录班次 ID，班次一改就不能复用旧准备时长。
     arrival_policy={dt:{**v['ready'],'transport_id':(arrival_source or {}).get('id')} for dt,v in day_ready.items() if v.get('ready')}
