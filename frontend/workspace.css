@@ -85,6 +85,8 @@ main{max-width:1660px;margin:auto;padding:0 26px 16px;display:grid;grid-template
 .stay-head strong{font-size:13px}
 .stay-head small{font-size:10px;color:var(--muted);line-height:1.6}
 .stay-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:start;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2,#f7f8fa)}
+/* 次日赶车那晚不允许沿用主住宿：给一个显眼的待选状态 */
+.stay-row.needs-hotel{border-color:#e6c9a8;background:#fdf6ec}
 .stay-date{display:flex;flex-direction:row;align-items:baseline;gap:6px;grid-column:1 / -1}
 .stay-date strong{font-size:12px}
 .stay-date small,.stay-anchor small,.stay-actions small{font-size:10px;color:var(--muted);line-height:1.5;display:block}

@@ -168,13 +168,6 @@ def dinner_options(w, day, hotel):
     return result
 
 
-def assignment_map(w):
-    """逐晚最终分配：显式分配优先，未分配的夜晚用主住宿补齐。"""
-    stays = w.get('stay_hotels') or {}
-    primary = (w.get('hotel') or {}).get('id')
-    return {day: (stays.get(day) or primary) for day in nights(w)}
-
-
 def stay_hotel_ids(w):
     """本次住宿实际用到的酒店 ID（按夜晚顺序去重）。"""
     return [h for h in dict.fromkeys(assignment_map(w).values()) if h]
@@ -190,11 +183,15 @@ def multi_stay_note(w):
 
 
 def plan(w):
-    """住宿编排总览：每晚一行，含锚点、依据、查询参数与晚餐顺路建议。"""
-    r = w.get('requirements') or {}
-    rows = []
-    assignments = assignment_map(w)
+    """住宿编排总览：每晚一行，含锚点、依据、逐晚分配到哪家酒店、晚餐顺路建议。
+
+    分配在这里一次算清，避免 plan 与 assignment_map 互相调用形成循环：
+    显式指定优先；未指定的夜晚用主住宿兜底，但"次日要赶早班车"的最后一晚不兜底
+    （主住宿在市区，第二天清早赶车不合适），该晚留给用户按车站附近另外选。
+    """
+    stays = w.get('stay_hotels') or {}
     primary_id = (w.get('hotel') or {}).get('id')
+    rows = []
     for day in nights(w):
         anchor, basis = day_closure(w, day)
         next_day_early = False
@@ -208,20 +205,54 @@ def plan(w):
                 anchor = dict(station)
                 anchor['_closure'] = 'station'
                 basis = '次日 ' + back[0].isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
+        # 赶车前一晚不沿用市区主住宿，否则用户会看到"系统替我选了个离车站很远的酒店"。
+        unsuitable = bool(station and station.get('name') and not stays.get(day))
+        explicit = stays.get(day)
+        if explicit:
+            hotel_id, source = explicit, 'explicit'
+        elif primary_id and not unsuitable:
+            hotel_id, source = primary_id, 'primary'
+        else:
+            hotel_id, source = None, 'unset'
         rows.append({'date': day, 'checkin': day,
                      'anchor_id': anchor.get('id') if anchor else None,
                      'anchor_name': anchor.get('name') if anchor else None,
                      'anchor_kind': (anchor or {}).get('_closure'),
                      'anchor_basis': basis,
                      'anchor_is_station': bool(station),
+                     'hotel_fallback_unsuitable': unsuitable,
                      'query_index': None, 'queried_at': None, 'candidate_ids': [],
-                     'hotel_id': assignments.get(day), 'is_primary': (assignments.get(day) == primary_id),
+                     'hotel_id': hotel_id, 'hotel_source': source,
+                     'is_primary': bool(hotel_id and hotel_id == primary_id),
                      'dinner_hint': dinner_options(w, day, None) if anchor else []})
     return {'nights': [x['date'] for x in rows], 'rows': rows,
             'return_departure': (return_departure(w) or (None, None))[0].isoformat() if return_departure(w) else None,
-            'primary_hotel_id': primary_id, 'unassigned': unassigned(w),
+            'primary_hotel_id': primary_id,
+            'unassigned': [x['date'] for x in rows if x['hotel_source'] != 'explicit'],
+            'needs_own_hotel': [x['date'] for x in rows if x['hotel_source'] == 'unset'],
             'note': ('返程当天不安排住宿；最后一晚只到返程前一天。'
                      if return_departure(w) else '尚未选定返程班次，暂按游玩日最后一天作为最后一晚。')}
+
+
+def _plan_rows(w):
+    """取已发布的编排行；没有就即时算一份，避免调用方依赖调用顺序。"""
+    rows = ((w.get('stay_plan') or {}).get('rows') or [])
+    return rows or plan(w)['rows']
+
+
+def hotel_assignments(w):
+    """逐晚住宿分配，并标明是"用户明确指定"还是"沿用主住宿"兜底。
+
+    用户只选一家酒店时，它覆盖未指定的夜晚是合理的，但界面不能把兜底显示成"已选"，
+    否则看起来像系统替他选了每一天。
+    """
+    return {row['date']: {'hotel_id': row.get('hotel_id'), 'source': row.get('hotel_source') or 'unset'}
+            for row in _plan_rows(w)}
+
+
+def assignment_map(w):
+    """逐晚最终酒店 ID（内部使用）：显式分配优先，未指定的夜晚用主住宿补齐。"""
+    return {day: item['hotel_id'] for day, item in hotel_assignments(w).items()}
 
 
 def assign(w, hotel_id, days=None):

@@ -669,6 +669,65 @@ def test_tuniu_uses_the_fallback_key_when_the_primary_fails(monkeypatch):
     assert tried == ['primary-key', 'fallback-key']
 
 
+def test_primary_hotel_covers_other_nights_but_is_labelled_as_inherited():
+    """只选一家酒店时，其余夜晚沿用主住宿，但必须标明是"沿用"而不是"已选"。"""
+    from app import stay_plan
+    w = workspace(days=5, spots=('s1',))
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'morning'}}
+    w['catalog']['hA'] = {'id': 'hA', 'kind': 'hotel', 'name': '市区酒店', 'location': '120.30,36.00'}
+    w['hotel'] = w['catalog']['hA']
+    plan = stay_plan.plan(w)
+    assert len(plan['rows']) == 5
+    # 每个夜晚都分到主住宿，但来源必须是 primary（界面据此显示"沿用主住宿"）
+    assert {r['hotel_source'] for r in plan['rows']} == {'primary'}
+    assert {r['hotel_id'] for r in plan['rows']} == {'hA'}
+    assert stay_plan.assignment_map(w) == {d: 'hA' for d in plan['nights']}
+    # 没有"已选"的夜晚，也没有必须自己选的夜晚
+    assert plan['unassigned'] == plan['nights'] and plan['needs_own_hotel'] == []
+
+
+def test_last_night_before_an_early_train_does_not_inherit_the_city_hotel():
+    """次日赶早班车时，最后一晚不沿用市区主住宿，改为待用户自己选。"""
+    from app import stay_plan
+    w = workspace(days=5, spots=('s1',))
+    w['selected_return'] = {'id': 'b', 'kind': 'train', 'name': 'G1',
+                            'departure': '2026-10-17 06:56', 'arrival': '2026-10-17 11:00',
+                            'selection_status': 'confirmed', 'source': SRC,
+                            'departure_station_candidate': {'id': 'st', 'name': '洛阳龙门',
+                                                            'location': '112.47,34.55'}}
+    w['catalog']['st'] = dict(w['selected_return']['departure_station_candidate'])
+    w['catalog']['hA'] = {'id': 'hA', 'kind': 'hotel', 'name': '市区酒店', 'location': '120.30,36.00'}
+    w['hotel'] = w['catalog']['hA']
+    plan = stay_plan.plan(w)
+    last = plan['rows'][-1]
+    assert last['anchor_name'] == '洛阳龙门' and last['anchor_is_station'] is True
+    assert last['hotel_source'] == 'unset' and last['hotel_id'] is None
+    assert last['hotel_fallback_unsuitable'] is True
+    assert plan['needs_own_hotel'] == [last['date']]
+    # 其余夜晚仍可沿用主住宿
+    assert {r['hotel_source'] for r in plan['rows'][:-1]} == {'primary'}
+    # 用户明确给这一晚选了酒店后，不再是待选
+    w['stay_hotels'] = {last['date']: 'hA'}
+    after = stay_plan.plan(w)
+    assert after['rows'][-1]['hotel_source'] == 'explicit'
+    assert after['needs_own_hotel'] == []
+
+
+def test_explicit_night_selection_is_distinguished_from_inheritance():
+    """明确点选某晚后该晚是 explicit，其余仍是 primary，两者不能混为一谈。"""
+    from app import agent, stay_plan
+    w = workspace(days=3, spots=('s1',))
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'morning'}}
+    w['catalog']['hA'] = {'id': 'hA', 'kind': 'hotel', 'name': 'A酒店', 'location': '120.30,36.00'}
+    w['catalog']['hB'] = {'id': 'hB', 'kind': 'hotel', 'name': 'B酒店', 'location': '120.40,36.10'}
+    nights = stay_plan.nights(w)
+    asyncio.run(agent.handle(w, 'select', {'id': 'hA'}, lambda _: None))
+    asyncio.run(agent.handle(w, 'select', {'id': 'hB', 'stay_date': nights[1]}, lambda _: None))
+    sources = {r['date']: r['hotel_source'] for r in stay_plan.plan(w)['rows']}
+    assert sources == {nights[0]: 'primary', nights[1]: 'explicit', nights[2]: 'primary'}
+    assert stay_plan.multi_stay_note(w) and '2 家酒店' in stay_plan.multi_stay_note(w)
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
