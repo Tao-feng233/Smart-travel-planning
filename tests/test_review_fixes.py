@@ -853,6 +853,55 @@ def test_assignment_view_is_derived_not_read_from_stale_rows():
     assert {v['source'] for v in stay_plan.assignment_view(w).values()} == {'unset'}
 
 
+def test_night_without_activity_falls_back_to_the_trip_last_activity():
+    """没有活动的夜晚不能显示"待定周边"，要退回行程最后一个活动作参照。"""
+    from app import stay_plan, visits
+    w = workspace(days=3, spots=('s1',))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    rows = stay_plan.plan(w)['rows']
+    assert [r['date'] for r in rows] == [D1, D2, '2026-10-14']
+    # 第一天有活动：锚点就是它
+    assert rows[0]['anchor_name'] == '栈桥' and rows[0]['anchor_basis'] == '当天最后一个活动'
+    # 后两天没有活动：退回行程最后一个活动，而不是留空
+    for row in rows[1:]:
+        assert row['anchor_name'] == '栈桥'
+        assert '行程最后一个活动' in row['anchor_basis']
+    # 完全没有已选景点时才允许留空（没有可参照的活动地点）
+    empty = workspace(days=2, spots=())
+    assert stay_plan.plan(empty)['rows'][0]['anchor_name'] is None
+
+
+def test_single_night_query_is_not_blocked_by_the_local_budget(monkeypatch, tmp_path):
+    """本地额度用完时，单晚查询仍要照办：不能对用户的直接操作说"没额度"。
+
+    复核背景：补全景点后会自动查一次住宿，若被本地额度挡掉，正常的住宿步骤直接失败；
+    实测本地调用日志到达上限后该测试确实失败，说明守卫耦合了运行环境状态。
+    """
+    from app import agent, visits
+    w = workspace(days=3, spots=('s1',))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    calls = []
+    async def vendor(service, tool, params):
+        calls.append(params)
+        return {'data': {'hotels': [{'hotelId': 900002, 'hotelName': '候选酒店'}]}, 'source': {'name': '途牛'}}
+    async def tool(name, args):
+        return {'items': []}
+    monkeypatch.setattr(agent, 'tuniu', vendor)
+    monkeypatch.setattr(agent, 'local_tool', tool)
+    monkeypatch.setattr(agent, 'recommend', lambda *a, **k: asyncio.sleep(0, result='ok'))
+    monkeypatch.setattr(agent, 'hotel_query_budget', lambda: asyncio.sleep(0, result=0))
+    answer = asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D2}, lambda _: None))
+    assert calls, '单晚查询必须仍然发出，不能被本地额度挡掉'
+    assert calls[0]['checkIn'] == D2
+    # 默认的整体查询在额度为 0 时只查第一晚，其余明确标为待查
+    calls.clear()
+    w2 = workspace(days=3, spots=('s1',))
+    visits.save(w2, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    asyncio.run(agent.handle(w2, 'search_hotels', {}, lambda _: None))
+    assert len(calls) == 1
+    assert w2['hotel_query']['skipped_nights'] == [D2, '2026-10-14']
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report

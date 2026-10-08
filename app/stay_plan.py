@@ -113,11 +113,30 @@ def _usable(w, cid):
     return p if p and p.get('location') else None
 
 
+def trip_closure(w, before_day=None):
+    """行程最后一个活动的地点：某晚没有当天活动时用它作兜底参照。
+
+    没有活动的夜晚（例如景点全排在第一天）不能显示"待定周边"，
+    否则用户不知道这一晚该住在哪一带。返回 (地点, 依据) 或 (None, 原因)。
+    """
+    order = touring_days(w)
+    days = [d for d in order if not before_day or d <= before_day]
+    for day in reversed(sorted(days)):
+        for cid in reversed(order.get(day) or []):
+            p = (w.get('catalog') or {}).get(cid)
+            if p:
+                p = dict(p)
+                p['_closure'] = 'spot'
+                return p, '行程最后一个活动（' + day + '）'
+    return None, '行程还没有可参照的活动地点'
+
+
 def day_closure(w, day):
     """某天用于定位住宿的收尾地点：先最后一个活动景点，再顺路晚餐餐厅。
 
     返回 (地点, 依据)。锚点不要求已有坐标：poiName 查询只用到名称，坐标仅用于
     额外核算通行距离，因此没有坐标的收尾景点仍是有效的锚点。
+    当天没有活动时退回行程最后一个活动，而不是留空。
     """
     order = touring_days(w).get(day) or []
     for cid in reversed(order):
@@ -129,7 +148,7 @@ def day_closure(w, day):
     dinner = dinner_for(w, day)
     if dinner:
         return dinner, '当天已选晚餐餐厅（当天以用餐收尾）'
-    return None, '当天没有可用坐标的景点或餐厅'
+    return trip_closure(w)
 
 
 def dinner_for(w, day, hotel=None):

@@ -551,17 +551,23 @@ async def handle(w,action,args,progress):
         if args.get('keyword'):
             # 用户指定了酒店名或区域关键词：按其指定条件直接查，不按晚锚定。
             return await search_hotels_by_keyword(w,args,progress)
+        # 单晚查询（用户点"查这晚"，以及补全景点后自动查当晚）一律照办：
+        # 一次只多一次供应商调用，失败了由供应商自己报错，不该被本地额度挡掉。
+        # 只有"一次把全程各晚都查了"这种批量动作才按剩余预算顺延，避免一上来撞额度。
+        explicit_days=bool(args.get('stay_date') or args.get('stay_dates'))
         query_days=[d for d in (args.get('stay_dates') or []) if d in plan_rows['nights']]
         if args.get('stay_date') in plan_rows['nights']:query_days=[args['stay_date']]
+        skipped=[]
         if not query_days:
-            # 一次把全程各晚都查了：受每日查询预算限制，超出部分留给用户按晚点开。
             budget=await hotel_query_budget()
-            query_days=plan_rows['nights'][:max(0,budget)]
-            skipped=plan_rows['nights'][len(query_days):]
-        else:
-            skipped=[]
-        if not query_days and not args.get('keyword'):
-            raise DataError('住宿查询预算已用完，请稍后再查；也可以先按区域告诉我偏好。')
+            if budget<=0:
+                query_days=list(plan_rows['nights'])[:1] if plan_rows['nights'] else []
+                skipped=list(plan_rows['nights'])[1:]
+            else:
+                query_days=plan_rows['nights'][:budget]
+                skipped=plan_rows['nights'][budget:]
+        if not query_days:
+            raise DataError('本次行程没有需要住宿的夜晚。')
         collected=[]
         for day in query_days:
             got=await query_stay_night(w,day,progress)
