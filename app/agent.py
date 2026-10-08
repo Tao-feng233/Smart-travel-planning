@@ -20,6 +20,52 @@ def unwrap(d):
         else:break
     return d
 
+def hotel_anchor(w,chosen,points):
+    """住宿推荐的地理参照：以行程最后一天的收尾地点为中心。
+
+    优先顺序（第 2、3 条即"最后一天最后的景区或晚饭餐厅"）：
+      1. 最后一天作为收尾的最后一个活动景点；
+      2. 最后一天已选的晚餐餐厅（当天在餐厅结束）；
+      3. 其它已选晚餐餐厅：景点尚未排期时，已选餐厅仍是收尾点；
+      4. 都没有时退回全部已选景点中相对居中的那个（原有口径兜底，不因缺排期而失效）。
+    返回 (地点或 None, 依据说明)。依据随查询结果一起给用户，便于判断是否合适。
+    """
+    try:
+        from . import visit_analysis
+        items=[x for x in (visit_analysis.preview(w) or []) if x.get('candidate_id')]
+    except Exception:
+        items=[]
+    def usable(cid):
+        p=w.get('catalog',{}).get(cid)
+        return p if p and p.get('location') else None
+    def dinner_on(date):
+        for key,value in (w.get('meal_choices') or {}).items():
+            if not isinstance(value,dict) or value.get('mode')!='chosen':continue
+            parts=key.split('|')
+            if len(parts)!=2 or parts[1]!='dinner':continue
+            if date and parts[0]!=date:continue
+            p=usable(value.get('food_id'))
+            if p:return p
+        return None
+    def central():
+        if not points:return None
+        return min(points,key=lambda p:sum(journey.coordinate_distance(p,q) for q in points))
+    if not items:
+        dinner=dinner_on(None)
+        if dinner:return dinner,'已选晚餐餐厅为当天收尾点'
+        p=central()
+        return (p,'已选景点的相对居中位置（尚未排期，暂按整体分布）') if p else (None,'没有可用坐标，按城市查询')
+    last_date=items[-1]['date']
+    chosen_ids={p['id'] for p in chosen}
+    same_day=[x['candidate_id'] for x in items if x['date']==last_date and x['candidate_id'] in chosen_ids]
+    for cid in reversed(same_day):
+        p=usable(cid)
+        if p:return p,'最后一天（'+last_date+'）的最后一个活动'
+    dinner=dinner_on(last_date) or dinner_on(None)
+    if dinner:return dinner,'已选晚餐餐厅为当天收尾点'
+    p=central()
+    return (p,'最后一天没有可用地点，暂按已选景点分布取相对居中位置') if p else (None,'没有可用坐标，按城市查询')
+
 def mark_stale(w):
     if w.get('plan'): w['plan']['stale']=True
 
@@ -413,10 +459,10 @@ async def handle(w,action,args,progress):
         if int(r.get('days',2))==1:raise DataError('当前为一日行程，无默认住宿晚数；需要住宿请明确跨日安排。')
         chosen=[w['catalog'][i] for i in w['selected_spots']]
         points=[p for p in chosen if p.get('location')]
-        if points:
-            anchor=min(points,key=lambda p:sum(journey.coordinate_distance(p,q) for q in points));chosen=[anchor]+[p for p in chosen if p['id']!=anchor['id']]
+        anchor,anchor_basis=hotel_anchor(w,chosen,points)
+        if anchor:chosen=[anchor]+[p for p in chosen if p['id']!=anchor['id']]
         if not chosen and not args.get('keyword'):raise DataError('先选择景点，我再按它们的位置推荐住宿。也可以明确告诉我想先查哪个住宿区域。')
-        progress('根据已选景点查询途牛酒店候选')
+        progress('以'+(chosen[0]['name'] if chosen else r['city'])+'为中心（'+anchor_basis+'）查询途牛酒店候选')
         params={'cityName':r['city'],'checkIn':r['start_date'],
                 'checkOut':(date.fromisoformat(r['start_date'])+timedelta(days=int(r.get('days',2)))).isoformat(),'adultNum':int(r['adults'])}
         if r.get('children'):
@@ -426,7 +472,7 @@ async def handle(w,action,args,progress):
         if args.get('keyword'):params['keyword']=args['keyword']
         result=await tuniu('hotel','tuniuHotelSearch',params);d=unwrap(result['data'])
         hotels=d.get('hotels',[]) if isinstance(d,dict) else []
-        w['hotel_query']={'keyword':args.get('keyword',''),'ids':[],'anchor':chosen[0]['name'] if chosen else r['city'],'source':result['source']}
+        w['hotel_query']={'keyword':args.get('keyword',''),'ids':[],'anchor':chosen[0]['name'] if chosen else r['city'],'anchor_basis':anchor_basis,'source':result['source']}
         if not hotels:
             w['candidates']=[]
             return f'本次未查到{args.get("keyword") or "符合条件的酒店"}（{w["hotel_query"]["anchor"]}周边，指定入住日期）。这仅是本次查询结果，不能断定附近没有住宿。您对位置、价格或房型有什么偏好？可据此扩大范围继续查询。'

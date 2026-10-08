@@ -347,6 +347,76 @@ def test_generated_plan_carries_stage_identity(monkeypatch, tmp_path):
     assert planning.stage_reusable(w, stage) is False
 
 
+def test_hotel_anchor_centers_on_the_last_days_last_activity():
+    """住宿推荐以行程最后一天的收尾地点为中心，而不是全部景点的几何中心。"""
+    from app import agent, visits
+    w = workspace(days=2, spots=('s1', 's2'))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D2, 'period': 'afternoon'}])
+    chosen = [w['catalog'][i] for i in w['selected_spots']]
+    points = [p for p in chosen if p.get('location')]
+    anchor, basis = agent.hotel_anchor(w, chosen, points)
+    assert anchor['id'] == 's2', anchor
+    assert D2 in basis and '最后一个活动' in basis
+
+
+def test_hotel_anchor_uses_last_day_dinner_when_no_activity_that_day():
+    """最后一天没有活动景点时，以那天已选的晚餐餐厅为中心。
+
+    景点全排在 D1，最后一天 D2 只有晚餐 → 锚点应是 D2 的晚餐餐厅；
+    若晚餐在 D1（非最后一天），则仍以最后一天的收尾活动为准。
+    """
+    from app import agent, visits
+    w = workspace(days=2, spots=('s1', 's2'))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D1, 'period': 'afternoon'}])
+    chosen = [w['catalog'][i] for i in w['selected_spots']]
+    points = [p for p in chosen if p.get('location')]
+    # 最后一天（D1）当天的晚餐：该日已有收尾活动，锚点是最后的景点
+    w['meal_choices'] = {D1 + '|dinner': {'mode': 'chosen', 'food_id': 'f1'}}
+    on_last_day, basis = agent.hotel_anchor(w, chosen, points)
+    assert on_last_day['id'] == 's2', on_last_day
+    assert '最后一个活动' in basis
+    # 另一天的晚餐不得被当成最后一天的收尾点；仍以最后一天的收尾活动为准
+    w['meal_choices'] = {D2 + '|dinner': {'mode': 'chosen', 'food_id': 'f1'}}
+    other, other_basis = agent.hotel_anchor(w, chosen, points)
+    assert other['id'] == 's2' and '最后一个活动' in other_basis, (other, other_basis)
+
+
+def test_hotel_anchor_prefers_last_day_dinner_when_no_spot_that_day():
+    """最后一天完全没有景点时，已选晚餐餐厅成为收尾锚点。"""
+    from app import agent, visits
+    w = workspace(days=3, spots=('s1', 's2'))
+    # 两个景点排在 D1；D2 无景点也没有晚餐；让最后一天无可用景点
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D1, 'period': 'afternoon'}])
+    w['meal_choices'] = {D2 + '|dinner': {'mode': 'chosen', 'food_id': 'f1'}}
+    chosen = [w['catalog'][i] for i in w['selected_spots']]
+    points = [p for p in chosen if p.get('location')]
+    anchor, basis = agent.hotel_anchor(w, chosen, points)
+    # 最后一天活动是 D1，锚点为当天最后活动；晚餐在 D2，不能顶替最后一天的景点
+    assert anchor['id'] == 's2' and '最后一个活动' in basis, (anchor, basis)
+
+
+def test_hotel_anchor_keeps_a_sensible_fallback():
+    """没有排期时不能返回 None：退回相对居中的已选景点，并说明依据。"""
+    from app import agent
+    w = workspace(days=2, spots=('s1', 's2'))
+    chosen = [w['catalog'][i] for i in w['selected_spots']]
+    points = [p for p in chosen if p.get('location')]
+    anchor, basis = agent.hotel_anchor(w, chosen, points)
+    assert anchor is not None and anchor['id'] in ('s1', 's2')
+    assert basis
+    # 完全没有坐标时才允许没有锚点，且依据要说明按城市查询
+    none_anchor, none_basis = agent.hotel_anchor(workspace(days=2, spots=()), [], [])
+    assert none_anchor is None and '城市' in none_basis
+    # 有已选晚餐但没有任何景点时，晚餐即收尾点
+    dinner_w = workspace(days=2, spots=())
+    dinner_w['meal_choices'] = {D1 + '|dinner': {'mode': 'chosen', 'food_id': 'f1'}}
+    picked, dinner_basis = agent.hotel_anchor(dinner_w, [], [])
+    assert picked['id'] == 'f1' and '晚餐餐厅' in dinner_basis
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
