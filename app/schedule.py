@@ -128,6 +128,18 @@ def _binding_summary(w,dt,period,choice):
          'affected':bool(status.get('affected')),'reason':status.get('reason')}
 
 
+def limit_reason(w,dt):
+    """当天可用时间的约束来自哪里：返程接驳准备，还是每日结束时刻。
+
+    用于把"来不及安排"说准：非返程日不应提示"返程准备时刻"。
+    """
+    limit=day_limit(w,dt);cutoff=return_cutoff_minutes(w,dt)
+    if cutoff is not None and cutoff<=limit:
+        return '该日是返程日，最后一项活动须在'+clock(cutoff)+'前结束（返程接驳准备）'
+    if cutoff is not None:
+        return '该日为返程日，须在'+clock(limit)+'前结束（返程接驳准备早于每日结束时刻，按更早者）'
+    return '当日须在'+clock(limit)+'前结束（当前没有选定的返程班次，未按返程准备收紧）'
+
 def point(w,cid):return w.get('catalog',{}).get(cid)
 
 def capacity(w,dt):

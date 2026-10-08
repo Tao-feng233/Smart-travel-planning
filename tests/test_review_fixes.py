@@ -194,6 +194,55 @@ def test_s2_station_note_matches_the_entity_actually_used():
     assert '尚未查询坐标' in time_policy.station_candidate_note(never, 'arrival', None)
 
 
+def test_meal_conflict_attributes_to_the_day_not_the_return_trip(monkeypatch, tmp_path):
+    """非返程日的餐次冲突，不能提示"返程准备时刻"（复核外的用户反馈）。
+
+    场景：10-09 去程 15:08 抵达（+90 分钟准备→16:38 起），18:30 结束；
+    餐厅往返 64+60 分钟、用餐 60 分钟，合计超过当日窗口 → 冲突原因只能是当日结束时刻。
+    """
+    from app import access, schedule
+    w = workspace(days=2, day_end='18:30', spots=('s1',))
+    w['selected_transport'] = {'id': 'g', 'kind': 'train', 'name': 'G2831',
+                               'departure': D1 + ' 09:08', 'arrival': D1 + ' 15:08', 'source': SRC}
+    w['selected_return'] = {'id': 'b', 'kind': 'train', 'name': 'G322',
+                            'departure': '2026-10-18 06:56', 'arrival': '2026-10-18 11:24',
+                            'departure_station': '成都东', 'selection_status': 'confirmed', 'source': SRC}
+    food = {'id': 'f2', 'kind': 'food', 'name': '跨城火锅', 'location': '104.076761,30.657629'}
+    w['catalog']['f2'] = food
+    async def options(a, b):
+        return [{'mode': 'walking', 'available': True, 'status': 'ok',
+                 'minutes': 64 if b.get('kind') == 'food' else 60, 'distance': 3600, 'polylines': []}]
+    result = asyncio.run(access.check(w, food, w['hotel'], options, planning.choose_route, (D1, 'dinner')))
+    assert result['status'] == 'time_conflict', result
+    message = result['message']
+    # 说出了是哪一步超的，并给出总量
+    assert '到餐厅含机动' in message and '返回住宿含机动' in message and '205分钟' in message
+    # 这一天不是返程日：归因必须是当日结束时刻，而不是返程接驳准备
+    assert '当日须在18:30前结束' in message, message
+    assert '最后一项活动须在' not in message and '该日是返程日' not in message
+    assert schedule.return_cutoff_minutes(w, D1) is None
+    # 真正卡住的是当日结束时刻
+    assert schedule.limit_reason(w, D1).startswith('当日须在18:30')
+
+
+def test_meal_conflict_on_the_real_return_day_does_say_return(monkeypatch, tmp_path):
+    """返程日才允许说"返程准备"，且给出接驳截止时刻。"""
+    from app import access, schedule
+    w = workspace(days=2, day_end='23:00', back='2026-10-13 06:56', spots=('s1',))
+    w['selected_return'].update(departure_station='成都东')
+    food = {'id': 'f2', 'kind': 'food', 'name': '跨城火锅', 'location': '104.076761,30.657629'}
+    w['catalog']['f2'] = food
+    async def options(a, b):
+        return [{'mode': 'walking', 'available': True, 'status': 'ok',
+                 'minutes': 64 if b.get('kind') == 'food' else 60, 'distance': 3600, 'polylines': []}]
+    result = asyncio.run(access.check(w, food, w['hotel'], options, planning.choose_route, (D2, 'dinner')))
+    assert result['status'] == 'time_conflict'
+    assert '按返程接驳准备预留' in result['message']
+    assert '该日是返程日' in result['message']
+    assert schedule.return_cutoff_minutes(w, D2) is not None
+    assert schedule.limit_reason(w, D2).startswith('该日是返程日')
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report

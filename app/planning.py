@@ -336,7 +336,10 @@ async def _generate(w, progress):
             t+=allocation
         elif p and not last:raise DataError('缺少前往已选餐厅的出发位置，请确定住宿或改为自行安排后生成。')
         if p and t+duration>latest:
-            raise DataError(dt+' '+foods.PERIODS[period]+'（'+p['name']+'）含通行后的用餐时间超出当前可用时段，请调整顺序、餐厅或班次后重排。',{'date':dt,'meal_period':period,'candidate_ids':[p['id']],'view':'food','direction':'return' if return_time and dt>=return_time.date().isoformat() else 'outbound'})
+            from .schedule import limit_reason
+            raise DataError(dt+' '+foods.PERIODS[period]+'（'+p['name']+'）含通行后的用餐时间超出当前可用时段：'
+                            +'预计'+clock(t)+'开始用餐、'+clock(t+duration)+'结束，可用到'+clock(latest)+'；'
+                            +limit_reason(w,dt)+'。请调整顺序、餐厅或班次后重排。',{'date':dt,'meal_period':period,'candidate_ids':[p['id']],'view':'food','direction':'return' if return_time and dt>=return_time.date().isoformat() else 'outbound'})
         name=foods.PERIODS[period]+' · '+(p['name'] if p else '自行安排')
         events.append({'kind':'meal','name':name,'start':clock(t),'end':clock(t+duration),'note':'餐厅为规划意向，营业时段、菜单和价格请出发前确认，可随时更换。' if p else '弹性用餐建议，可自行选择餐厅或调整时间；未预订，费用未核实。',**({'food':p,'source':p.get('source')} if p else {})})
         scheduled_meals.add(dt+'|'+period)
