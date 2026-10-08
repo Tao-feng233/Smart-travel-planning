@@ -41,6 +41,47 @@ def test_anonymous_access_never_returns_global_history(client):
     assert client.get('/api/workspaces').status_code==401
     assert client.get('/api/account/export').status_code==401
 
+
+def test_followup_optimization_keeps_previous_conflict_through_loading_ui(client,monkeypatch):
+    import json
+    from app import agent,replies
+    signup(client);w=create(client)
+    w['requirements']={'city':'青岛','start_date':'2026-10-12','days':2}
+    w['catalog']={'s':{'id':'s','kind':'spot','name':'崂山风景区','location':'120.6,36.2'}}
+    w['selected_spots']=['s']
+    w['ui']={'status':'failed','action':'plan','conflict':{'phase':'proposal','issues':[{'code':'day_capacity','date':'2026-10-12','candidate_ids':['s'],'message':'440分钟超过435分钟'}]}}
+    storage.save(w);actions=[]
+    async def model(messages,**kwargs):
+        return {'tool_calls':[{'function':{'name':'submit_intent','arguments':json.dumps({'action':'analyze_visits','patch':{}})}}]},{}
+    async def handle(workspace,action,args,progress):actions.append((action,args));return '已修订'
+    async def weather(*args):pass
+    async def compose(w,result):return result
+    monkeypatch.setattr(agent,'llm',model);monkeypatch.setattr(agent,'handle',handle)
+    monkeypatch.setattr(agent,'ensure_weather',weather);monkeypatch.setattr(replies,'compose',compose)
+    response=client.post('/api/workspaces/'+w['id']+'/actions',json={'revision':w['revision'],'action':'chat','text':'那你帮我优化一下吧','request_id':str(uuid.uuid4())})
+    assert response.status_code==202
+    assert wait(client,response.json()['job_id'])['status']=='completed'
+    assert actions[0][0]=='optimize_plan' and actions[0][1]['conflict']['issues'][0]['date']=='2026-10-12'
+
+
+def test_plan_warning_is_completed_request_with_explicit_approval_before_publication(client,monkeypatch):
+    from app import agent,replies
+    signup(client);w=create(client);w['requirements']={'city':'青岛','start_date':'2026-10-12','days':1}
+    w['catalog']={'s':{'id':'s','kind':'spot','name':'崂山风景区','location':'120.6,36.2'}};w['selected_spots']=['s'];storage.save(w)
+    calls=[]
+    async def generate(*args):
+        calls.append(True)
+        return {'title':'带提醒的草稿','days':[],'warnings':[],'stale':False,'planning_issues':[{'code':'estimated_capacity','level':'warning','message':'估算440分钟，可用435分钟','date':'2026-10-12','candidate_ids':['s'],'view':'spot'}]}
+    async def compose(w,result):return result
+    monkeypatch.setattr(agent,'generate',generate);monkeypatch.setattr(replies,'compose',compose)
+    response=submit(client,w,'plan');assert response.status_code==202
+    job=wait(client,response.json()['job_id']);assert job['status']=='completed' and not job['error']
+    current=job['workspace'];assert not current.get('plan')
+    nonce=current['pending_plan_warning']['id']
+    approved=submit(client,current,'approve_plan_warning',{'approval_id':nonce,'confirmed':True})
+    result=wait(client,approved.json()['job_id']);assert result['status']=='completed'
+    assert result['workspace']['plan']['warning_acceptance']['confirmed'] and len(calls)==1
+
 def test_login_page_assets_are_versioned_and_not_cached(client):
     page=client.get('/')
     assert page.status_code==200 and 'id="auth-gate"' in page.text

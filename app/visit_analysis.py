@@ -94,19 +94,24 @@ def allocate(w, estimates=None):
     return sorted(items, key=lambda x: (x['date'], order.get(x['candidate_id'], 9999)))
 
 
-def distribution_errors(w, items, allowed_dates=None):
+def distribution_warnings(w, items, allowed_dates=None):
+    """Workload estimates are advice, not proof a trip cannot be executed."""
     bs = {b['date']: b for b in budgets(w) if not allowed_dates or b['date'] in allowed_dates}
     loads = {d: sum(i['duration'] + 20 for i in items if i['date'] == d) for d in bs}
-    errors = []
+    result = []
+    def warning(code, message, dt, ids, **extra):
+        result.append({'code':code,'level':'warning','message':message,'date':dt,
+                       'candidate_ids':ids,'view':'spot','estimated':True,**extra})
     for d, load in loads.items():
+        ids=[i['candidate_id'] for i in items if i['date']==d]
         if load > bs[d]['visit_minutes']:
-            errors.append(d + '的建议游玩时长、转场预留和用餐超过可用时间；请换日或解释需要用户调整的条件，不得缩短大型景区时长来伪装可行。')
+            warning('estimated_capacity',d+'建议游玩及转场约'+str(load)+'分钟，扣除用餐后的估算可用时间为'+str(bs[d]['visit_minutes'])+'分钟。安排可能偏紧，可调整游览范围或顺序，也可继续生成带警告的草稿，再核对实际路线。',d,ids)
         for period, low, high in [('morning', 540, 720), ('afternoon', 795, 1080), ('evening', 1080, 1380)]:
-            fixed = [i for i in items if i['date'] == d and
-                     w.get('visit_requests', {}).get(i['candidate_id'], {}).get('period') == period]
+            fixed = [i for i in items if i['date'] == d and w.get('visit_requests', {}).get(i['candidate_id'], {}).get('period') == period]
             capacity = max(0, min(high, bs[d]['end_minute']) - max(low, bs[d]['start_minute']))
-            if sum(i['duration'] for i in fixed) + max(0, len(fixed)-1)*20 > capacity:
-                errors.append(d + '用户指定的' + visits.PERIODS[period] + '活动超过该时段容量；保留指定安排并提示用户调整。')
+            needed=sum(i['duration'] for i in fixed) + max(0, len(fixed)-1)*20
+            if needed > capacity:
+                warning('estimated_period_capacity',d+'指定'+visits.PERIODS[period]+'的建议游览约'+str(needed)+'分钟，该时段估算可用约'+str(capacity)+'分钟。建议时长尚需核对；明确时段不会被自动更改。',d,[i['candidate_id'] for i in fixed])
     usable = [d for d in bs if bs[d]['visit_minutes'] >= 30]
     if len(usable) > 1 and len(items) > 1:
         ratio = lambda d, load: load / max(1, bs[d]['visit_minutes'])
@@ -119,9 +124,15 @@ def distribution_errors(w, items, allowed_dates=None):
             moved = {**loads, d: loads[d] - length, light: loads[light] + length}
             after = max(ratio(k, moved[k]) for k in usable) - min(ratio(k, moved[k]) for k in usable)
             if before > .3 and after + .12 < before:
-                errors.append('每日负担明显失衡：' + d + '集中安排过多，' + light + '仍有可用时间。优先平衡游玩分钟数，结合位置、用户固定日期和抵达返程条件重新分配。')
+                warning('unbalanced_estimate','每日负担明显失衡：'+d+'建议游玩及转场约'+str(loads[d])+'分钟，'+light+'约'+str(loads[light])+'分钟，前者更密集。可优化分配，也可保留当前节奏；不要求填满休息时间或增加游玩天数。',d,[i['candidate_id'] for i in items if i['date'] in (d,light)],other_date=light)
                 break
-    return errors
+    return result
+
+
+def distribution_errors(w, items, allowed_dates=None):
+    # Analysis can request a better estimate or show a fallback. The final
+    # proposal keeps these separate from identity/date validation failures.
+    return [i['message'] for i in distribution_warnings(w,items,allowed_dates)]
 
 
 def notices(w, items):
@@ -174,6 +185,9 @@ async def analyze(w, model, progress, force=False):
         'visit_order': w.get('visit_order', []), 'hotel': w.get('hotel'),
         'selected_transport': w.get('selected_transport'), 'selected_return': w.get('selected_return'),
         'official_guides': w.get('rag_results', []), 'initial_balanced_estimate': allocate(w)}
+    if w.get('planning_revision'):
+        content['revision_context']=w['planning_revision']
+        prompt+='这是完整计划修订的第一步，请结合原计划、实际路线、已选餐次、天气及具体冲突，给出能改善当前安排的日期、顺序和游览范围。时长是建议，可按明确的游览重点合理调整并在reason解释取舍，但不得压缩成不合理的短暂打卡；优先换灵活日期或顺序，不能修改用户明确安排与班次。'
     messages = [{'role': 'system', 'content': prompt},
                 {'role': 'user', 'content': json.dumps(model_facts(content), ensure_ascii=False)}]
     valid = None; duration_estimates = {}
@@ -190,7 +204,8 @@ async def analyze(w, model, progress, force=False):
                 if item['date'] not in visits.dates(w): raise ValueError('日期不在游玩范围')
                 period = item.get('period', 'any'); duration = item['duration']
                 if period not in visits.PERIODS or isinstance(duration, bool) or not isinstance(duration, int) or not 15 <= duration <= 720: raise ValueError('时段或时长无效')
-                if pin.get('date') and (pin['date'] != item['date'] or pin.get('period', 'any') != period): raise ValueError('不得修改用户指定日期时段')
+                if pin.get('date') and pin['date'] != item['date'] or pin.get('period') not in (None,'any') and pin['period'] != period:
+                    raise ValueError('不得修改用户指定日期时段')
                 reason = item.get('reason')
                 if not isinstance(reason, str) or not reason.strip(): raise ValueError('缺少分配原因')
                 seen.add(cid); items.append({k: item[k] for k in ('candidate_id', 'date', 'duration')} |

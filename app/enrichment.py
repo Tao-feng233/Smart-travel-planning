@@ -11,7 +11,7 @@ RATE_FIELDS=('ratePlanName','vendorRatePlanId','rmbPrices','mealText','cancelTex
 
 def model_facts(value):
     """Media and road vertices are UI data, not useful context for language reasoning."""
-    if isinstance(value,dict):return {k:model_facts(v) for k,v in value.items() if k not in ('photos','images','polylines','children')}
+    if isinstance(value,dict):return {k:model_facts(v) for k,v in value.items() if k not in ('photos','images','polylines') and not (k=='children' and isinstance(v,(list,dict)))}
     if isinstance(value,list):return [model_facts(v) for v in value]
     return value
 

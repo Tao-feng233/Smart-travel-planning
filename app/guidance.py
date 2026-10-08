@@ -1,13 +1,13 @@
 """UI guidance derives from the actual task and saved user choices."""
 VIEWS={'discover_destinations':'spot','choose_destination':'spot','search_spots':'spot','spots_page':'spot','dismiss_spot':'spot',
        'search_foods':'food','meal_choice':'food','complete_food':'plan','visit_schedule':'spot','analyze_visits':'spot','search_hotels':'hotel','hotel_detail':'hotel','select_room':'hotel','complete_hotel':'transport','skip_hotel':'transport',
-       'weather':'weather','train':'transport','flight':'transport','ticket':'spot','plan':'plan'}
+       'weather':'weather','train':'transport','flight':'transport','ticket':'spot','plan':'plan','optimize_plan':'plan'}
 VALID_VIEWS={'spot','hotel','weather','transport','plan','knowledge','food','map'}
 LOADING={'discover_destinations':'正在比较目的地','choose_destination':'正在确认目的地并查询景点','search_spots':'正在查询景点',
          'spots_page':'正在更新景点列表','dismiss_spot':'正在更新推荐偏好','complete_spots':'正在确认景点选择',
          'search_foods':'正在查询餐饮','meal_choice':'正在保存用餐安排','search_hotels':'正在比较住宿','hotel_detail':'正在查询房型','complete_hotel':'正在确认住宿','skip_hotel':'正在更新住宿安排',
          'place_detail':'正在补充地点详情','weather':'正在查询天气','train':'正在查询列车','flight':'正在查询航班','ticket':'正在查询门票',
-         'analyze_visits':'正在分析游玩时长与每日分配','plan':'正在生成计划书','select':'正在保存选择','requirements':'正在保存旅行信息','chat':'正在识别需求','undo':'正在恢复版本'}
+         'analyze_visits':'正在分析游玩时长与每日分配','plan':'正在生成计划书','optimize_plan':'正在核对冲突并修订完整计划书','select':'正在保存选择','requirements':'正在保存旅行信息','chat':'正在识别需求','undo':'正在恢复版本'}
 
 def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     args=args or {};r=w.get('requirements',{});catalog=w.get('catalog',{});selected=w.get('selected_spots',[])
@@ -24,6 +24,8 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     if status!='ready':
         if status=='failed':return output('本轮未完成',error or '请调整查询条件后重试。','补充旅行信息',settings=True)
         return output('任务已停止',error or '已有对话与选择已保留，可继续规划。','返回当前列表',view=view) if view else output('任务已停止','已有对话与选择已保留。')
+    if w.get('pending_plan_warning') and action in ('plan','optimize_plan'):
+        return output('请核对规划提醒','估算偏紧或分配不均可以选择继续生成带警告的草稿，也可返回调整。')
     if action=='place_detail':return output('地点资料已更新','在详情窗口核对营业资料、联系方式和来源。')
     if action=='analyze_visits':return output('游玩安排已分析','在时间轴查看每日建议时长与分配原因；正式规划再核对道路和开放条件。','查看时间轴',view='spot')
     if view=='spot':

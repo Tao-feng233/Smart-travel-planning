@@ -41,8 +41,9 @@ async def compose(w,result):
         weather={**weather,'days':[d for d in weather.get('days',[]) if r['start_date']<=d['date']<end]}
     from .journey import next_step
     data={'requirements':r,'action':focus,'confirmed_prefix':PREFIX.get(),'result':result,'spots':spots,
-          'visit_analysis':visit_analysis.current(w),'visit_requests':w.get('visit_requests',{}),'has_current_plan':bool(w.get('plan') and not w['plan'].get('stale')),'foods':[w['catalog'][i] for i in (w.get('food_query') or {}).get('ids',[]) if i in w['catalog']] if w.get('turn_food_updated') or focus=='search_foods' else [],
+          'pending_plan_warning':{'issues':w['pending_plan_warning']['issues']} if w.get('pending_plan_warning') else None,'pending_auto_selection':w.get('pending_auto_selection'),'auto_selection_running':bool(w.get('auto_selection_run')),'auto_selection_result':w.get('auto_selection_result') if focus in ('approve_auto_selection','continue_auto_selection') else None,'visit_analysis':visit_analysis.current(w),'visit_requests':w.get('visit_requests',{}),'has_current_plan':bool(w.get('plan') and not w['plan'].get('stale')),'foods':[w['catalog'][i] for i in (w.get('food_query') or {}).get('ids',[]) if i in w['catalog']] if w.get('turn_food_updated') or focus=='search_foods' else [],
           'markets':[w['catalog'][i] for i in (w.get('food_query') or {}).get('markets',[]) if i in w['catalog']] if w.get('turn_food_updated') else [],
+          'plan_revision':(w.get('plan') or {}).get('revision') if focus=='optimize_plan' else None,
           'selected_spots':[w['catalog'][i] for i in w.get('selected_spots',[]) if i in w['catalog']],
           'hotels':[w['catalog'][i] for i in (w.get('hotel_query') or {}).get('ids',[]) if i in w['catalog']][:4] if focus=='search_hotels' else [],
           'weather':weather,'weather_note':w.get('weather_note'),'last_question':w.get('last_question','') if w.get('turn_is_chat') else '',
@@ -59,10 +60,12 @@ async def compose(w,result):
             '用户补充条件时，确认前缀已发送，不要再次确认或重复前缀中的偏好问题；描述查到的新信息。日期/人数/天数已提供不要重复询问；只询问缺项。'
             '必须回应last_question表达的变化或质疑；如果用户嫌不知名，说本次按代表景点重新筛选，保留海边与餐饮需求。不把“知名”当查实实时热度。'
             '用户问下一步或选择候选时，只解释本轮选择结果与next_step，不再次罗列旧景点、酒店或天气。酒店或房型已保存就说已保存，不因为可选房间数未明确而说酒店没有选定。'
+            'pending_plan_warning非空时，应说明当前有估算提醒并等待用户选择继续或调整，不宣称新计划书已经发布，不要求用户必须修改或增加景点。'
+            'action为request_auto_selection时说明等待用户在弹窗确认，不能声称已代选。action为approve_auto_selection或continue_auto_selection时根据本轮实际结果说明成功与未完成项；auto_selection_running为true时告诉用户正在继续其余安排，不要求用户逐餐指定。不自动确认车票机票。'
             'action为complete_spots或analyze_visits时简要说明每日分配、建议时长及原因；必须保留visit_analysis.notices中景点偏少或偏多的提示。未生成正式计划时称建议安排。'
             'action为visit_schedule时确认指定日期和时段已经保存以及本轮实际分析结果，并说明生成或重排时会按要求核对；不罗列旧景点或餐饮，不重复confirmed_prefix，未生成计划不能声称日程已修改。'
             '结尾以**下一步：具体操作**标出当前最重要动作，先说明完成当前选择后才能做什么。例如“请先选定旅游地区；选定后比较景点，再补充日期和人数”。严格按next_step，不跨过餐饮确认；餐厅允许自行安排。'
-            '若action为plan且计划已生成，结尾必须说“请查看计划书；如需调整可直接发送消息”，绝不再要求生成计划书。'
+            '若action为plan或optimize_plan且pending_plan_warning为空、计划已生成，结尾必须说“请查看计划书；如需调整可直接发送消息”，绝不再要求生成计划书。'
             '天气已查询时顺带列出出行日期温度与天气、给1条建议，并按weather_note说明远期预报不确定性。'
             '没有结果时先说明本次未找到，再问位置/价格等需要怎样调整。不要宣称没有其他酒店。'
             '选择、推荐均未预订。不要附“下一步”独立按钮文案，不要输出JSON、内部字段、工具名称或思考过程。'

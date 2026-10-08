@@ -15,7 +15,10 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
         allowed_tour=tour_dates[min(first,len(tour_dates)-1):min(last,len(tour_dates))]
         if len(chunks)==1:allowed_tour=tour_dates
         fixed=[requests[p['id']]['date'] for p in chunk if p['id'] in requests]
-        if any(d not in tour_dates for d in fixed):raise DataError('景点指定日期不在当前游玩范围，请先调整景点日期安排。')
+        if any(d not in tour_dates for d in fixed):
+            from .diagnostics import invalid_dates
+            issues=invalid_dates(w,[p['id'] for p in chunk],tour_dates)
+            raise DataError('部分景点的指定日期已超出当前游玩范围，请查看具体安排。',{'issues':issues,'view':'spot','candidate_ids':[i for x in issues for i in x['candidate_ids']]})
         allowed_tour=sorted(set(allowed_tour+fixed))
         allowed_dates=[d for d in dates if allowed_tour[0]<=d<=allowed_tour[-1]]
         allowed_ids={p['id'] for p in chunk}
@@ -49,7 +52,7 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                         low,high=windows(w,dt)
                         limited=low>0 or high<1440
                         low=max(low,minutes(w['requirements'].get('day_start','09:00')))
-                        if limited and low+sum(i['duration'] for i in items)>high:
+                        if limited and low>=high:
                             errors.append('所选班次限制了'+dt+'可用时间；请将可调整的景点换到其他游玩日期，保留明确指定日期时段，不删除景点。')
                             back=(w.get('selected_return') or {}).get('departure','')[:10]
                             time_context={'date':dt,'direction':'return' if back and dt>=back else 'outbound','candidate_ids':[x['candidate_id'] for x in items],'view':'spot','phase':'proposal'}
@@ -59,14 +62,15 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                 if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(allowed_ids-seen))
                 if len({d['date'] for d in groups})!=len(groups):errors.append('日期重复')
                 allocation=[{**item,'date':d['date']} for d in groups for item in d['items']]
-                errors.extend(visit_analysis.distribution_errors(w,allocation,allowed_tour))
+                advisories=visit_analysis.distribution_warnings(w,allocation,allowed_tour)
             except (ValueError,TypeError,KeyError,AttributeError):errors.append('JSON日程结构或时长无效')
-            if not errors:break
+            if not errors and (not advisories or attempt):break
             if attempt:
-                if time_context:raise DataError(time_context['date']+'的活动与'+('返程冲突' if time_context['direction']=='return' else '去程到达时间冲突')+'，修订后仍无法容纳建议游玩时长。请调整相关景点日期、时段或班次。',time_context)
-                raise DataError('行程草稿未通过候选/日期校验，已保留用户选择，请重新生成。')
+                from .diagnostics import proposal
+                message,context=proposal(w,errors,groups,allowed_ids,tour_dates,time_context)
+                raise DataError(message,context)
             progress('正在根据候选与日期校验结果修订草稿')
-            messages.extend([{'role':'assistant','content':raw or '{}'}, {'role':'user','content':json.dumps({'validation_errors':errors,'allowed_ids':sorted(allowed_ids),'allowed_dates':allowed_tour},ensure_ascii=False)}])
+            messages.extend([{'role':'assistant','content':raw or '{}'}, {'role':'user','content':json.dumps({'validation_errors':errors,'workload_advisories':advisories if not errors else [],'allowed_ids':sorted(allowed_ids),'allowed_dates':allowed_tour,'instruction':'保留全部已选地点及明确安排，尝试改善建议负担；休息时间不必填满，估算偏紧可说明而不是编造可行性。'},ensure_ascii=False)}])
         for key,n in used.items():
             if isinstance(n,(int,float)):usage[key]=usage.get(key,0)+n
         if not draft.get('title'):draft['title']=value.get('title')
@@ -75,4 +79,5 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
             dt=day['date']
             if dt not in by_date:by_date[dt]=day
             else:by_date[dt]['items']+=day['items']
+    draft['planning_issues']=visit_analysis.distribution_warnings(w,[{**i,'date':d['date']} for d in by_date.values() for i in d['items']],tour_dates)
     return draft,list(by_date.values()),usage

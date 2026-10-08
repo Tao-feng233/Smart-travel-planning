@@ -1,5 +1,21 @@
 # 识途旅游规划
 
+## Advisory confirmation and tour-only balancing (2026-10-08)
+
+`visits.dates` remains the sole tour-date range: an earlier arrival day can appear in the full book as travel/rest, but is not a sightseeing day to fill. Workload imbalance and capacity based on suggested visit/transfer minutes are advisory, separated from identity/date validation. The model may improve a proposal once; a valid proposal with remaining estimates is retained rather than rejected. Warnings identify the specific compared dates and minutes without implying all other days are empty.
+
+`app/plan_warnings.py` holds a checked candidate draft while a native confirmation dialog offers continue-with-warnings or adjust. Approval binds to the workspace input signature, expires after 15 minutes, publishes the cached result without repeating model generation, and preserves warnings in the book. Cancellation preserves selections/old plan. Candidate identity, explicit date validation, actual arrival/return incompatibilities and unresolved route/meal conflicts are not waived by generic workload consent. Local regression: 221 passed; browser consent/cancel/publication and history/map/ticket checks passed. Map architecture changes are only proposed, not implemented in this batch.
+
+## Complete plan revision (2026-10-08)
+
+`app/plan_revision.py` provides `optimize_plan`. A follow-up such as “帮我优化一下” after an existing plan or planning conflict revises the complete book, rather than only updating its sightseeing preview. Loading UI preserves the prior concrete conflict before replacement. Both visit analysis and final proposals receive the original plan, selected places/rooms/meals/transport, ticket and weather snapshots, official guides, user request and concrete repair feedback. Numeric family composition remains in model context; media and road geometry are omitted.
+
+Only flexible dates, sequence, suggested durations/scope and notes can change. Generic optimization cannot apply model-invented requirements or new selections. Explicit pins, selected restaurants and tickets remain protected. Revision works on a private copy, verifies candidate coverage, time ordering, pins, day limits and inclusion of chosen meals, then publishes the new plan with a change summary. A bounded additional repair can use actual-route failure context; failure/cancellation leaves the original book and choices intact. Explicit spot date/order changes also regenerate an existing book after saving the user's requested pin.
+
+Long continuous scenic visits crossing lunch are divided into one initial visit and a `spot_continue` segment. Total sightseeing duration is retained. Selected lunch plus travel to the restaurant and back is calculated separately; unavailable return routes are explicit errors, and re-entry conditions remain unverified. Timeline keys distinguish continuation segments. This is still a draft planning aid, not confirmation of opening, inventory or admission.
+
+Member-three snapshot `dbfb52a` independently passes 274 tests but has reproduced per-night quote identity/date, cache invalidation and hard/soft period errors. Its new lodging orchestration has not been integrated. The active local application continues using its existing lodging model pending those fixes.
+
 ## Selection preview and estimated visit analysis (2026-10-08)
 
 `app/visit_analysis.py`分析整个已选景点集合，而非直接沿用候选卡片的建议日期。完成景点选择、修改指定日期/顺序或点击时间轴“优化分配”时，模型结合位置、偏好、已知资料和交通时间预算建议时长、日期、时段与原因。程序检查真实已选ID、日期范围、用户明确安排、每日容量与可避免的负担失衡，允许一次修订。失败保留选择并显示带估算标签的分配；无模型结果时按地点类型估算，不再统一90分钟。模型知识只能用于建议玩法与时长，不能补造运营事实。

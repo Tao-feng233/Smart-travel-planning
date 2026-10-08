@@ -84,7 +84,10 @@ def test_selected_return_conflict_blocks_delivery(monkeypatch,tmp_path):
     async def fake_tool(name,args):return {'items':[]}
     monkeypatch.setattr(p,'llm',fake_llm);monkeypatch.setattr(p,'local_tool',fake_tool)
     w=workspace();w['hotel']=None;w['requirements']['days']=1;w['selected_return']={'departure':dt+' 10:30'}
-    with pytest.raises(Exception,match='返程冲突'):asyncio.run(p.generate(w,lambda x:None))
+    with pytest.raises(p.DataError) as error:asyncio.run(p.generate(w,lambda x:None))
+    assert error.value.context['direction']=='return' and error.value.context['date']==dt
+    assert 'spot:1' in error.value.context['candidate_ids']
+    assert any('10:30' in issue['message'] and '返程' in issue['message'] for issue in error.value.context['issues'])
 
 def test_review_handles_missing_summary_but_rejects_invalid_issues():
     from app.planning import parse_review

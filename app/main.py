@@ -169,7 +169,7 @@ class Action(BaseModel):
 async def action(wid:str,body:Action,user=Depends(auth.current_user)):
     w=owned(wid,user)
     if w['archived']:raise HTTPException(409,'这次旅行已归档，请恢复后再继续规划')
-    if body.action not in {'chat','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
+    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
         raise HTTPException(400,'不支持的操作')
     if body.action=='chat' and not body.text.strip():raise HTTPException(400,'请先输入旅行想法')
     jid=uuid.uuid4().hex
@@ -207,6 +207,10 @@ async def perform(wid,body,jid,owner_id):
             ui={**w.get('ui',{}),'requirements':w['requirements'],'root_action':body.action,'reply_text':''.join(reply_buffer),'process_steps':[x['text'] for x in trace]}
             storage.update_job(jid,ui=ui)
         sink_token=replies.SINK.set(emit);prefix_token=replies.PREFIX.set('')
+        # Loading UI replaces the failed view. Keep its concrete diagnostics for
+        # a follow-up such as "help me optimize" before that replacement.
+        if w.get('ui',{}).get('conflict'):
+            w['last_plan_conflict']=w['ui']['conflict']
         trace=[];w['ui']=guidance.describe(w,body.action,body.args,status='loading')
         def progress(text):
             trace.append({'time':storage.now(),'text':text});storage.update_job(jid,progress=text);publish()
@@ -228,9 +232,10 @@ async def perform(wid,body,jid,owner_id):
                     if body.action=='requirements':
                         from .agent import ensure_weather
                         await ensure_weather(w,progress)
-                    if body.action not in ('select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots'):
+                    if body.action not in ('select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots','cancel_auto_selection','approve_plan_warning','cancel_plan_warning'):
                         answer=await replies.compose(w,answer)
         except asyncio.CancelledError:
+            w.pop('auto_selection_run',None)
             status='interrupted' if SHUTTING_DOWN else 'cancelled'
             answer='任务已中断，已保存的对话和选择可以继续。' if SHUTTING_DOWN else '已停止本轮处理，当前选择已保留。'
         except DataError as e:error=str(e);answer=error;status='failed';error_context=e.context
@@ -243,6 +248,9 @@ async def perform(wid,body,jid,owner_id):
         finally:
             CANCELLED.discard(jid);replies.SINK.reset(sink_token);replies.PREFIX.reset(prefix_token)
         ui=guidance.finish(w,'ready' if status=='completed' else status,error)
+        if error:
+            from .diagnostics import from_error
+            error_context=from_error(w,error_context,error)
         if error_context:ui['conflict']=error_context
         from .journey import next_step
         newly_ready=status=='completed' and not before_ready and all((w.get(k) or {}).get('selection_status')=='confirmed' for k in ('selected_transport','selected_return'))

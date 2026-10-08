@@ -96,10 +96,10 @@ def build(w):
  if plan and not plan.get('stale'):
   for d in plan.get('days',[]):
    for i,e in enumerate(d.get('events',[])):
-    if e.get('kind') not in ('spot','meal','transport','arrival'):continue
+    if e.get('kind') not in ('spot','spot_continue','meal','transport','arrival'):continue
     cid=e.get('candidate_id') or (e.get('food') or {}).get('id')
     period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if e.get('kind')=='meal' else None
-    rows.append({'key':d['date']+'|'+(period or cid or str(i)),'date':d['date'],'time':e['start'],'end':e['end'],'kind':e['kind'],'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':e.get('kind')!='meal' or bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))),'estimated':False})
+    rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if e.get('kind')=='spot_continue' else ''),'date':d['date'],'time':e['start'],'end':e['end'],'kind':e['kind'],'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':e.get('kind')!='meal' or bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))),'estimated':False})
  else:rows=provisional(w)
  # Include transport-only dates, outside the sightseeing period.
  for key,kind in [('selected_transport','去程'),('selected_return','返程')]:
