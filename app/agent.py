@@ -125,6 +125,39 @@ async def query_stay_night(w,day,progress):
     w['catalog'].update({p['id']:p for p in items})
     return items
 
+async def load_hotel_detail(w,p,progress):
+    """取该候选的房型与报价，供选择住宿后直接进入房型选择，也供 hotel_detail 动作复用。
+
+    沿用候选自己的入住/退房日期（逐晚查询各有日期），只有全程单一候选才用整段旅行日期。
+    """
+    r=w['requirements']
+    quote=p.get('query_conditions') or {}
+    checkin=quote.get('checkIn') or r.get('start_date')
+    if not checkin:raise DataError('请先明确入住日期')
+    checkout=quote.get('checkOut') or (date.fromisoformat(checkin)+timedelta(days=max(1,int(r.get('days',2))))).isoformat()
+    progress('途牛 MCP 正在查询酒店房型与退改信息'+(('（'+str(p.get('stay_date'))+' 入住）') if p.get('stay_date') else ''))
+    params={'hotelId':int(p['provider_id']),'checkIn':checkin,'checkOut':checkout,
+        'adultNum':int(quote.get('adultNum') or r.get('adults',2)),'roomNum':int(quote.get('roomNum') or r.get('rooms',1))}
+    if r.get('children'):
+        if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店详情查询需要每位儿童的年龄。')
+        params.update(childNum=int(r['children']),childAges=r['child_ages'])
+    detail_result=await tuniu('hotel','tuniuHotelDetail',params)
+    d=unwrap(detail_result['data']);p['detail_source']=detail_result['source']
+    if not isinstance(d,dict):raise DataError('酒店详情未返回可用结构，请稍后重试。')
+    # 房型报价只在这一晚的日期条件下有效，把条件一并快照下来。
+    p['detail']=enrichment.hotel_detail(d,{**r,'start_date':checkin,
+                                           'days':max(1,(date.fromisoformat(checkout)-date.fromisoformat(checkin)).days)})
+    p['room_choices']=room_choices(p,{**r,'start_date':checkin})
+    if not p.get('address') and isinstance(d.get('address'),str) and d['address']:
+        p['address']=d['address'];p['address_source']=detail_result['source']
+    from .locations import coordinate,locate_hotel
+    if not coordinate(p.get('location')) and p.get('name'):await locate_hotel(w,p,local_tool)
+    if isinstance(d.get('firstPic'),str) and d['firstPic']:p['photos']=list(dict.fromkeys([d['firstPic']]+p.get('photos',[])))[:8]
+    if (w.get('hotel') or {}).get('id')==p['id']:
+        w['hotel']['detail']=p['detail']
+        if p.get('address'):w['hotel']['address']=p['address']
+    return p['detail'].get('availability_status')
+
 def mark_stale(w):
     if w.get('plan'): w['plan']['stale']=True
 
@@ -459,7 +492,7 @@ async def handle(w,action,args,progress):
         cid=args.get('id');p=w['catalog'].get(cid)
         if not p:raise DataError('候选不存在或已失效，请重新查询')
         if p.get('stale'):raise DataError('候选日期或人数条件已经变化，请重新查询后选择')
-        answer_extra=''
+        answer_extra='';detail_error=''
         if p['kind']=='spot':
             w['spots_confirmed']=False
             removed=cid in w['selected_spots']
@@ -484,16 +517,28 @@ async def handle(w,action,args,progress):
                 answer_extra=''
             w['stay_skipped']=False
             w['stay_hotels']=w.get('stay_hotels') or {}
+            # 选中后直接进入房型选择：同一次操作里取回房型与报价，
+            # 不必让用户再点一次"房型详情"。非供应商候选（没有 provider_id）跳过。
+            if not p.get('detail') and p.get('provider_id'):
+                try:
+                    detail_error=await load_hotel_detail(w,p,progress)
+                except DataError as error:
+                    detail_error=str(error)
         elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
         elif p['kind']=='hotel':
             detail=p.get('detail') or {}
+            rooms=len(p.get('room_choices') or [])
             from . import stay_plan as _stay
             leaves=_stay.unassigned(w);spread=_stay.multi_stay_note(w)
             if detail.get('availability_status')=='no_availability':
                 # 查过且供应商没有可售房型：不能只回"已选酒店"就结束，要给出下一步。
                 answer=answer_extra+'已选择住宿：'+p["name"]+'。但'+enrichment.room_availability_message(detail)
+            elif rooms:
+                answer=answer_extra+'已选择住宿：'+p["name"]+'，房型已展开（'+str(rooms)+' 个报价）——请在下方选择具体房型后点“完成住宿选择”。选定仅用于规划，尚未预订。'
+            elif detail_error:
+                answer=answer_extra+'已选择住宿：'+p["name"]+'。房型与报价这次没能取到（'+detail_error+'），可点该卡的“房型详情”重试。'
             else:
                 answer=answer_extra+'已选择住宿：'+p["name"]+'。请展开房型详情，选择具体报价后点击“完成住宿选择”。选定仅用于规划，尚未预订。'
             if leaves:answer+='\n还有'+str(len(leaves))+' 晚沿用主住宿（'+'、'.join(leaves)+'）；想每晚分开住可以点对应夜晚的“住这家”。'
@@ -505,33 +550,8 @@ async def handle(w,action,args,progress):
         p=w['catalog'].get(args.get('id'))
         if not p or p['kind']!='hotel':raise DataError('请选择已查询的酒店')
         if p.get('stale'):raise DataError('酒店条件已变化，请重新查询')
-        # 逐晚查询必须沿用该晚的入住/退房日期；只有全程单一候选才用整段旅行日期。
-        quote=p.get('query_conditions') or {}
-        checkin=quote.get('checkIn') or r.get('start_date')
-        checkout=quote.get('checkOut') or (date.fromisoformat(checkin)+timedelta(days=max(1,int(r.get('days',2))))).isoformat()
-        if not checkin:raise DataError('请先明确入住日期')
-        progress('途牛 MCP 正在查询酒店房型与退改信息'+(('（'+str(p.get('stay_date'))+' 入住）') if p.get('stay_date') else ''))
-        params={'hotelId':int(p['provider_id']),'checkIn':checkin,'checkOut':checkout,
-            'adultNum':int(quote.get('adultNum') or r.get('adults',2)),'roomNum':int(quote.get('roomNum') or r.get('rooms',1))}
-        if r.get('children'):
-            if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店详情查询需要每位儿童的年龄。')
-            params.update(childNum=int(r['children']),childAges=r['child_ages'])
-        detail_result=await tuniu('hotel','tuniuHotelDetail',params)
-        d=unwrap(detail_result['data']);p['detail_source']=detail_result['source']
-        if not isinstance(d,dict):raise DataError('酒店详情未返回可用结构，请稍后重试。')
-        # 房型报价只在这一晚的日期条件下有效，把条件一并快照下来。
-        p['detail']=enrichment.hotel_detail(d,{**r,'start_date':checkin,
-                                               'days':max(1,(date.fromisoformat(checkout)-date.fromisoformat(checkin)).days)})
-        p['room_choices']=room_choices(p,{**r,'start_date':checkin})
-        if not p.get('address') and isinstance(d.get('address'),str) and d['address']:
-            p['address']=d['address'];p['address_source']=detail_result['source']
-        from .locations import coordinate,locate_hotel
-        if not coordinate(p.get('location')) and p.get('name'):await locate_hotel(w,p,local_tool)
-        if isinstance(d.get('firstPic'),str) and d['firstPic']:p['photos']=list(dict.fromkeys([d['firstPic']]+p.get('photos',[])))[:8]
-        if (w.get('hotel') or {}).get('id')==p['id']:
-            w['hotel']['detail']=p['detail']
-            if p.get('address'):w['hotel']['address']=p['address']
-        if p['detail'].get('availability_status')=='no_availability':
+        status=await load_hotel_detail(w,p,progress)
+        if status=='no_availability':
             return ('房型详情已更新，但这次没有可售房型：'+enrichment.room_availability_message(p['detail']))
         return '房型详情已更新。请核对日期、人数、餐食与退改；列表起价仍不是确认后的总价。'
     if not r.get('city'):raise DataError('先告诉我想去哪个城市；还没想好也可以先聊旅行偏好。')
