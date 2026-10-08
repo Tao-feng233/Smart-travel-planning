@@ -196,6 +196,14 @@ ALLOW={'hotel':{'tuniuHotelSearch','tuniuHotelDetail'},'train':{'searchLowestPri
        'flight':{'searchLowestPriceFlight','multiCabinDetails'},'ticket':{'query_cheapest_tickets'}}
 TUNIU_LOCK=asyncio.Lock()
 
+def tuniu_keys():
+    """途牛 API key 候选：主用在前，备用在后；去重且忽略空值。"""
+    keys=[]
+    for name in ('TUNIU_API_KEY','TUNIU_API_KEY_FALLBACK'):
+        value=setting(name)
+        if value and value not in keys:keys.append(value)
+    return keys
+
 async def tuniu(service,tool,arguments):
     if tool not in ALLOW.get(service,set()): raise DataError('该工具不在只读查询白名单中')
     key=cache_key('tuniu:'+tool,arguments)
@@ -213,32 +221,52 @@ async def tuniu(service,tool,arguments):
         if count>=int(setting('TUNIU_DAILY_LIMIT','40')): raise DataError('本项目的途牛查询预算已用完，请稍后再试')
         if last and time.time()-last<13: await asyncio.sleep(13-(time.time()-last))
         with connect() as c: c.execute('INSERT INTO calls VALUES(?,?)',('tuniu',time.time()))
-        try:
-            async with asyncio.timeout(45):
-                async with streamablehttp_client('https://openapi.tuniu.cn/hybrid/mcp/'+service,headers={'apiKey':setting('TUNIU_API_KEY')},timeout=35) as (read,write,_):
-                    async with ClientSession(read,write) as s:
-                        await s.initialize()
-                        f=RUNTIME/('tuniu-'+service+'-schema.json')
-                        if f.exists(): schemas=json.loads(f.read_text(encoding='utf-8'))
-                        else:
-                            schemas=[t.model_dump() for t in (await s.list_tools()).tools]
-                            f.write_text(json.dumps(schemas,ensure_ascii=False,indent=2),encoding='utf-8')
-                        schema=next((t['inputSchema'] for t in schemas if t['name']==tool),None)
-                        if not schema: raise DataError('实时 MCP schema 中没有所需工具')
-                        validate(arguments,schema)
-                        if set(arguments)-set(schema.get('properties',{})): raise DataError('发现供应商未定义的参数')
-                        r=await s.call_tool(tool,arguments)
-                        if r.isError: raise DataError('途牛工具返回查询错误')
-                        data=r.structuredContent
-                        texts=[x.text for x in r.content if getattr(x,'type',None)=='text']
-                        if data is None:
-                            try: data=json.loads('\n'.join(texts))
-                            except ValueError: data={'text':'\n'.join(texts)}
-        except DataError: raise
-        except Exception: raise DataError('途牛查询失败或超时，请稍后重试') from None
+        keys=tuniu_keys()
+        if not keys: raise DataError('尚未配置途牛 API key，请在 .env 填写 TUNIU_API_KEY')
+        used=0
+        for index,api_key in enumerate(keys):
+            try:
+                data=await tuniu_call(service,tool,arguments,api_key,ClientSession,streamablehttp_client)
+                used=index
+                break
+            except DataError as error:
+                # 主 key 失效或被限流时改用备用 key；全部失败才把最后一个错误交给用户。
+                if index+1>=len(keys): raise
+                used=index+1
     result={'data':data,'source':source('途牛 MCP','https://open.tuniu.com/mcp/docs/apidoc/mcp/'+service+'MCP.html')}
+    if used:
+        # 明确告诉用户这次用的是备用 key，避免"为什么突然能查了"没有依据。
+        result['rotation_note']='主途牛 key 本次未能完成查询，已改用备用 key（TUNIU_API_KEY_FALLBACK）完成。'
     put_cache(key,result,600)
     return result
+
+async def tuniu_call(service,tool,arguments,api_key,ClientSession,streamablehttp_client):
+    """用指定 key 执行一次途牛 MCP 查询，返回已解析的数据。"""
+    data=None
+    try:
+        async with asyncio.timeout(45):
+            async with streamablehttp_client('https://openapi.tuniu.cn/hybrid/mcp/'+service,headers={'apiKey':api_key},timeout=35) as (read,write,_):
+                async with ClientSession(read,write) as s:
+                    await s.initialize()
+                    f=RUNTIME/('tuniu-'+service+'-schema.json')
+                    if f.exists(): schemas=json.loads(f.read_text(encoding='utf-8'))
+                    else:
+                        schemas=[t.model_dump() for t in (await s.list_tools()).tools]
+                        f.write_text(json.dumps(schemas,ensure_ascii=False,indent=2),encoding='utf-8')
+                    schema=next((t['inputSchema'] for t in schemas if t['name']==tool),None)
+                    if not schema: raise DataError('实时 MCP schema 中没有所需工具')
+                    validate(arguments,schema)
+                    if set(arguments)-set(schema.get('properties',{})): raise DataError('发现供应商未定义的参数')
+                    r=await s.call_tool(tool,arguments)
+                    if r.isError: raise DataError('途牛工具返回查询错误')
+                    data=r.structuredContent
+                    texts=[x.text for x in r.content if getattr(x,'type',None)=='text']
+                    if data is None:
+                        try: data=json.loads('\n'.join(texts))
+                        except ValueError: data={'text':'\n'.join(texts)}
+    except DataError: raise
+    except Exception: raise DataError('途牛查询失败或超时，请稍后重试') from None
+    return data
 
 async def llm(messages, tools=None, json_mode=False, max_tokens=2200):
     body={'model':setting('LLM_MODEL','deepseek-flash'),'messages':messages,'max_tokens':max_tokens,

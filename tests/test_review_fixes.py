@@ -620,6 +620,55 @@ def test_duplicate_place_names_are_shown_once_per_page():
     assert names.count('宽窄巷子') + names.count('宽窄巷子景区') == 1
 
 
+def test_tuniu_uses_the_fallback_key_when_the_primary_fails(monkeypatch):
+    """主 key 失效或被限流时自动改用备用 key，并如实说明这一次用的是备用。"""
+    from app import providers
+    from app.providers import DataError
+    monkeypatch.setattr(providers, 'setting', lambda name, default='': {
+        'TUNIU_API_KEY': 'primary-key',
+        'TUNIU_API_KEY_FALLBACK': 'fallback-key',
+        'TUNIU_DAILY_LIMIT': '40'}.get(name, default))
+    assert providers.tuniu_keys() == ['primary-key', 'fallback-key']
+    # 重复或缺失都不应产生重复候选
+    monkeypatch.setattr(providers, 'setting', lambda name, default='': {
+        'TUNIU_API_KEY': 'same', 'TUNIU_API_KEY_FALLBACK': 'same'}.get(name, default))
+    assert providers.tuniu_keys() == ['same']
+
+    monkeypatch.setattr(providers, 'setting', lambda name, default='': {
+        'TUNIU_API_KEY': 'primary-key',
+        'TUNIU_API_KEY_FALLBACK': 'fallback-key',
+        'TUNIU_DAILY_LIMIT': '40'}.get(name, default))
+    monkeypatch.setattr(providers, 'cached', lambda key: None)
+    monkeypatch.setattr(providers, 'put_cache', lambda *a, **k: None)
+    class _Conn:
+        def execute(self, *a): return self
+        def fetchone(self): return (0,)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(providers, 'connect', lambda: _Conn())
+    tried = []
+    async def fake_call(service, tool, arguments, api_key, *_):
+        tried.append(api_key)
+        if api_key == 'primary-key':
+            raise DataError('途牛工具返回查询错误')
+        return {'hotels': [{'hotelId': 1}]}
+    monkeypatch.setattr(providers, 'tuniu_call', fake_call)
+    result = asyncio.run(providers.tuniu('hotel', 'tuniuHotelSearch', {'cityName': '成都'}))
+    assert tried == ['primary-key', 'fallback-key']
+    assert '备用' in result.get('rotation_note', '')
+    assert result['data'] == {'hotels': [{'hotelId': 1}]}
+
+    # 两个 key 都失败时，错误必须抛出，不能假装成功
+    tried.clear()
+    async def always_fail(*a, **k):
+        tried.append(a[3])
+        raise DataError('途牛工具返回查询错误')
+    monkeypatch.setattr(providers, 'tuniu_call', always_fail)
+    with pytest.raises(DataError):
+        asyncio.run(providers.tuniu('hotel', 'tuniuHotelSearch', {'cityName': '成都'}))
+    assert tried == ['primary-key', 'fallback-key']
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
