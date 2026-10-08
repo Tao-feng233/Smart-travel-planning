@@ -92,13 +92,18 @@ async def query_stay_night(w,day,progress):
     hotels=d.get('hotels',[]) if isinstance(d,dict) else []
     items=[]
     for h in hotels[:4]:
-        items.append({'id':'tuniu:hotel:'+str(h['hotelId']),'provider_id':h['hotelId'],'kind':'hotel','name':h['hotelName'],
+        # 候选 ID 带上这一晚的日期：同一家酒店在不同夜晚价格与库存不同，
+        # 只按 hotelId 生成 ID 会让后一晚覆盖前晚的报价（复核 P1/逐晚身份）。
+        items.append({'id':'tuniu:hotel:'+str(h['hotelId'])+'@'+day,'provider_id':h['hotelId'],'kind':'hotel','name':h['hotelName'],
                       'address':h.get('address'),'rating':h.get('commentScore'),'price':h.get('lowestPrice'),
-                      'price_basis':'指定日期列表起价，房型与总价待核实','review_summary':h.get('commentDigest'),
+                      'price_basis':'该晚（'+day+' 入住）列表起价，房型与总价待核实','review_summary':h.get('commentDigest'),
                       'area':h.get('business'),'room':h.get('roomName'),'window':h.get('roomWindow'),'meal':h.get('meal'),
                       'refund':h.get('refund'),'photos':[h.get('firstPic')] if h.get('firstPic') else [],
                       'source':result['source'],'stay_date':day,'stay_anchor_id':row.get('anchor_id'),
-                      'stay_anchor_name':row.get('anchor_name'),'location':None,'match_status':'待核对地图位置'})
+                      'stay_anchor_name':row.get('anchor_name'),
+                      # 逐晚报价快照：详情、房型与选择都必须沿用这一晚的查询日期。
+                      'query_conditions':dict(params),'quote_date':day,
+                      'location':None,'match_status':'待核对地图位置'})
     if items:
         progress('核对 '+day+' 候选酒店的位置，并比较到当天收尾地点的真实通行')
         from .locations import locate_hotel
@@ -500,18 +505,24 @@ async def handle(w,action,args,progress):
         p=w['catalog'].get(args.get('id'))
         if not p or p['kind']!='hotel':raise DataError('请选择已查询的酒店')
         if p.get('stale'):raise DataError('酒店条件已变化，请重新查询')
-        if not r.get('start_date'):raise DataError('请先明确入住日期')
-        progress('途牛 MCP 正在查询酒店房型与退改信息')
-        params={'hotelId':int(p['provider_id']),'checkIn':r['start_date'],
-            'checkOut':(date.fromisoformat(r['start_date'])+timedelta(days=max(1,int(r.get('days',2))))).isoformat(),
-            'adultNum':int(r.get('adults',2)),'roomNum':int(r.get('rooms',1))}
+        # 逐晚查询必须沿用该晚的入住/退房日期；只有全程单一候选才用整段旅行日期。
+        quote=p.get('query_conditions') or {}
+        checkin=quote.get('checkIn') or r.get('start_date')
+        checkout=quote.get('checkOut') or (date.fromisoformat(checkin)+timedelta(days=max(1,int(r.get('days',2))))).isoformat()
+        if not checkin:raise DataError('请先明确入住日期')
+        progress('途牛 MCP 正在查询酒店房型与退改信息'+(('（'+str(p.get('stay_date'))+' 入住）') if p.get('stay_date') else ''))
+        params={'hotelId':int(p['provider_id']),'checkIn':checkin,'checkOut':checkout,
+            'adultNum':int(quote.get('adultNum') or r.get('adults',2)),'roomNum':int(quote.get('roomNum') or r.get('rooms',1))}
         if r.get('children'):
             if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店详情查询需要每位儿童的年龄。')
             params.update(childNum=int(r['children']),childAges=r['child_ages'])
         detail_result=await tuniu('hotel','tuniuHotelDetail',params)
         d=unwrap(detail_result['data']);p['detail_source']=detail_result['source']
         if not isinstance(d,dict):raise DataError('酒店详情未返回可用结构，请稍后重试。')
-        p['detail']=enrichment.hotel_detail(d,r);p['room_choices']=room_choices(p,r)
+        # 房型报价只在这一晚的日期条件下有效，把条件一并快照下来。
+        p['detail']=enrichment.hotel_detail(d,{**r,'start_date':checkin,
+                                               'days':max(1,(date.fromisoformat(checkout)-date.fromisoformat(checkin)).days)})
+        p['room_choices']=room_choices(p,{**r,'start_date':checkin})
         if not p.get('address') and isinstance(d.get('address'),str) and d['address']:
             p['address']=d['address'];p['address_source']=detail_result['source']
         from .locations import coordinate,locate_hotel
@@ -531,8 +542,10 @@ async def handle(w,action,args,progress):
         if not r.get('start_date') or not r.get('adults'):raise DataError('查住宿前，请补充出游日期和成人/儿童人数。')
         if int(r.get('days',2))==1:raise DataError('当前为一日行程，无默认住宿晚数；需要住宿请明确跨日安排。')
         from . import stay_plan
-        plan_rows=stay_plan.plan(w)
-        w['stay_plan']=plan_rows
+        previous=w.get('stay_plan')
+        # 重算编排行，但保留未变化夜晚已查到的候选，避免补查一晚把其它晚清空。
+        w['stay_plan']=stay_plan.merge_plan(w,stay_plan.plan(w),previous)
+        plan_rows=w['stay_plan']
         if args.get('keyword'):
             # 用户指定了酒店名或区域关键词：按其指定条件直接查，不按晚锚定。
             return await search_hotels_by_keyword(w,args,progress)

@@ -98,45 +98,54 @@ USER_PINNED_PERIODS = ('morning', 'afternoon', 'evening')
 
 
 def period_fit(w, items, allowed_dates=None):
-    """时段容量核对：返回 [(日期, 时段, 时长, 容量, 来源)]。
+    """时段容量核对：返回 [(日期, 时段, 硬占用, 硬容量, 软建议)]。
 
-    source 的含义：
-      user  用户明确指定了该时段 → 硬约束（可阻断排期，但要给出可执行的修法）；
-      soft  用户只指定了日期、时段是初稿或本地建议 → 只提示，交最终排程按实际时刻落位。
-    容量按当天窗口与该时段窗口的交集算，晚到当天不会因为"上午"这个标签被判成必然冲突。
+    硬占用只统计"用户明确指定了该时段"的活动：软建议（本地建议时段或模型初稿）
+    可以挪，不能算进硬容量，否则上午 60 分钟硬活动配 150 分钟软建议会被误判成
+    230 分钟溢出（复核 P2）。容量按当天窗口与该时段窗口的交集算，晚到当天不会
+    因为"上午"这个标签被判成必然冲突。
     """
     bs = {b['date']: b for b in budgets(w) if not allowed_dates or b['date'] in allowed_dates}
     rows = []
     for day, budget in bs.items():
         for period, low, high in [('morning', 540, 720), ('afternoon', 795, 1080), ('evening', 1080, 1380)]:
-            group, requests = [], []
+            hard, soft = [], []
             for i in items:
                 if i['date'] != day:
                     continue
                 request = (w.get('visit_requests') or {}).get(i.get('candidate_id')) or {}
-                if i.get('period') == period or request.get('period') == period:
-                    group.append(i)
-                    requests.append(request)
-            if not group:
+                if request.get('period') == period:
+                    hard.append(i)
+                elif i.get('period') == period:
+                    soft.append(i)
+            if not hard and not soft:
                 continue
             capacity = max(0, min(high, budget['end_minute']) - max(low, budget['start_minute']))
-            needed = sum(i['duration'] for i in group) + max(0, len(group) - 1) * 20
-            if needed > capacity:
-                source = 'user' if any((r or {}).get('period') == period for r in requests) else 'soft'
-                rows.append((day, period, needed, capacity, source))
+            hard_need = sum(i['duration'] for i in hard) + max(0, len(hard) - 1) * 20
+            soft_need = sum(i['duration'] for i in soft) + max(0, len(soft) - 1) * 20
+            if hard_need > capacity:
+                rows.append((day, period, hard_need, capacity, 0))
+            elif hard_need + soft_need > capacity and soft_need:
+                rows.append((day, period, hard_need, capacity, soft_need))
     return rows
 
 
 def period_notices(w, items, allowed_dates=None):
-    """时段超出容量但不应阻断排期的情形：作为提示保留，由最终排程按实际时刻落位。"""
+    """时段超出容量但不阻断排期的情形：作为提示保留，由最终排程按实际时刻落位。"""
     result = []
-    for day, period, needed, capacity, source in period_fit(w, items, allowed_dates):
-        if source == 'user':
-            continue
+    for day, period, hard_need, capacity, soft_need in period_fit(w, items, allowed_dates):
+        if not soft_need:
+            continue                                   # 硬活动自己就装不下：由报错处理
         label = visits.PERIODS.get(period, period)
-        result.append(day + '：' + label + '时段窗口约' + str(capacity) + '分钟，而建议时长' + str(needed)
-                      + '分钟；这是时段建议而非硬约束，最终按当天实际可用时间安排。')
+        result.append(day + '：' + label + '时段已被用户指定的活动占用约' + str(hard_need)
+                      + '分钟（窗口约' + str(capacity) + '分钟），另有约' + str(soft_need)
+                      + '分钟为可调整建议；软建议会挪到其它时段，用户指定的时段保持不变。')
     return result
+
+
+def cat_name(w, item):
+    """活动对应的地点名称，便于错误信息点名到具体景点。"""
+    return ((w.get('catalog') or {}).get(item.get('candidate_id')) or {}).get('name') or item.get('candidate_id')
 
 
 def distribution_errors(w, items, allowed_dates=None):
@@ -146,15 +155,24 @@ def distribution_errors(w, items, allowed_dates=None):
     for d, load in loads.items():
         if load > bs[d]['visit_minutes']:
             errors.append(d + '的建议游玩时长、转场预留和用餐超过可用时间；请换日或解释需要用户调整的条件，不得缩短大型景区时长来伪装可行。')
-    # 用户钉死的时段确实装不下时，给出模型能真正执行的修法：日期保留、时段放宽到当天。
-    # 只写"保留指定安排并提示用户调整"会让模型无解，两次修复都失败。
-    for day, period, needed, capacity, source in period_fit(w, items, allowed_dates):
+    # 用户钉死的时段本身装不下时，只能由模型缩短该活动的建议时长（它本就可调），
+    # 或者把冲突交给用户确认放宽时段。绝不能让模型擅自改用户指定的时段：
+    # 那既违反任务要求，又会被 visit_schedule 的硬条件校验拒绝，形成改不动又过不去的循环。
+    for day, period, hard_need, capacity, _soft in period_fit(w, items, allowed_dates):
         label = visits.PERIODS.get(period, period)
-        if source != 'user':
+        if not _soft and hard_need <= capacity:
             continue
-        errors.append(day + '用户指定的' + label + '活动需要' + str(needed) + '分钟，而该时段只有约'
-                      + str(capacity) + '分钟：请保留用户指定的日期，把该活动的时段改为当天其它可用时段'
-                      + '（或如实说明时长需要用户确认），不要为了塞进' + label + '而缩短大型景区时长。')
+        if hard_need <= capacity:
+            continue                                   # 硬活动放得下：软建议那部分已在提示里说明
+        item = next((i for i in items if i['date'] == day
+                     and (w.get('visit_requests', {}).get(i.get('candidate_id')) or {}).get('period') == period), None)
+        if not item:
+            continue
+        errors.append(day + '用户指定了' + label + '游览「' + str(cat_name(w, item)) + '」，该时段只有约'
+                      + str(capacity) + '分钟，而这条建议时长需要' + str(hard_need)
+                      + '分钟。用户指定的时段不能由你改动：请把这条的建议时长下调到该时段能容纳的范围'
+                      + '（建议不超过' + str(max(15, capacity)) + '分钟），或在说明里明确写出'
+                      + '「需要用户确认把' + str(cat_name(w, item)) + '改到其它时段」并保留用户原时段。')
     usable = [d for d in bs if bs[d]['visit_minutes'] >= 30]
     if len(usable) > 1 and len(items) > 1:
         ratio = lambda d, load: load / max(1, bs[d]['visit_minutes'])

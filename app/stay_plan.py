@@ -21,18 +21,41 @@ def _d(value):
 
 def return_departure(w):
     """返程班次的出发时间；未选班次或用未确认日期时返回 None。"""
+    return _return_departure(w)[0]
+
+
+def return_date_bounds(w):
+    """住宿晚数要用哪个返程日期，以及班次日期与用户明确日期是否冲突。
+
+    用户的明确日期优先：推荐班次自己的出发日期不能把住宿晚数截短
+    （用户说 10-14 返程、推荐班次 10-13 出发时，13 日那晚仍要住）。
+    班次的确定出发时刻只在用户没有明确日期时才决定"当天走、不算住宿"。
+    """
+    r = (w.get('requirements') or {})
+    explicit = _d(r.get('return_date'))
+    stamp, departure = _return_departure(w)
+    if explicit and stamp and stamp != explicit:
+        return explicit, '用户明确的返程日期（' + explicit.isoformat() + '）；班次日期 '
+    if explicit:
+        return explicit, '用户明确的返程日期'
+    return (stamp, '已选返程班次的出发日期') if stamp else (None, '尚未选定返程班次')
+
+
+def _return_departure(w):
+    """(日期, 分钟) 或 (None, None)：仅当班次日期可作为返程日依据时返回。"""
     from . import journey
     r = (w.get('requirements') or {})
     selected = w.get('selected_return') or {}
     stamp = selected.get('departure')
     if not stamp:
-        return None
+        return (None, None)
+    # 用户明确给了返程日期时，推荐态班次自己填的日期不能当依据（它只是建议）。
     if selected.get('selection_status') != 'confirmed' and not r.get('return_date'):
-        return None
+        return (None, None)
     text = str(stamp)
     day = _d(text)
     if day is None:
-        return None
+        return (None, None)
     minutes = None
     tail = text[11:16] if len(text) >= 16 else ''
     if len(tail) == 5 and tail[2] == ':':
@@ -52,11 +75,15 @@ def nights(w):
     tour = [x for x in tour if x]
     if not start:
         return []
-    back = return_departure(w)
+    last_date, _ = return_date_bounds(w)
+    stamp, departure = _return_departure(w)
     last = None
-    if back:
+    if last_date:
         # 返程当天不订酒店，故最后一晚是返程前一天。
-        last = back[0] - timedelta(days=1)
+        last = last_date - timedelta(days=1)
+        # 班次确定当天出发时同样以班次日期为准（当天走就不订当晚）。
+        if departure is not None and stamp == last_date:
+            last = max(last, stamp - timedelta(days=1))
     elif tour:
         last = max(tour)
     if last is None or last < start:
@@ -182,6 +209,14 @@ def multi_stay_note(w):
             '行程已按此预留转场，如需少搬一次可把相邻夜晚改成同一家。')
 
 
+def anchor_signature(w, anchor_id, basis, day):
+    """锚点依赖签名：景点改期、换主住宿、换逐晚分配都会改变它。"""
+    import json as _json
+    return _json.dumps({'anchor_id': anchor_id, 'anchor_basis': basis or '',
+                        'stay_hotels': (w.get('stay_hotels') or {}).get(day),
+                        'primary': (w.get('hotel') or {}).get('id')}, ensure_ascii=False, sort_keys=True)
+
+
 def plan(w):
     """住宿编排总览：每晚一行，含锚点、依据、逐晚分配到哪家酒店、晚餐顺路建议。
 
@@ -195,16 +230,16 @@ def plan(w):
     for day in nights(w):
         anchor, basis = day_closure(w, day)
         next_day_early = False
-        back = return_departure(w)
-        if back and back[0].isoformat() == (date.fromisoformat(day) + timedelta(days=1)).isoformat():
-            next_day_early = back[1] is None or back[1] <= RETURN_STATION_LEAD_MINUTES
+        back_day, back_minutes = _return_departure(w)
+        if back_day and back_day.isoformat() == (date.fromisoformat(day) + timedelta(days=1)).isoformat():
+            next_day_early = back_minutes is None or back_minutes <= RETURN_STATION_LEAD_MINUTES
         station = None
         if next_day_early:
             station = (w.get('selected_return') or {}).get('departure_station_candidate') or None
             if station and station.get('name'):
                 anchor = dict(station)
                 anchor['_closure'] = 'station'
-                basis = '次日 ' + back[0].isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
+                basis = '次日 ' + back_day.isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
         # 赶车前一晚不沿用市区主住宿，否则用户会看到"系统替我选了个离车站很远的酒店"。
         unsuitable = bool(station and station.get('name') and not stays.get(day))
         explicit = stays.get(day)
@@ -225,13 +260,37 @@ def plan(w):
                      'hotel_id': hotel_id, 'hotel_source': source,
                      'is_primary': bool(hotel_id and hotel_id == primary_id),
                      'dinner_hint': dinner_options(w, day, None) if anchor else []})
+    last_date, last_basis = return_date_bounds(w)
+    for row in rows:
+        row['signature'] = anchor_signature(w, row.get('anchor_id'), row.get('anchor_basis'), row['date'])
     return {'nights': [x['date'] for x in rows], 'rows': rows,
-            'return_departure': (return_departure(w) or (None, None))[0].isoformat() if return_departure(w) else None,
+            'return_departure': last_date.isoformat() if last_date else None,
+            'return_basis': last_basis,
             'primary_hotel_id': primary_id,
             'unassigned': [x['date'] for x in rows if x['hotel_source'] != 'explicit'],
             'needs_own_hotel': [x['date'] for x in rows if x['hotel_source'] == 'unset'],
-            'note': ('返程当天不安排住宿；最后一晚只到返程前一天。'
-                     if return_departure(w) else '尚未选定返程班次，暂按游玩日最后一天作为最后一晚。')}
+            'note': ('返程当天不安排住宿；最后一晚只到返程前一天（依据：'+last_basis+'）。'
+                     if last_date else '尚未选定返程班次，暂按游玩日最后一天作为最后一晚。')}
+
+
+def merge_plan(w, plan_rows, previous=None):
+    """保留未变化的夜晚已查到的候选，只替换本次实际重查、或锚点依赖已变的夜晚。
+
+    复核 P2：补查一晚不应把其它晚的 candidate_ids 清空，否则界面上已比较过的
+    酒店会整批消失。签名变化（景点改期、换主住宿等）时该晚必须重算，不复用旧结果。
+    """
+    previous = previous or {}
+    old_by_date = {row.get('date'): row for row in (previous.get('rows') or [])}
+    for row in plan_rows.get('rows') or []:
+        old = old_by_date.get(row['date'])
+        if not old:
+            continue
+        if row.get('signature') != old.get('signature'):
+            continue                                   # 锚点依赖变了：不沿用旧结果
+        for key in ('candidate_ids', 'queried_at', 'empty', 'excluded'):
+            if key in old:
+                row[key] = old[key]
+    return plan_rows
 
 
 def _plan_rows(w):

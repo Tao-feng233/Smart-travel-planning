@@ -369,20 +369,22 @@ def test_last_night_anchors_on_station_when_leaving_early_next_day():
     """次日赶早班时最后一晚锚点改为返程站；下午返程则仍以当天收尾景点为准。"""
     from app import stay_plan, visits
     station = {'id': 'amap:station', 'name': '青岛北站', 'location': '120.38,36.10', 'endpoint_scope': 'primary'}
-    w = workspace(days=3, back=D2 + ' 06:56', spots=('s1',))
-    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'evening'}])
+    D3 = '2026-10-14'
+    w = workspace(days=3, back=D3 + ' 06:56', spots=('s1',))
+    visits.save(w, [{'candidate_id': 's1', 'date': D2, 'period': 'evening'}])
     w['selected_return']['departure_station_candidate'] = dict(station)
     w['catalog']['amap:station'] = dict(station)
     rows = stay_plan.plan(w)['rows']
-    assert [r['date'] for r in rows] == [D1]
-    assert rows[0]['anchor_name'] == '青岛北站' and rows[0]['anchor_is_station'] is True
-    assert '赶' in rows[0]['anchor_basis']
-    late = workspace(days=3, back=D2 + ' 18:00', spots=('s1',))
-    visits.save(late, [{'candidate_id': 's1', 'date': D1, 'period': 'evening'}])
+    assert [r['date'] for r in rows] == [D1, D2]
+    last = rows[-1]
+    assert last['anchor_name'] == '青岛北站' and last['anchor_is_station'] is True
+    assert '赶' in last['anchor_basis']
+    late = workspace(days=3, back=D3 + ' 18:00', spots=('s1',))
+    visits.save(late, [{'candidate_id': 's1', 'date': D2, 'period': 'evening'}])
     late['selected_return']['departure_station_candidate'] = dict(station)
     late['catalog']['amap:station'] = dict(station)
     late_rows = stay_plan.plan(late)['rows']
-    assert late_rows[0]['anchor_name'] == '栈桥' and late_rows[0]['anchor_is_station'] is False
+    assert late_rows[-1]['anchor_name'] == '栈桥' and late_rows[-1]['anchor_is_station'] is False
 
 
 def test_stay_plan_anchors_each_night_on_that_days_closure():
@@ -469,11 +471,10 @@ def test_dinner_ranking_prefers_the_restaurant_on_the_way_back():
 
 
 def test_user_pinned_period_over_capacity_gives_an_executable_remedy():
-    """用户钉死的时段装不下时，必须给模型能执行的修法，而不是无解的要求。
+    """用户钉死的时段装不下时，不能让模型去改用户时段（那会被硬条件校验拒绝）。
 
-    实测背景：live_v8 真实规划时，景点钉在上午、真实建议时长超过上午窗口
-    （约 180 分钟），旧提示"保留指定安排并提示用户调整"让模型无法满足，
-    两次修复后仍失败。现在要求：保留用户指定的日期，把时段改到当天其它可用时段。
+    复核 P2：提示要求模型改用户指定时段，而 visit_schedule 又禁止修改，模型照做后
+    仍失败并回退。正确做法是让模型下调建议时长，或明确请用户确认放宽时段。
     """
     from app import visit_analysis
     w = workspace(days=1, day_end='21:00', spots=('s1',))
@@ -482,8 +483,11 @@ def test_user_pinned_period_over_capacity_gives_an_executable_remedy():
     errors = visit_analysis.distribution_errors(w, items)
     assert errors, '用户钉死时段且装不下时必须报错'
     message = errors[0]
-    assert '保留用户指定的日期' in message and '时段改为当天其它可用时段' in message
-    assert '上午' in message and '240' in message and '180' in message
+    assert '不能由你改动' in message and '保留用户原时段' in message
+    assert '请用户确认' in message or '需要用户确认' in message
+    assert '栈桥' in message and '240' in message and '180' in message
+    # 明确要求"把时段改为当天其它可用时段"是不允许的指令，不能出现在提示里
+    assert '把该活动的时段改为' not in message
     # 能在时段内放下的不应报错（边界）
     fit = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 180}]
     assert visit_analysis.distribution_errors(w, fit) == []
@@ -498,14 +502,35 @@ def test_draft_or_suggested_period_never_blocks_allocation():
     only_date['visit_requests'] = {'s1': {'date': D1}}
     assert visit_analysis.distribution_errors(only_date, items) == []
     assert visit_analysis.period_notices(only_date, items)
-    # 只有系统建议：同样不阻断，且提示说明这不是硬约束
+    # 只有系统建议：同样不阻断，提示要说明软建议会让位、用户时段不变
     suggested = workspace(days=1, day_end='21:00', spots=('s1',))
     suggested['catalog']['s1']['visit_suggestion'] = {'date': D1, 'period': 'morning'}
     assert visit_analysis.distribution_errors(suggested, items) == []
     notice = visit_analysis.period_notices(suggested, items)[0]
-    assert '并非硬约束' in notice or '而非硬约束' in notice
+    assert '可调整建议' in notice and '保持不变' in notice
     # 提示会随分析结果一起带给用户
     assert any('时段' in x for x in visit_analysis.notices(suggested, items))
+
+
+def test_hard_and_soft_activities_are_weighed_separately():
+    """复核 P2：硬活动自身的负担与可移动的软建议必须分开算。
+
+    上午硬活动 60 分钟 + 软建议 150 分钟：窗口 180 分钟，硬活动放得下，
+    不能因为合计 210 分钟就判定溢出。
+    """
+    from app import visit_analysis
+    w = workspace(days=1, day_end='21:00', spots=('s1', 's2'))
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'morning'}}
+    items = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 60},
+             {'candidate_id': 's2', 'date': D1, 'period': 'morning', 'duration': 150}]
+    assert visit_analysis.distribution_errors(w, items) == []
+    notices = visit_analysis.period_notices(w, items)
+    assert notices and '60' in notices[0] and '150' in notices[0]
+    # 硬活动自己超了才报错
+    heavy = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 200},
+             {'candidate_id': 's2', 'date': D1, 'period': 'morning', 'duration': 150}]
+    errors = visit_analysis.distribution_errors(w, heavy)
+    assert errors and '栈桥' in errors[0]
 
 
 def test_prompt_tells_the_model_not_to_oversubscribe_a_period():
@@ -726,6 +751,72 @@ def test_explicit_night_selection_is_distinguished_from_inheritance():
     sources = {r['date']: r['hotel_source'] for r in stay_plan.plan(w)['rows']}
     assert sources == {nights[0]: 'primary', nights[1]: 'explicit', nights[2]: 'primary'}
     assert stay_plan.multi_stay_note(w) and '2 家酒店' in stay_plan.multi_stay_note(w)
+
+
+def test_same_hotel_on_two_nights_keeps_separate_quotes(monkeypatch, tmp_path):
+    """复核 P1：同一家酒店在不同夜晚价格不同，必须各留一条独立报价身份。
+
+    只按 hotelId 生成候选 ID 时，后一晚会覆盖前晚，两晚卡片都引用次晚报价。
+    """
+    from app import agent, visits
+    w = workspace(days=3, spots=('s1',))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    prices = {'2026-10-12': 100, '2026-10-13': 300}
+    async def vendor(service, tool, params):
+        return {'data': {'hotels': [{'hotelId': 900001, 'hotelName': '同一家酒店',
+                                     'lowestPrice': prices.get(params.get('checkIn'))}]},
+                'source': {'name': '途牛'}}
+    async def tool(name, args):
+        return {'items': []}
+    monkeypatch.setattr(agent, 'tuniu', vendor)
+    monkeypatch.setattr(agent, 'local_tool', tool)
+    monkeypatch.setattr(agent, 'recommend', lambda *a, **k: asyncio.sleep(0, result='已比较'))
+    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': '2026-10-12'}, lambda _: None))
+    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': '2026-10-13'}, lambda _: None))
+    first = (w['stay_plan']['rows'][0].get('candidate_ids') or [])
+    second = (w['stay_plan']['rows'][1].get('candidate_ids') or [])
+    assert first and second, (first, second)
+    # 两晚必须是不同的候选 ID，且各自保留自己的报价与查询日期
+    assert first != second
+    a, b = w['catalog'][first[0]], w['catalog'][second[0]]
+    assert a['id'] != b['id']
+    assert a['price'] == 100 and b['price'] == 300
+    assert a['query_conditions']['checkIn'] == '2026-10-12'
+    assert b['query_conditions']['checkIn'] == '2026-10-13'
+    assert a['quote_date'] == '2026-10-12' and b['quote_date'] == '2026-10-13'
+    # 补查第二晚不能把第一晚的候选清掉
+    assert w['stay_plan']['rows'][0]['candidate_ids'] == first
+    # 详情查询要沿用该晚的日期，而不是整段旅行日期
+    detail_calls = []
+    async def vendor_detail(service, tool, params):
+        detail_calls.append(params)
+        return {'data': {'roomTypes': []}, 'source': {'name': '途牛'}}
+    monkeypatch.setattr(agent, 'tuniu', vendor_detail)
+    asyncio.run(agent.handle(w, 'hotel_detail', {'id': b['id']}, lambda _: None))
+    assert detail_calls[0]['checkIn'] == '2026-10-13'
+    assert detail_calls[0]['checkOut'] == '2026-10-14'
+
+
+def test_night_reuse_is_dropped_when_its_dependencies_change(monkeypatch, tmp_path):
+    """复核 P2：锚点依赖变化（交换两天景点）后，该晚已查候选必须重算，不能沿用。"""
+    from app import agent, stay_plan, visits
+    w = workspace(days=3, spots=('s1', 's2'))
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D2, 'period': 'afternoon'}])
+    stale = stay_plan.plan(w)
+    stale['rows'][0].update(candidate_ids=['old-hotel'], queried_at='t')
+    w['stay_plan'] = stale
+    old_signature = stale['rows'][0]['signature']
+    # 依赖没变：保留
+    kept = stay_plan.merge_plan(w, stay_plan.plan(w), stale)
+    assert kept['rows'][0]['candidate_ids'] == ['old-hotel']
+    # 交换两天景点：锚点变化 → 该晚候选清空等待重算
+    visits.save(w, [{'candidate_id': 's1', 'date': D2, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D1, 'period': 'afternoon'}])
+    fresh = stay_plan.plan(w)
+    assert fresh['rows'][0]['signature'] != old_signature
+    dropped = stay_plan.merge_plan(w, fresh, stale)
+    assert dropped['rows'][0].get('candidate_ids') in (None, [])
 
 
 def test_report_export_survives_missing_source_fields():
