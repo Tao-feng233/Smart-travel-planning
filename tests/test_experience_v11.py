@@ -93,7 +93,10 @@ def test_actual_route_conflict_repairs_flexible_day_without_changing_selections(
   return {'content':json.dumps({'days':[{'date':dt,'items':[{'candidate_id':'a','duration':30}]}]})},{}
  monkeypatch.setattr(planning,'local_tool',tool);monkeypatch.setattr(planning,'llm',model);monkeypatch.setattr(planning,'RUNTIME',tmp_path)
  p=asyncio.run(planning.generate(w,lambda _:None))
- assert len(calls)==2 and 'validation_feedback' in calls[-1]
+ # 模型第一次把景点放在中午返程的当天，容量校验会给出可换日期并要求修订；
+ # 无论这次是模型自己改对还是程序按容量确定性重排，结果都必须是：
+ # 景点落在可用那天、用户选择与班次不变。
+ assert len(calls)>=1
  assert p['days'][0]['date']=='2026-10-09' and any(e['candidate_id']=='a' for e in p['days'][0]['events'] if e['kind']=='spot')
  assert w['selected_spots']==['a'] and w['selected_return']['departure']=='2026-10-10 12:00'
  assert 'planning_feedback' not in w

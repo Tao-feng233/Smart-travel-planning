@@ -20,19 +20,39 @@ async def check(w,p,anchor,route_options,choose_route,meal=None):
     if chosen:
         result.update(route=chosen,message='从'+start['name']+'到'+end['name']+'，'+{'walking':'步行','driving':'驾车','transit':'公交'}.get(chosen['mode'],'通行')+'预计'+str(chosen['minutes'])+'分钟')
         if meal:
-            from .schedule import meal_window,PERIODS
+            from .schedule import meal_window,PERIODS,clock,return_cutoff_minutes
+            from .planning import meal_allocation
             low,high=meal_window(w,*meal)
-            if low+chosen['minutes']+15+PERIODS[meal[1]][2]>high:
-                result.update(status='time_conflict',message='该餐次可用时段不足以容纳已查询通行、15分钟缓冲与完整用餐')
+            # 通行缓冲与规划阶段共用同一口径，避免预检查放行、生成时报超时。
+            allocation=meal_allocation(chosen['minutes'],r)
+            needed=allocation['minutes']+PERIODS[meal[1]][2]
+            result.update(minutes_needed=needed,allocation_basis=allocation['basis'])
+            if low+needed>high:
+                result.update(status='time_conflict',
+                              message='该餐次可用时段不足以容纳已查询通行（含'+str(allocation['buffer'])+'分钟机动）与完整用餐：'
+                                      +clock(low)+'–'+clock(high)+' 共'+str(high-low)+'分钟，需要'+str(needed)+'分钟'
+                                      +('（当日'+clock(high)+'前须结束' if return_cutoff_minutes(w,meal[0]) is None else '（该日为返程日，'+clock(high)+'前须开始接驳准备）'))
         if p.get('kind')=='food' and meal and meal[1]=='dinner' and coordinate((w.get('hotel') or {}).get('location')):
             back=await route_options(p,w['hotel']);result['return_options']=back
             back_route=choose_route(back,r)
             if back_route:
                 result['return_route']=back_route
-                from .schedule import day_end,windows
-                limit=min(day_end(w,meal[0]),windows(w,meal[0])[1])
-                if low+chosen['minutes']+15+PERIODS[meal[1]][2]+back_route['minutes']+15>limit:
-                    result.update(status='time_conflict',message='该餐次含前往餐厅、完整用餐及返回住宿的通行，超过当前结束或返程准备时刻')
+                from .schedule import day_limit
+                from .planning import route_allocation
+                limit=day_limit(w,meal[0])
+                back_allocation=route_allocation(back_route['minutes'],r)
+                if low+needed+back_allocation['minutes']>limit:
+                    cutoff=return_cutoff_minutes(w,meal[0])
+                    # 说明是哪条约束在卡：返程日的接驳准备，还是当日的结束时刻。
+                    constraint=('该日是返程日，最后一项活动须在'+clock(cutoff)+'前结束并按返程接驳准备预留'
+                                if cutoff is not None and cutoff<=limit
+                                else '当日须在'+clock(limit)+'前结束（未选返程班次，未按返程接驳收紧）')
+                    result.update(status='time_conflict',
+                                  message='该餐次含前往餐厅、完整用餐及返回住宿的通行，超过当前可用时间：'
+                                          +'到餐厅含机动'+str(allocation['minutes'])+'分钟 + 用餐'+str(PERIODS[meal[1]][2])
+                                          +'分钟 + 返回住宿含机动'+str(back_allocation['minutes'])+'分钟 = '
+                                          +str(allocation['minutes']+PERIODS[meal[1]][2]+back_allocation['minutes'])+'分钟，'
+                                          +constraint)
             elif back and all(x.get('status')=='no_route' for x in back):result.update(status='no_route',message='当前已核对的方式均未返回餐厅至住宿的方案')
             else:result.update(status='unknown',message='已核对去餐厅通行，返回住宿方案尚未核实')
     elif options and all(x.get('status')=='no_route' for x in options):

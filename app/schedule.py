@@ -5,9 +5,13 @@ Estimates are labelled; only the generated plan contains queried road timings.
 from datetime import date,datetime,timedelta
 from . import visits
 from .journey import coordinate_distance
+from . import time_policy
 
 PERIODS={'breakfast':('早餐',480,45),'lunch':('午餐',720,75),'dinner':('晚餐',1020,60)}
 MEAL_WINDOWS={'breakfast':(450,600),'lunch':(720,900),'dinner':(1020,1260)}
+MIN_VISIT_MINUTES=30   # 与规划阶段"不足30分钟就跳过并说明"一致
+REST_BETWEEN_MINUTES=20  # 与规划阶段两处参观之间的"休息与机动时间"一致
+TRANSFER_DAY_MINUTES=60  # 一天内往返住宿与景点间通行的保守估计（含规划缓冲）
 
 def minutes(s,default=0):
  try:
@@ -23,29 +27,161 @@ def transport_time(p,key):
 def windows(w,dt):
  arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure')
  start=0;end=1440
- if arrival:
-  if dt<arrival.date().isoformat():return 1440,0
-  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+90
- if back:
-  if dt>back.date().isoformat():return 1440,0
-  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-120)
+ if arrival and dt<arrival.date().isoformat():return 1440,0
+ if back and dt>back.date().isoformat():return 1440,0
+ start=arrival_start_minutes(w,dt)
+ cutoff=return_cutoff_minutes(w,dt)
+ end=max(0,cutoff) if cutoff is not None else 1440
  return start,end
 
+def policy_identity(w,dt,direction):
+    """时间口径的缓存身份：只比班次 ID 会在换酒店/换末站/改顺序后继续用旧值。
+
+    复核报告 S3：把方向、日期、班次时刻、起终点与交通偏好都算进来；
+    任何一项变化都视为缓存失效，重新按兜底口径计算。
+    """
+    selected=(w.get('selected_transport') if direction=='arrival' else w.get('selected_return')) or {}
+    hotel=w.get('hotel') or {}
+    stops=[(w.get('catalog') or {}).get(cid) or {} for cid in (w.get('selected_spots') or [])]
+    last_stop=str((stops[-1] if stops else {}).get('id') or '')
+    requirements=w.get('requirements') or {}
+    return {'direction':direction,'date':dt,'transport_id':selected.get('id'),
+            'departure':selected.get('departure'),'arrival':selected.get('arrival'),
+            'station':selected.get('arrival_station') if direction=='arrival' else selected.get('departure_station'),
+            'hotel_id':hotel.get('id'),'hotel_location':hotel.get('location'),
+            'last_stop':last_stop,'transport_mode':requirements.get('transport_mode'),
+            'pace':requirements.get('pace'),'day_start':requirements.get('day_start'),
+            'day_end':requirements.get('day_end')}
+
+def policy_matches(w,dt,direction,entry):
+    """缓存条目是否仍适用于当前工作区状态。"""
+    if not isinstance(entry,dict) or not isinstance(entry.get('minutes'),int):return False
+    identity=policy_identity(w,dt,direction)
+    if entry.get('identity') is not None:return entry.get('identity')==identity
+    # 兼容没有身份字段的旧条目：至少班次 ID 要一致。
+    return entry.get('transport_id')==identity.get('transport_id')
+
+def arrival_ready_minutes(w,dt):
+ """抵达日需要的准备分钟数：统一由 time_policy 计算，缺路线依据时标明待核实。"""
+ solution=w.get('time_policy') or {}
+ entry=(solution.get('arrival') or {}).get(dt)
+ if policy_matches(w,dt,'arrival',entry):
+  return entry['minutes']
+ return time_policy.arrival_ready(w.get('selected_transport'),None)['minutes']
+
+def return_preparation_minutes(w,dt):
+ """返程日需要提前的分钟数：统一由 time_policy 计算；相关选择一变就不能复用旧值。"""
+ solution=w.get('time_policy') or {}
+ entry=(solution.get('return') or {}).get(dt)
+ if policy_matches(w,dt,'return',entry):
+  return entry['minutes']
+ return time_policy.return_preparation(w.get('selected_return'),None)['minutes']
+
+def arrival_start_minutes(w,dt):
+ """抵达日最早可开始活动的分钟数：与 windows/容量共用同一份 time_policy 结果。"""
+ arrival=transport_time(w.get('selected_transport'),'arrival')
+ if not arrival or dt!=arrival.date().isoformat():return 0
+ return arrival.hour*60+arrival.minute+arrival_ready_minutes(w,dt)
+
+def return_cutoff_minutes(w,dt):
+ """返程日最后一项活动必须结束的分钟数；不是返程日返回 None。"""
+ back_source=w.get('selected_return')
+ back=transport_time(back_source,'departure')
+ if not back or dt!=back.date().isoformat():return None
+ depart=back.hour*60+back.minute
+ preparation=(w.get('time_policy') or {}).get('return',{}).get(dt)
+ # 只复用与当前班次一致的口径；班次被换掉后必须重新计算，不能用旧值。
+ if isinstance(preparation,dict) and isinstance(preparation.get('minutes'),int) and preparation.get('transport_id')==(back_source or {}).get('id'):
+  return time_policy.return_cutoff(depart,preparation)
+ return depart-return_preparation_minutes(w,dt)
+
 def day_end(w,dt):
+ """当天最后一次活动允许结束的分钟数：唯一口径。
+
+ 取"每日结束时刻（有晚间景点时延到 22:00）"与"返程日接驳截止时刻"的更早者。
+ 时间轴、容量、餐次窗口与游玩强度分析都必须用它，否则返程日会一边按接驳
+ 准备收紧、一边允许把活动排到接驳之后（复核报告 P2/时间契约的同一原则）。
+ """
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})
  evening=any((pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('date')==dt and (pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('period')=='evening' for cid in w.get('selected_spots',[]))
- return max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
+ limit=max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
+ cutoff=return_cutoff_minutes(w,dt)
+ return limit if cutoff is None else min(limit,cutoff)
+
+def day_limit(w,dt):
+ """兼容别名：与 day_end 同口径，保留旧调用点以免两处定义漂移。"""
+ return day_end(w,dt)
 
 def meal_window(w,dt,period):
  low,high=windows(w,dt);begin,end=MEAL_WINDOWS[period]
- return max(begin,low),min(end,high,day_end(w,dt))
+ return max(begin,low),min(end,high,day_limit(w,dt))
 
 def meal_start(w,dt,period,preferred=None):
  begin,end=meal_window(w,dt,period);_,at,duration=PERIODS[period]
  if begin+duration>end:return None
  return max(begin,min(at if preferred is None else preferred,end-duration))
 
+def _binding_summary(w,dt,period,choice):
+ """时间轴用的绑定摘要：让用户看到这餐是固定日期还是跟随某景点。"""
+ from . import foods
+ status=foods.binding_status(w,dt,period)
+ return {'binding':status['binding'],'label':status['label'],'method':status.get('method'),
+         'spot_id':status.get('spot_id'),'spot_name':status.get('spot_name'),
+         'affected':bool(status.get('affected')),'reason':status.get('reason')}
+
+
+def limit_reason(w,dt):
+    """当天可用时间的约束来自哪里：返程接驳准备，还是每日结束时刻。
+
+    用于把"来不及安排"说准：非返程日不应提示"返程准备时刻"。
+    """
+    limit=day_limit(w,dt);cutoff=return_cutoff_minutes(w,dt)
+    if cutoff is not None and cutoff<=limit:
+        return '该日是返程日，最后一项活动须在'+clock(cutoff)+'前结束（返程接驳准备）'
+    if cutoff is not None:
+        return '该日为返程日，须在'+clock(limit)+'前结束（返程接驳准备早于每日结束时刻，按更早者）'
+    return '当日须在'+clock(limit)+'前结束（当前没有选定的返程班次，未按返程准备收紧）'
+
 def point(w,cid):return w.get('catalog',{}).get(cid)
+
+def capacity(w,dt):
+ """当天真正能装多少分钟游览：与规划阶段同口径的唯一容量来源。
+
+ 口径 = 左闭右开窗口 ∩ 每日结束时刻（含晚间 22:00 预留，返程日取
+ time_policy 截止时刻）− 当天可用的餐次时长 − 往返住宿的通行与缓冲。
+
+ 餐次与通行是"固定开销"而不是"无限可扣"：短日子（例如中午返程）扣完会
+ 变成负数，但规划阶段确实还能放下一处短时参观。所以固定开销最多扣到
+ 留一处 MIN_VISIT_MINUTES 的位置，避免把可排的一天判成零。
+ 这是估计不是承诺，结果带依据与 status。
+ """
+ req=w.get('requirements') or {}
+ low,high=windows(w,dt);day_start=max(low,minutes(req.get('day_start','09:00')));limit=min(high,day_limit(w,dt))
+ base=max(0,limit-day_start)
+ # 餐次只在窗口内可用；早餐 45、午餐 75、晚餐 60，与规划阶段一致。
+ # 但餐次是可调整建议、景点是用户已选：容量不够时先让餐次让位，
+ # 不能让"必须吃午饭"把一天判成零可排，再让景点被静默跳过。
+ usable_meals={}
+ remaining=base
+ for period in ('breakfast','lunch','dinner'):
+  low_m,high_m=meal_window(w,dt,period)
+  duration=PERIODS[period][2]
+  if low_m+duration>high_m:continue
+  if remaining-duration<MIN_VISIT_MINUTES:continue
+  usable_meals[period]=duration;remaining-=duration
+ meals_minutes=sum(usable_meals.values())
+ # 往返住宿与景点之间的通行按每天 TRANSFER_DAY_MINUTES 估计（含规划缓冲），
+ # 而不是把窗口上界当成可排时间。这是估计不是承诺：实际用时由生成阶段查询。
+ with_stay=bool((w.get('hotel') or {}).get('location'))
+ transfer_minutes=min(TRANSFER_DAY_MINUTES if with_stay else 0,max(0,base-meals_minutes-MIN_VISIT_MINUTES))
+ overhead=meals_minutes+transfer_minutes
+ available=max(MIN_VISIT_MINUTES,base-overhead) if base>=MIN_VISIT_MINUTES else max(0,base-overhead)
+ return {'date':dt,'window':[low,high],'start':day_start,'limit':limit,'base_minutes':base,
+         'meals_minutes':meals_minutes,'transfer_minutes':transfer_minutes,'rest_minutes':0,
+         'available_minutes':available,
+         'basis':'窗口∩每日结束时刻'+str(base)+'分钟 − 餐次'+str(meals_minutes)+'分钟 − 往返住宿估计'+str(transfer_minutes)+'分钟'
+                 +('（不足一处最短参观，按最短参观时长计）' if base-overhead<MIN_VISIT_MINUTES else ''),
+         'meals':usable_meals,'status':'estimated'}
 
 def provisional(w):
  from . import visit_analysis
@@ -79,6 +215,8 @@ def provisional(w):
    t=finish+20;last=p
   rows+=arranged
   for period,(label,at,duration) in PERIODS.items():
+   # 餐次时刻只由 meal_start（同一份窗口与每日截止口径）决定，
+   # 不能再用"当前时间与固定基准取大"的另一套摆放规则。
    at=meal_start(w,dt,period)
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
@@ -87,7 +225,9 @@ def provisional(w):
    before=[x for x in arranged if minutes(x['time'])<=at]
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
-   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
+   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True,
+                'binding':_binding_summary(w,dt,period,choice),
+                'basis':'按餐次窗口与当日结束时刻取整后的预计开餐时间'})
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 

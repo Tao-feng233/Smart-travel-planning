@@ -6,16 +6,184 @@ from .journey import meal_dates
 
 PERIODS={'breakfast':'早餐','lunch':'午餐','dinner':'晚餐'}
 
+# 餐次语义（《成员三任务说明》第三批）：
+#   fixed_date —— 固定日期餐次：日期与时段由用户指定，任何重排都不自动挪期。
+#   follow_spot —— 明确跟随某景点的餐次：保存 bind_spot_id 与绑定方式，
+#                  景点改期时只提示受影响，是否改期由用户决定。
+#   flexible —— 未明确绑定：日期时段是建议，可以随规划调整。
+BINDING_FIXED='fixed_date'
+BINDING_FOLLOW='follow_spot'
+BINDING_FLEXIBLE='flexible'
+BINDING_LABELS={BINDING_FIXED:'固定日期',BINDING_FOLLOW:'跟随景点',BINDING_FLEXIBLE:'未绑定'}
+BINDING_METHODS={'same_day':'与景点同日','same_half_day':'与景点同半天','explicit':'用户指定跟随'}
+# 时段归属：餐次与景点时段按同一套半天口径比较；any 跨全天，不能说"同半天"。
+PERIOD_HALVES={'breakfast':('morning',),'morning':('morning',),'lunch':('midday',),
+               'afternoon':('afternoon',),'dinner':('evening',),'evening':('evening',),'any':()}
+
+def same_half_day(meal_period,spot_period):
+    """餐次与景点是否确实在同一半天；任一侧为 any 时都不成立。"""
+    meal=PERIOD_HALVES.get(meal_period,())
+    spot=PERIOD_HALVES.get(spot_period,())
+    return bool(meal) and bool(spot) and set(meal)==set(spot)
+
+
+def binding_of(choice):
+    """读取餐次绑定语义；旧记录没有该字段时按固定日期处理（不自动挪期）。"""
+    if not isinstance(choice,dict):return BINDING_FIXED
+    binding=choice.get('binding')
+    return binding if binding in BINDING_LABELS else BINDING_FIXED
+
+
+def binding_method_label(choice):
+    return BINDING_METHODS.get((choice or {}).get('binding_method'),'用户指定跟随')
+
+
+def spot_intent(w,spot_id):
+    """景点当前安排的日期与时段，并标明来源级别（与成员二的三级命名对齐）。
+
+    user_explicit     用户在对话里明确给出的日期或时段，优先；
+    system_suggestion 模型/程序推算的建议日期，仅在用户未指定时采用。
+    """
+    request=(w.get('visit_requests') or {}).get(spot_id)
+    if request and request.get('date'):return {'date':request['date'],'period':request.get('period','any'),'source':'user_explicit'}
+    suggestion=((w.get('catalog') or {}).get(spot_id) or {}).get('visit_suggestion') or {}
+    if suggestion.get('date'):return {'date':suggestion['date'],'period':suggestion.get('period','any'),'source':'system_suggestion'}
+    return {'date':None,'period':'any','source':None}
+
+
+def mark_affected(choice,reason,spot_id=None):
+    """把餐次标为受影响：保留用户选择，只提示需要调整或重新查餐厅。"""
+    choice['affected']=True
+    choice['affected_reason']=reason
+    if spot_id:choice['affected_spot_id']=spot_id
+    return choice
+
+
+def clear_affected(choice):
+    if isinstance(choice,dict):
+        choice.pop('affected',None);choice.pop('affected_reason',None);choice.pop('affected_spot_id',None)
+    return choice
+
+
+def binding_status(w,dt,period):
+    """某个餐次的绑定与受影响状态；没有绑定或未受影响时 affected 为 False。
+
+    affected 一律按"当前"景点安排现算，不读历史标记：景点改回原日期时
+    受影响状态应当自动消失，历史标记只用来决定是否需要再提示一次。
+    """
+    choice=(w.get('meal_choices') or {}).get(dt+'|'+period)
+    if not isinstance(choice,dict):
+        return {'binding':BINDING_FLEXIBLE,'label':BINDING_LABELS[BINDING_FLEXIBLE],'affected':False,
+                'reason':None,'spot_id':None,'spot_name':None,'spot_intent':None,'notified':False}
+    binding=binding_of(choice);spot_id=choice.get('bind_spot_id')
+    status={'binding':binding,'label':BINDING_LABELS[binding],'affected':False,
+            'reason':choice.get('affected_reason') if choice.get('affected') else None,
+            'spot_id':spot_id,
+            'spot_name':choice.get('bind_spot_name'),'spot_intent':choice.get('bind_spot_intent'),
+            'method':binding_method_label(choice) if binding==BINDING_FOLLOW else None,
+            'notified':bool(choice.get('affected_notified'))}
+    if binding!=BINDING_FOLLOW or not spot_id:return status
+    if spot_id not in (w.get('selected_spots') or []):
+        status.update(affected=True,reason='跟随的景点已从选择中移除，需要改为固定日期或重新绑定')
+        return status
+    intent=spot_intent(w,spot_id)
+    if not intent['date']:
+        status.update(affected=True,reason='跟随的景点尚未确定日期，餐次需要重新核对')
+        return status
+    if intent['date']!=dt:
+        status.update(affected=True,
+                      reason='跟随的'+str(choice.get('bind_spot_name') or spot_id)+'已改到'+intent['date']
+                             +'（原为'+dt+'），需要决定这餐是否跟随改期或重新选餐厅',
+                      spot_intent=intent)
+        return status
+    # 日期没变但时段变了：原本说好"同半天"的绑定不再成立，也要提示（复核 S1）。
+    if binding_method_label(choice)=='与景点同半天' and not same_half_day(period,intent.get('period','any')):
+        status.update(affected=True,
+                      reason='跟随的'+str(choice.get('bind_spot_name') or spot_id)+'时段已改为'
+                             +str(intent.get('period'))
+                             +'，与这餐不再同半天，需要确认这餐是否仍跟随',
+                      spot_intent=intent)
+    return status
+
+
+def followable_spots(w,dt):
+    """可绑定为跟随餐次的景点：用户指定日期必须是这一天，避免绑定后又立刻受影响。"""
+    result=[]
+    for cid in w.get('selected_spots') or []:
+        spot=(w.get('catalog') or {}).get(cid)
+        if not spot or spot.get('kind')!='spot':continue
+        intent=spot_intent(w,cid)
+        if intent['date']==dt:result.append(spot)
+    return result
+
+
+def resolve_binding(w,args,dt,period):
+    """决定这次选择的绑定语义。
+
+    用户明确要求跟随景点（bind_spot_id）→ follow_spot；
+    用户为这一天指定了景点（visit_requests[spot_id].date == 当天）→ 明确绑定；
+    只有模型建议时 → 未绑定，允许规划阶段调整。
+    """
+    explicit=args.get('bind_spot_id')
+    if explicit:
+        spot=w['catalog'].get(explicit)
+        if not spot or spot.get('kind')!='spot':raise DataError('要跟随的景点不在当前候选中，请重新选择景点。')
+        intent=spot_intent(w,explicit)
+        if intent['date'] and intent['date']!=dt:
+            raise DataError(spot['name']+'已安排在'+intent['date']+'，餐次不能同时跟随到'+dt+'；请调整景点日期或改选餐次日期。')
+        return {'binding':BINDING_FOLLOW,'binding_method':'explicit','bind_spot_id':explicit,
+                'bind_spot_name':spot.get('name'),'bind_spot_intent':intent}
+    candidates=[cid for cid in (w.get('visit_requests') or {})
+                if (w['visit_requests'][cid] or {}).get('date')==dt and cid in (w.get('selected_spots') or [])]
+    if len(candidates)==1:
+        spot=w['catalog'].get(candidates[0]) or {}
+        intent=spot_intent(w,candidates[0])
+        # 只有餐次与景点确实在同一半天时才说"同半天"；否则只能承诺同日。
+        method='same_half_day' if same_half_day(period,intent.get('period','any')) else 'same_day'
+        return {'binding':BINDING_FOLLOW,'binding_method':method,'bind_spot_id':candidates[0],
+                'bind_spot_name':spot.get('name'),'bind_spot_intent':intent}
+    return {'binding':BINDING_FIXED,'binding_method':'explicit','bind_spot_id':None,'bind_spot_name':None,'bind_spot_intent':None}
+
+
+def bindings_clear_or_mark(w):
+    """景点改期或移除后重算受影响餐次；返回给用户看的变更说明。
+
+    受影响与否按景点"当前"安排现算：固定日期餐次不动；明确跟随的餐次只
+    提示受影响并保留餐厅选择，是否跟随改期由用户决定；景点改回原日期时
+    受影响状态自动解除。这里的说明只在原因变化时提示一次。
+    """
+    messages=[]
+    for key,choice in (w.get('meal_choices') or {}).items():
+        if not isinstance(choice,dict) or binding_of(choice)!=BINDING_FOLLOW:continue
+        parts=key.split('|')
+        if len(parts)!=2:continue
+        dt,period=parts
+        status=binding_status(w,dt,period)
+        if status['affected']:
+            if status['reason']!=choice.get('affected_reason'):choice.pop('affected_notified',None)
+            mark_affected(choice,status['reason'],choice.get('bind_spot_id'))
+            if not choice.get('affected_notified'):
+                messages.append(dt+'的'+PERIODS.get(period,'用餐')+'跟随'+str(choice.get('bind_spot_name') or '景点')
+                                +'：'+str(status['reason'])+'；已保留这餐的餐厅选择，请确认是否跟随改期或重新查餐厅')
+                choice['affected_notified']=True
+        else:
+            # 不再受影响：解除标记，用户选择一直保留。
+            clear_affected(choice);choice.pop('affected_notified',None)
+    return messages
+
+
 def infeasible(w,dt,period):
     """Reject meals outside the same buffered window used by the timeline."""
-    from .schedule import meal_start,windows,clock
+    from .schedule import meal_start,windows,clock,limit_reason,meal_window
+    from . import time_policy
     if meal_start(w,dt,period) is not None:return None
     low,high=windows(w,dt)
     name=PERIODS[period]
     if high<1440:
-        detail='返程接驳准备需在'+clock(high)+'开始'
+        # 要说清是"返程接驳准备"还是"当日结束时刻"在卡，非返程日不能提返程准备。
+        detail='可用时间不足以容纳完整用餐（'+clock(high)+'前须结束）：'+limit_reason(w,dt)
     elif low>0:
-        detail='去程抵达及90分钟准备后，最早可从'+clock(low)+'安排'
+        detail='去程抵达及'+str(time_policy.FALLBACK_ARRIVAL_BUFFER_MINUTES)+'分钟准备后，最早可从'+clock(low)+'安排'
     else:detail='当前每日结束时刻不足以容纳完整用餐时长'
     return dt+' '+name+'来不及安排：'+detail+'。请调整餐次、日期或班次；也可自行安排。'
 
@@ -23,6 +191,11 @@ def anchors(w,args):
     catalog=w['catalog'];explicit=catalog.get(args.get('anchor_id'))
     if explicit and explicit.get('location'):return [explicit]
     dt=args.get('meal_date');period=args.get('meal_period','lunch')
+    # 跟随餐次优先用绑定的景点作为参照点：餐厅要挨着实际会去的那个景点。
+    bound=((w.get('meal_choices') or {}).get(str(dt)+'|'+str(period)) or {}).get('bind_spot_id')
+    if not bound:bound=args.get('bind_spot_id')
+    spot=catalog.get(bound)
+    if spot and spot.get('location'):return [spot]
     day=next((d for d in (w.get('plan') or {}).get('days',[]) if d['date']==dt),None)
     if day and not (w.get('plan') or {}).get('stale'):
         entries=[e for e in day.get('events',[]) if e.get('kind')=='spot' and e.get('candidate_id') in catalog]
@@ -52,6 +225,36 @@ def anchors(w,args):
         if all(coordinate_distance(p,q)>=5 for q in result):result.append(p)
         if len(result)>=3:break
     return result
+
+def on_the_way_bias(w,p,meal):
+    """晚餐是否在"当天收尾地点→当晚住宿"的方向上，并给出排序微调量。
+
+    只做小幅提前（相差不多时优先顺路），不改动任何事实描述；住宿尚未编排时
+    依据为空，不做任何猜测。
+    """
+    p['on_the_way_to_stay']=None;p['route_bias']=0
+    if not meal or meal[1]!='dinner' or not p.get('location'):return p
+    from . import stay_plan
+    row=stay_plan.row_for(w,meal[0])
+    if not row or not row.get('anchor_id'):return p
+    from .journey import coordinate_distance
+    hotel=(w.get('hotel') or {})
+    last=(w.get('catalog') or {}).get(row['anchor_id'])
+    if not last or not last.get('location'):return p
+    if hotel.get('location'):
+        detour=stay_plan.detour_km(last,hotel,p)
+        straight=round(coordinate_distance(p,hotel),1)
+        p['stay_detour_km']=detour;p['stay_straight_km']=straight
+        if detour is not None:
+            p['on_the_way_to_stay']=detour<=stay_plan.NEARBY_STRAIGHT_KM
+            p['route_bias']=3 if p['on_the_way_to_stay'] else 0
+        return p
+    # 尚未选住宿：只能按"离当天收尾地点近"判断是否顺路，并如实说明依据。
+    straight_last=round(coordinate_distance(p,last),1)
+    p['stay_straight_km']=straight_last
+    p['on_the_way_to_stay']=straight_last<=stay_plan.NEARBY_STRAIGHT_KM
+    p['route_bias']=2 if p['on_the_way_to_stay'] else 0
+    return p
 
 async def search(w,args,progress,recommend):
     r=w['requirements']
@@ -89,11 +292,18 @@ async def search(w,args,progress,recommend):
     meal=(args['meal_date'],args['meal_period']) if args.get('meal_date') and args.get('meal_period') in PERIODS else None
     by_id={p['id']:p for p in refs}
     items,excluded=await screen(w,items,lambda p:by_id.get(p.get('search_anchor_id')) or anchor,route_options,choose_route,meal)
+    # 晚餐优先推荐回住宿顺路的店：只在模型排序相近时做小幅提前，
+    # 不覆盖模型对口味与资料的判断，也不声称未核实的信息。
+    for p in items:on_the_way_bias(w,p,meal)
+    if meal and meal[1]=='dinner':
+        items.sort(key=lambda p:(p.get('recommendation_rank',99)-p.get('route_bias',0),p.get('recommendation_rank',99)))
     items=items[:5]
     for p in items:
         period=PERIODS.get(args.get('meal_period'),'用餐')
         basis=period+'可结合'+p['search_anchor']+'周边活动安排'
         if p.get('anchor_distance_km') is not None:basis+=f'，距参照点直线约{p["anchor_distance_km"]}公里'
+        if p.get('on_the_way_to_stay') is True:basis+='；该店在回当晚住宿的方向上，作为顺路建议'
+        elif p.get('on_the_way_to_stay') is False and meal and meal[1]=='dinner':basis+='；该店相对当天收尾地点需要绕行，若优先顺路可另选'
         p['recommendation_basis']=basis+'；实际通行与营业时段请核对。'
     # Each result retains the actual reference used for its query.
     markets=[]
@@ -122,9 +332,21 @@ def select_meal(w,args):
         if blocked:
             from .schedule import windows
             raise DataError(blocked,{'date':dt,'meal_period':period,'candidate_ids':[cid],'view':'food','direction':'return' if windows(w,dt)[1]<1440 else 'outbound'})
-    w['meal_mode']='optional';w.setdefault('meal_choices',{})[dt+'|'+period]={'mode':mode,'food_id':cid if item else None}
+    binding=resolve_binding(w,args,dt,period)
+    w['meal_mode']='optional'
+    choice={'mode':mode,'food_id':cid if item else None,**binding}
+    if mode=='chosen' and binding['binding']==BINDING_FOLLOW:
+        # 用户刚为这餐做了决定，受影响状态清除，等景点再变时重新提示。
+        clear_affected(choice);choice['affected_notified']=False
+    w.setdefault('meal_choices',{})[dt+'|'+period]=choice
     if w.get('plan'):w['plan']['stale']=True
-    return dt+'的'+PERIODS[period]+'已'+('选定：'+item['name'] if item else '改为自行安排')+'。可随时更换，不代表已预订。'
+    note=''
+    if mode=='chosen' and binding['binding']==BINDING_FOLLOW:
+        note=('（'+BINDING_LABELS[BINDING_FOLLOW]+str(binding.get('bind_spot_name') or '')
+              +'，'+BINDING_METHODS.get(binding.get('binding_method'),'')+'：景点改期时这餐只做提示，不自动挪期）')
+    elif mode=='chosen':
+        note='（'+BINDING_LABELS[BINDING_FIXED]+'：重排不会自动挪期）'
+    return dt+'的'+PERIODS[period]+'已'+('选定：'+item['name'] if item else '改为自行安排')+note+'。可随时更换，不代表已预订。'
 
 def choice(w,dt,period):
     value=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
