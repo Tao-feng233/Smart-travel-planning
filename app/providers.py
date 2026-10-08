@@ -4,7 +4,7 @@ from datetime import date
 import httpx
 from jsonschema import validate
 from .config import ROOT, setting
-from .storage import now, cache_key, cached, put_cache, connect, RUNTIME
+from .storage import now, cache_key, cached, put_cache, connect, record_llm_call, RUNTIME
 from .data_contracts import coordinate,scalar,place_quality
 
 # HTTP logs can contain Amap's key query parameter. Never enable URL debug logs.
@@ -240,22 +240,42 @@ async def tuniu(service,tool,arguments):
     put_cache(key,result,600)
     return result
 
-async def llm(messages, tools=None, json_mode=False, max_tokens=2200):
+async def llm(messages, tools=None, json_mode=False, max_tokens=2200, label='llm'):
     body={'model':setting('LLM_MODEL','deepseek-flash'),'messages':messages,'max_tokens':max_tokens,
           'thinking':{'type':'disabled'},'temperature':0.3}
     if tools: body.update(tools=tools,tool_choice='required')
     if json_mode: body['response_format']={'type':'json_object'}
+    started=time.monotonic()
+    usage={}                                   # kept so a late failure still reports what was billed
     try:
         async with httpx.AsyncClient(timeout=100) as c:
             r=await c.post(setting('LLM_BASE_URL').rstrip('/')+'/chat/completions',headers={'Authorization':'Bearer '+setting('LLM_API_KEY')},json=body)
             if r.status_code!=200: raise DataError(f'大模型请求失败，HTTP {r.status_code}')
             data=r.json()
-            return data['choices'][0]['message'],data.get('usage',{})
-    except httpx.HTTPError: raise DataError('大模型连接失败或响应超时') from None
-async def llm_stream(messages,on_delta,max_tokens=1600):
+        usage=data.get('usage') or {}
+        # Validate before recording success: an HTTP 200 without usable choices
+        # raises below and would otherwise be counted twice -- once as ok here
+        # and again as failed in the generic handler. One request, one record.
+        choices=data.get('choices') or []
+        if not choices:raise DataError('大模型返回内容为空') from None
+        message=choices[0].get('message')
+        if not isinstance(message,dict):raise DataError('大模型返回内容不完整') from None
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=True)
+        return message,usage
+    except httpx.HTTPError:
+        record_llm_call(label,body['model'],{},(time.monotonic()-started)*1000,ok=False,error='连接失败或超时')
+        raise DataError('大模型连接失败或响应超时') from None
+    except DataError as e:
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=False,error=str(e))
+        raise
+    except Exception as e:
+        record_llm_call(label,body['model'],{},(time.monotonic()-started)*1000,ok=False,error=type(e).__name__)
+        raise
+async def llm_stream(messages,on_delta,max_tokens=1600,label='reply_stream'):
     body={'model':setting('LLM_MODEL','deepseek-flash'),'messages':messages,'max_tokens':max_tokens,
           'thinking':{'type':'disabled'},'temperature':0.3,'stream':True,'stream_options':{'include_usage':True}}
     text='';usage={};finished=False
+    started=time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=100) as c:
             async with c.stream('POST',setting('LLM_BASE_URL').rstrip('/')+'/chat/completions',headers={'Authorization':'Bearer '+setting('LLM_API_KEY')},json=body) as r:
@@ -270,5 +290,11 @@ async def llm_stream(messages,on_delta,max_tokens=1600):
                         if chunk:text+=chunk;on_delta(chunk)
                         if choice.get('finish_reason')=='length':raise DataError('回复达到长度限制，请重新发起更具体的问题。')
         if not finished or not text:raise DataError('流式回复中断，请重试。')
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=True)
         return text,usage
-    except (httpx.HTTPError,ValueError):raise DataError('流式回复连接失败或中断，请重试。') from None
+    except (httpx.HTTPError,ValueError):
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=False,error='连接失败或中断')
+        raise DataError('流式回复连接失败或中断，请重试。') from None
+    except DataError as e:
+        record_llm_call(label,body['model'],usage,(time.monotonic()-started)*1000,ok=False,error=str(e))
+        raise
