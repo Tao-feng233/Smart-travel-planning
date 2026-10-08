@@ -27,6 +27,9 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
     if(w.pending_auto_selection.proposed_requirements){assert.equal(request.args.requirements.start_date,'2026-10-20');assert.equal(request.args.generate_plan,true);w.requirements={...w.requirements,...request.args.requirements}}
     delete w.pending_auto_selection;w.meal_choices['2026-10-12|dinner']={mode:'chosen',food_id:'f'};
    }else if(request.action==='cancel_auto_selection'){delete w.pending_auto_selection}
+   else if(request.action==='meal_choice'&&request.args.mode==='remove'){
+    delete w.meal_choices[request.args.meal_date+'|'+request.args.meal_period];
+   }
    else if(request.action==='approve_plan_warning'){
     assert.equal(request.args.approval_id,w.pending_plan_warning.id);assert.equal(request.args.confirmed,true);w.plan=w.pending_plan_warning.plan;delete w.pending_plan_warning;w.plan.warnings=['每日负担分配提醒：已确认继续生成'];w.plan.warning_acceptance={confirmed:true};w.ui={action:'plan',view:'plan',status:'ready'};w.messages.push({role:'assistant',content:'已按确认生成带警告的旅行草稿。',ui:w.ui});
    }else if(request.action==='cancel_plan_warning'){delete w.pending_plan_warning}
@@ -88,6 +91,15 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
   await p.evaluate(()=>applyWorkspacePreview({id:'different-trip',catalog:{foreign:{id:'foreign',name:'另一会话',kind:'spot'}}}));
   assert.equal(await p.evaluate(()=>workspace.catalog.foreign),undefined);
   releasePreview=true;await p.waitForFunction(()=>!busy);
+  w.meal_mode='optional';w.meal_choices={'2026-10-20|lunch':{mode:'chosen',food_id:'f'},'2026-10-20|dinner':{mode:'chosen',food_id:'f'}};
+  w.food_query={ids:['f'],meal_date:'2026-10-20',meal_period:'lunch',scope:'周边5公里',anchor:'栈桥'};w.ui={view:'food',status:'ready'};
+  w.timeline.meal_slots=[{date:'2026-10-20',period:'lunch'},{date:'2026-10-20',period:'dinner'},{date:'2026-10-21',period:'breakfast'}];
+  await p.evaluate(value=>{workspace=value;mealDate='2026-10-20';mealPeriod='lunch';switchTab('food')},w);
+  const requestCount=requests.length;await p.locator('#content [data-meal-remove]').click();await p.waitForFunction(()=>!busy);
+  await p.waitForTimeout(450);
+  assert.equal(requests.length,requestCount+1);assert.equal(requests.at(-1).args.mode,'remove');
+  assert.equal(w.meal_choices['2026-10-20|lunch'],undefined);assert.equal(w.meal_choices['2026-10-20|dinner'].food_id,'f');
+  assert.deepEqual(await p.evaluate(()=>[mealDate,mealPeriod]),['2026-10-20','lunch']);
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(root,'data/runtime/browser-assistance.json'),JSON.stringify({passed:true,fixture:true,checks:['consent-before-selection','explicit-replace','cancel-preserves-choices','actionable-diagnostics','place-jump','return-jump','smart-revision-updates-book','advisory-confirmation','advisory-cancel-keeps-plan'],errors},null,2));console.log('ASSISTANCE BROWSER PASSED');
  }finally{await b.close()}
 })().catch(e=>{console.error(e.stack);process.exitCode=1});
