@@ -78,19 +78,26 @@ main{max-width:1660px;margin:auto;padding:0 26px 16px;display:grid;grid-template
 .room-state{font-size:11px;line-height:1.7;margin:10px 0 0;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2,#f7f8fa)}
 .room-state.unknown{color:var(--muted)}
 .room-state.unavailable{border-color:#e6c9a8;background:#fdf6ec;color:#8a5a1f}
-/* 住宿按晚编排：每晚一行（锚点 + 该晚候选），不是一个中心点辐射全部 */
+/* 住宿按晚编排：每晚一行（锚点 + 该晚候选），不是一个中心点辐射全部。
+   住宿面板可用宽度只有约 460px，候选卡片必须单列铺满，否则中文会被压成竖条。 */
 .stay-plan{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .stay-head{display:flex;flex-direction:column;gap:3px}
 .stay-head strong{font-size:13px}
 .stay-head small{font-size:10px;color:var(--muted);line-height:1.6}
-.stay-row{display:grid;grid-template-columns:74px 1fr auto;gap:10px;align-items:start;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2,#f7f8fa)}
-.stay-date{display:flex;flex-direction:column;gap:2px}
+.stay-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:start;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2,#f7f8fa)}
+.stay-date{display:flex;flex-direction:row;align-items:baseline;gap:6px;grid-column:1 / -1}
 .stay-date strong{font-size:12px}
 .stay-date small,.stay-anchor small,.stay-actions small{font-size:10px;color:var(--muted);line-height:1.5;display:block}
-.stay-anchor{display:flex;flex-direction:column;gap:2px}
-.stay-anchor span{font-size:12px;font-weight:600}
+.stay-anchor{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stay-anchor span{font-size:12px;font-weight:600;overflow-wrap:anywhere}
 .stay-actions{display:flex;align-items:center}
-.stay-cards{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:4px}
+/* 该晚候选：一行一个酒店，铺满该行宽度，保持可读宽度与完整信息 */
+.stay-cards{grid-column:1 / -1;display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.stay-cards .card{padding:11px}
+.stay-cards .card h3{font-size:13px}
+.stay-cards .card p{font-size:11px;overflow-wrap:anywhere}
+.stay-cards .card-actions{gap:6px}
+.stay-cards .price{font-size:14px}
 .empty{min-height:210px;padding:22px}.empty h3{font-size:20px}.empty .number{font-size:32px}.empty p{font-size:12px}
 .toolbar{gap:8px}.toolbar p{font-size:10px}.toolbar button{font-size:11px;padding:6px 9px}
 .site-footer{padding:9px 26px;font-size:10px;max-width:1660px;margin:auto}
