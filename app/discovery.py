@@ -36,29 +36,57 @@ def main_pois(items):
 
 def visible(w):
     search=w.get('spot_search') or {};rejected=set(w.get('rejected_spots',[]))
-    return [cid for cid in search.get('ids',[])[:8] if cid not in rejected and cid in w['catalog']]
+    kept=[]
+    for cid in search.get('ids',[])[:8]:
+        if cid in rejected or cid not in w['catalog']:continue
+        kept.append(cid)
+    return dedupe_names(w,kept)
+
+def dedupe_names(w,cids):
+    """按规范化名称去掉重复卡片：同一个地点以不同 ID 出现时只保留先出现的一个。
+
+    数据服务对同一地点可能返回不同 ID（例如"宽窄巷子"与"宽窄巷子景区"），
+    单次查询已按名字去重，跨批次与跨关键词仍可能各留一条，这里再兜一次。
+    """
+    seen=set();kept=[]
+    for cid in cids:
+        key=clean_name((w.get('catalog',{}).get(cid) or {}).get('name',''))
+        if key and key in seen:continue
+        if key:seen.add(key)
+        kept.append(cid)
+    return kept
 
 def page_info(w):
     search=w.get('spot_search') or {};grouped=groups(w);page=max(1,min(int(search.get('page',1)),max(1,math.ceil(len(grouped)/PAGE_SIZE))))
     displayed=grouped[(page-1)*PAGE_SIZE:page*PAGE_SIZE]
     return {'page':page,'pages':max(1,math.ceil(len(grouped)/PAGE_SIZE)),
-            'ids':list(dict.fromkeys(i for g in displayed for i in ([g['parent_id']] if g.get('parent_id') else [])+g['ids'] if i in w['catalog'])),
+            'ids':dedupe_names(w,list(dict.fromkeys(i for g in displayed for i in ([g['parent_id']] if g.get('parent_id') else [])+g['ids'] if i in w['catalog']))),
             'has_more':False}
 
 def groups(w):
-    catalog=w.get('catalog',{});ids=visible(w);result=[];by={}
+    """把本轮可见景点编成组：同一景区的主景点与其子地点算一组。
+
+    主景点本身也在 ids 里时，只作为该组的标题（parent 卡片）出现，不能再单独成组，
+    否则页面上同一个景区会渲染两次（一次当独立景点、一次当分组标题）。
+    """
+    catalog=w.get('catalog',{});ids=visible(w);by={}
+    # 先算出哪些条目会被当作某组的父级：它们只做标题，不单独成组。
+    parents={catalog[cid].get('parent_id') for cid in ids if catalog[cid].get('parent_id') in catalog}
     prefixes={}
     for cid in ids:
         p=catalog[cid];name=p.get('name','');parts=re.split('[·•]',name,maxsplit=1)
         if len(parts)==2 and len(parts[0])>=3:prefixes.setdefault(parts[0],[]).append(cid)
+    result=[]
     for cid in ids:
         p=catalog[cid];parent=p.get('parent_id');name=p.get('name','');prefix=re.split('[·•]',name,maxsplit=1)[0]
-        if parent:
+        if parent and parent in catalog:
             key=parent;title=catalog.get(parent,{}).get('name') or prefix;basis='地图父子关系'
+        elif cid in parents:
+            continue                                  # 作为父级只做标题，避免同景区重复出现
         elif len(prefixes.get(prefix,[]))>=2:key='name:'+prefix;title=prefix;basis='名称关联，所属关系待核实'
         else:key=cid;title=name;basis=None
         if key not in by:
-            item={'key':key,'title':title,'parent_id':parent if parent in catalog else cid if not basis else None,'ids':[],'basis':basis};by[key]=item;result.append(item)
+            item={'key':key,'title':title,'parent_id':parent if parent in catalog else (cid if not basis else None),'ids':[],'basis':basis};by[key]=item;result.append(item)
         by[key]['ids'].append(cid)
     return result
 

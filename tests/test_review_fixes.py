@@ -582,6 +582,44 @@ def test_plan_carries_stay_hotels_without_breaking_other_warnings(monkeypatch, t
     assert any('住宿报价截至' in x for x in plan['warnings']), plan['warnings']
 
 
+def test_parent_spot_is_not_rendered_twice_in_spot_groups():
+    """同一景区的主景点只做分组标题，不能再单独成组，否则页面上同一景区出现两次。"""
+    from app import discovery
+    w = workspace(days=2, spots=())
+    w['catalog'] = {
+        'parent': {'id': 'parent', 'kind': 'spot', 'name': '锦里古街', 'location': '104.05,30.64'},
+        'child': {'id': 'child', 'kind': 'spot', 'name': '武侯祠锦里中心', 'location': '104.05,30.64',
+                  'parent_id': 'parent'},
+        'other': {'id': 'other', 'kind': 'spot', 'name': '望江楼公园', 'location': '104.09,30.63'}}
+    w['spot_search'] = {'ids': ['parent', 'child', 'other']}
+    groups = discovery.groups(w)
+    # 主景点不再单独成组
+    assert [g['key'] for g in groups] == ['parent', 'other'], groups
+    assert groups[0]['parent_id'] == 'parent' and groups[0]['ids'] == ['child']
+    # 页面卡片里同一景区只出现一次
+    info = discovery.page_info(w)
+    names = [w['catalog'][i]['name'] for i in info['ids']]
+    assert names.count('锦里古街') == 1, names
+    assert len(names) == len(set(names))
+
+
+def test_duplicate_place_names_are_shown_once_per_page():
+    """同一地点以不同 ID 出现时（跨批次或不同关键词），页面上只显示一张卡。"""
+    from app import discovery
+    w = workspace(days=2, spots=())
+    w['catalog'] = {
+        'a': {'id': 'a', 'kind': 'spot', 'name': '宽窄巷子'},
+        'b': {'id': 'b', 'kind': 'spot', 'name': '宽窄巷子景区'},      # 规范化同名
+        'c': {'id': 'c', 'kind': 'spot', 'name': '宽窄巷子景区-窄径'},  # 子地点，名字不同
+        'd': {'id': 'd', 'kind': 'spot', 'name': '望江楼公园'}}
+    w['spot_search'] = {'ids': ['a', 'b', 'c', 'd']}
+    assert discovery.visible(w)[0] == 'a'
+    assert 'b' not in discovery.visible(w), '规范化同名只保留先出现的'
+    names = [w['catalog'][i]['name'] for i in discovery.page_info(w)['ids']]
+    assert len(names) == len(set(names))
+    assert names.count('宽窄巷子') + names.count('宽窄巷子景区') == 1
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
