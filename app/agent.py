@@ -124,7 +124,7 @@ def mark_stale(w):
     if w.get('plan'): w['plan']['stale']=True
 
 def update_requirements(w,patch):
-    allowed={'city','origin','start_date','days','adults','children','child_ages','rooms','budget','pace','transport_mode','preferences','food_preferences','hard_constraints','day_start','day_end','return_date','outbound_date','end_date','local_trip'}
+    allowed={'city','origin','start_date','days','adults','children','child_ages','elders','rooms','budget','pace','transport_mode','preferences','food_preferences','hard_constraints','day_start','day_end','return_date','outbound_date','end_date','local_trip'}
     clean={k:v for k,v in patch.items() if k in allowed and v is not None}
     if clean.get('end_date') and (clean.get('start_date') or w['requirements'].get('start_date')):
         clean['days']=(date.fromisoformat(clean['end_date'])-date.fromisoformat(clean.get('start_date') or w['requirements']['start_date'])).days+1

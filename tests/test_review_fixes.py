@@ -468,6 +468,66 @@ def test_dinner_ranking_prefers_the_restaurant_on_the_way_back():
     assert near_last['on_the_way_to_stay'] is True and near_last['route_bias'] > 0
 
 
+def test_user_pinned_period_over_capacity_gives_an_executable_remedy():
+    """用户钉死的时段装不下时，必须给模型能执行的修法，而不是无解的要求。
+
+    实测背景：live_v8 真实规划时，景点钉在上午、真实建议时长超过上午窗口
+    （约 180 分钟），旧提示"保留指定安排并提示用户调整"让模型无法满足，
+    两次修复后仍失败。现在要求：保留用户指定的日期，把时段改到当天其它可用时段。
+    """
+    from app import visit_analysis
+    w = workspace(days=1, day_end='21:00', spots=('s1',))
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'morning'}}
+    items = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 240}]
+    errors = visit_analysis.distribution_errors(w, items)
+    assert errors, '用户钉死时段且装不下时必须报错'
+    message = errors[0]
+    assert '保留用户指定的日期' in message and '时段改为当天其它可用时段' in message
+    assert '上午' in message and '240' in message and '180' in message
+    # 能在时段内放下的不应报错（边界）
+    fit = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 180}]
+    assert visit_analysis.distribution_errors(w, fit) == []
+
+
+def test_draft_or_suggested_period_never_blocks_allocation():
+    """用户只钉日期、或时段只是系统建议时，时段装不下只提示，不能阻断排期。"""
+    from app import visit_analysis
+    items = [{'candidate_id': 's1', 'date': D1, 'period': 'morning', 'duration': 240}]
+    # 用户只钉日期：时段是初稿，模型可以改
+    only_date = workspace(days=1, day_end='21:00', spots=('s1',))
+    only_date['visit_requests'] = {'s1': {'date': D1}}
+    assert visit_analysis.distribution_errors(only_date, items) == []
+    assert visit_analysis.period_notices(only_date, items)
+    # 只有系统建议：同样不阻断，且提示说明这不是硬约束
+    suggested = workspace(days=1, day_end='21:00', spots=('s1',))
+    suggested['catalog']['s1']['visit_suggestion'] = {'date': D1, 'period': 'morning'}
+    assert visit_analysis.distribution_errors(suggested, items) == []
+    notice = visit_analysis.period_notices(suggested, items)[0]
+    assert '并非硬约束' in notice or '而非硬约束' in notice
+    # 提示会随分析结果一起带给用户
+    assert any('时段' in x for x in visit_analysis.notices(suggested, items))
+
+
+def test_prompt_tells_the_model_not_to_oversubscribe_a_period():
+    """提示词要说明各时段可容纳的时长，避免模型自己把半天景区写进半天不到的时段。"""
+    import inspect
+    from app import visit_analysis
+    source = inspect.getsource(visit_analysis.analyze)
+    assert '上午约180分钟' in source and '超过就标any或换时段' in source
+
+
+def test_elders_is_accepted_into_requirements_for_pacing():
+    """成员二新增的 elders 字段必须能被后端接收，否则会被白名单静默丢弃。"""
+    from app import agent
+    w = workspace(days=2, spots=('s1',))
+    agent.update_requirements(w, {'elders': 2, 'children': 1, 'child_ages': [7]})
+    assert w['requirements']['elders'] == 2
+    assert w['requirements']['children'] == 1 and w['requirements']['child_ages'] == [7]
+    # 未知字段仍必须被丢弃，不能因为放开了 elders 就放宽整体
+    agent.update_requirements(w, {'invented_field': 'x'})
+    assert 'invented_field' not in w['requirements']
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report
