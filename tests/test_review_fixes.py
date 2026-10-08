@@ -441,6 +441,33 @@ def test_keyword_hotel_search_keeps_the_single_query_path(monkeypatch):
     assert '汉庭' in answer and '未查到' in answer and '偏好' in answer
 
 
+def test_dinner_ranking_prefers_the_restaurant_on_the_way_back():
+    """晚餐候选在同分时优先回住宿顺路的店，且依据如实标注。"""
+    from app import foods
+    w = workspace(days=1, day_end='22:00', spots=('s1',))
+    w['catalog']['s1']['location'] = '0,0'
+    w['hotel'] = {'id': 'h1', 'kind': 'hotel', 'name': '酒店', 'location': '0.06,0'}
+    w['visit_requests'] = {'s1': {'date': D1, 'period': 'afternoon'}}
+    onway = {'id': 'on', 'kind': 'food', 'name': '顺路店', 'location': '0.03,0', 'recommendation_rank': 2}
+    detour = {'id': 'off', 'kind': 'food', 'name': '绕远店', 'location': '1.0,1.0', 'recommendation_rank': 2}
+    foods.on_the_way_bias(w, onway, (D1, 'dinner'))
+    foods.on_the_way_bias(w, detour, (D1, 'dinner'))
+    assert onway['on_the_way_to_stay'] is True and onway['route_bias'] > 0
+    assert detour['on_the_way_to_stay'] is False and detour['route_bias'] == 0
+    # 同分时顺路者排序在前
+    ranked = sorted([detour, onway], key=lambda p: (p['recommendation_rank'] - p['route_bias'], p['recommendation_rank']))
+    assert ranked[0]['id'] == 'on'
+    # 午餐不做顺路偏置，也不编造依据
+    lunch = {'id': 'l', 'kind': 'food', 'name': '午餐店', 'location': '0.03,0', 'recommendation_rank': 1}
+    foods.on_the_way_bias(w, lunch, (D1, 'lunch'))
+    assert lunch['on_the_way_to_stay'] is None and lunch['route_bias'] == 0
+    # 尚未选住宿时，只能按"离当天收尾地点近"判断，且依据可说明
+    w['hotel'] = None
+    near_last = {'id': 'n', 'kind': 'food', 'name': '近店', 'location': '0.02,0', 'recommendation_rank': 2}
+    foods.on_the_way_bias(w, near_last, (D1, 'dinner'))
+    assert near_last['on_the_way_to_stay'] is True and near_last['route_bias'] > 0
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report

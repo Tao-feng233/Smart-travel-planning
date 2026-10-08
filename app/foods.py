@@ -226,6 +226,36 @@ def anchors(w,args):
         if len(result)>=3:break
     return result
 
+def on_the_way_bias(w,p,meal):
+    """晚餐是否在"当天收尾地点→当晚住宿"的方向上，并给出排序微调量。
+
+    只做小幅提前（相差不多时优先顺路），不改动任何事实描述；住宿尚未编排时
+    依据为空，不做任何猜测。
+    """
+    p['on_the_way_to_stay']=None;p['route_bias']=0
+    if not meal or meal[1]!='dinner' or not p.get('location'):return p
+    from . import stay_plan
+    row=stay_plan.row_for(w,meal[0])
+    if not row or not row.get('anchor_id'):return p
+    from .journey import coordinate_distance
+    hotel=(w.get('hotel') or {})
+    last=(w.get('catalog') or {}).get(row['anchor_id'])
+    if not last or not last.get('location'):return p
+    if hotel.get('location'):
+        detour=stay_plan.detour_km(last,hotel,p)
+        straight=round(coordinate_distance(p,hotel),1)
+        p['stay_detour_km']=detour;p['stay_straight_km']=straight
+        if detour is not None:
+            p['on_the_way_to_stay']=detour<=stay_plan.NEARBY_STRAIGHT_KM
+            p['route_bias']=3 if p['on_the_way_to_stay'] else 0
+        return p
+    # 尚未选住宿：只能按"离当天收尾地点近"判断是否顺路，并如实说明依据。
+    straight_last=round(coordinate_distance(p,last),1)
+    p['stay_straight_km']=straight_last
+    p['on_the_way_to_stay']=straight_last<=stay_plan.NEARBY_STRAIGHT_KM
+    p['route_bias']=2 if p['on_the_way_to_stay'] else 0
+    return p
+
 async def search(w,args,progress,recommend):
     r=w['requirements']
     if not r.get('city'):raise DataError('查询餐饮前，请先确定目的地。')
@@ -262,11 +292,18 @@ async def search(w,args,progress,recommend):
     meal=(args['meal_date'],args['meal_period']) if args.get('meal_date') and args.get('meal_period') in PERIODS else None
     by_id={p['id']:p for p in refs}
     items,excluded=await screen(w,items,lambda p:by_id.get(p.get('search_anchor_id')) or anchor,route_options,choose_route,meal)
+    # 晚餐优先推荐回住宿顺路的店：只在模型排序相近时做小幅提前，
+    # 不覆盖模型对口味与资料的判断，也不声称未核实的信息。
+    for p in items:on_the_way_bias(w,p,meal)
+    if meal and meal[1]=='dinner':
+        items.sort(key=lambda p:(p.get('recommendation_rank',99)-p.get('route_bias',0),p.get('recommendation_rank',99)))
     items=items[:5]
     for p in items:
         period=PERIODS.get(args.get('meal_period'),'用餐')
         basis=period+'可结合'+p['search_anchor']+'周边活动安排'
         if p.get('anchor_distance_km') is not None:basis+=f'，距参照点直线约{p["anchor_distance_km"]}公里'
+        if p.get('on_the_way_to_stay') is True:basis+='；该店在回当晚住宿的方向上，作为顺路建议'
+        elif p.get('on_the_way_to_stay') is False and meal and meal[1]=='dinner':basis+='；该店相对当天收尾地点需要绕行，若优先顺路可另选'
         p['recommendation_basis']=basis+'；实际通行与营业时段请核对。'
     # Each result retains the actual reference used for its query.
     markets=[]
