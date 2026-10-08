@@ -12,7 +12,10 @@ from app.vector_index import close as close_index
 @asynccontextmanager
 async def data_lifespan(server):
     try:yield {}
-    finally:close_index()
+    finally:
+        close_index()
+        from app.request_cache import close
+        await close()
 
 mcp=FastMCP('识途本地数据工具',lifespan=data_lifespan)
 

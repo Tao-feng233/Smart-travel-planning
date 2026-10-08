@@ -80,6 +80,9 @@ async def search(w,args,progress,recommend):
         if any(x in p['name'] for x in ('售票','停车','厕所')):continue
         seen.add(p['id']);items.append(p)
     if items:
+        w['catalog'].update({p['id']:p for p in items[:8]})
+        w['food_query']={'ids':[p['id'] for p in items[:8]],'keyword':keyword,'meal_date':args.get('meal_date'),'meal_period':args.get('meal_period'),'anchor':anchor['name'] if anchor else r['city']}
+        progress('基础餐厅资料已到达，正在比较特色与核对通行')
         await recommend(w,items,'单独筛选4至5家餐厅，按餐饮偏好与查询位置比较。只根据返回资料描述，不猜招牌菜、人均、景观或本地人比例。')
         items.sort(key=lambda p:p.get('recommendation_rank',99))
     items=items[:8]

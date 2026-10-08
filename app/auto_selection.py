@@ -9,7 +9,7 @@ import uuid
 from .providers import DataError
 from . import schedule, journey
 
-LABELS = {'spots': '景点', 'hotel': '住宿及房型', 'food': '餐饮'}
+LABELS = {'destination':'目的地','spots': '景点', 'hotel': '住宿位置', 'food': '餐饮'}
 STATE_KEYS = ('id', 'requirements', 'selected_spots', 'hotel', 'selected_room',
               'meal_choices', 'meal_mode', 'visit_requests', 'visit_order',
               'selected_transport', 'selected_return', 'catalog')
@@ -22,6 +22,19 @@ def signature(w):
 
 def delegation(w, text, intent):
     """Also catch delegation when the model mistakenly emits a single meal choice."""
+    from .goal_agent import mission
+    goal=mission(intent)
+    if goal and goal['mode']=='delegate':
+        if intent.get('action') in ('train','flight') and not goal['scopes'] and not goal['generate_plan']:
+            return {**intent,'select_ids':[],'remove_ids':[],'auto_select':False,
+                'mission':{**goal,'mode':'query','multi_step':False}}
+        categories=goal['scopes'] or ['spots','hotel','food']
+        if goal['generate_plan']:categories=list(dict.fromkeys(categories+['spots','hotel','food']))
+        if not w['requirements'].get('city') and 'destination' not in categories:categories=['destination']+categories
+        return {**intent,'action':'request_auto_selection','auto_categories':categories,
+            'auto_mode':intent.get('auto_mode','remaining'),'auto_generate_plan':goal['generate_plan'],
+            'allow_missing':True,'select_ids':[],'remove_ids':[],'auto_select':False}
+    if goal:return {**intent,'auto_select':False}
     if re.search(r'不用.{0,4}(自动|代选)|取消.{0,4}(代选|自动配置)', text):
         return {**intent, 'action': 'cancel_auto_selection', 'select_ids': [], 'remove_ids': []}
     if intent.get('action') == 'discover_destinations' or intent.get('meal_mode') == 'self':
@@ -55,13 +68,32 @@ def request(w, args):
         raise DataError('自动配置支持景点、住宿和餐饮；车票及机票请自行选定。')
     mode = args.get('auto_mode', 'remaining')
     if mode not in ('remaining', 'replace'): raise DataError('请选择补齐剩余内容或重新配置。')
-    if not all(w['requirements'].get(k) for k in ('city', 'start_date', 'days')):
+    if not all(w['requirements'].get(k) for k in ('city', 'start_date', 'days')) and not args.get('allow_missing'):
         raise DataError('自动配置前请先补充目的地、游玩日期和天数。', {'view': 'spot', 'settings': True})
     w.pop('auto_selection_run', None)
     pending = {'id': uuid.uuid4().hex, 'mode': mode, 'categories': list(dict.fromkeys(categories)),
                'signature': signature(w), 'expires': time.time()+900}
     pending['description'] = ('保留已有选择，补齐尚未安排的' if mode=='remaining' else '重新选择并替换已有的') + '、'.join(LABELS[c] for c in pending['categories'])
     pending['notice'] = '车票、机票由你手动确认；此操作只用于规划，不进行预订。' + ('替换景点时会清除被替换景点的日期安排。' if mode=='replace' and 'spots' in categories else '')
+    if 'destination' in categories and mode=='replace':pending['notice']+=' 更换目的地会使原目的地的景点、住宿及交通选择失效，交通仍需你重新选定。'
+    pending['generate_plan_default']=args.get('auto_generate_plan') is True
+    pending['allow_draft']=args.get('allow_missing') is True
+    if args.get('allow_missing'):
+        from datetime import date,timedelta
+        from .storage import now
+        today=date.fromisoformat(now()[:10]);next_weekend=today+timedelta(days=(5-today.weekday())%7 or 7)
+        pending['proposed_requirements']={k:w['requirements'].get(k) or value for k,value in
+            {'start_date':next_weekend.isoformat(),'days':3,'adults':1}.items()}
+        proposed=args.get('proposed_patch') or {}
+        pending['proposed_requirements'].update(proposed)
+        labels={'city':'目的地','origin':'出发地','budget':'参考总预算','outbound_date':'去程日期','return_date':'返程日期',
+                'end_date':'游玩结束日期','children':'儿童数','rooms':'房间数','preferences':'游玩偏好','food_preferences':'餐饮偏好',
+                'hard_constraints':'指定条件','pace':'行程节奏','transport_mode':'市内交通偏好','child_ages':'儿童年龄','local_trip':'本地出游'}
+        summary='；'.join(labels[k]+'：'+('、'.join(map(str,v)) if isinstance(v,list) else str(v)) for k,v in proposed.items() if k in labels)
+        if summary:pending['notice']+=' 拟采用条件：'+summary+'。'
+        if proposed.get('city') and w['requirements'].get('city') and proposed['city']!=w['requirements']['city']:
+            pending['notice']+=' 更换目的地后原有景点、住宿及交通选择将失效。'
+        pending['notice']+=' 请核对日期、天数和人数；缺项显示建议值，确认后才采用。交通未定时可先生成草稿。'
     w['pending_auto_selection'] = pending
     return '请在确认窗口核对代选范围：'+pending['description']+'。确认前不会更改这些选择。'+pending['notice']
 
@@ -100,8 +132,20 @@ async def run(w, args, progress, model, handle, continuing=False):
         if pending['signature'] != signature(w) or pending['expires'] < time.time():
             w.pop('pending_auto_selection', None)
             raise DataError('旅行条件或选择已经变化，请重新核对自动配置范围。')
+        if pending.get('proposed_requirements'):
+            from .agent import update_requirements
+            patch=dict(pending['proposed_requirements'])
+            supplied=args.get('requirements') or {}
+            if not isinstance(supplied,dict) or set(supplied)-{'start_date','days','adults'}:raise DataError('请仅确认日期、天数和成人数。')
+            patch.update(supplied)
+            backup=copy.deepcopy(w)
+            try:update_requirements(w,patch)
+            except (DataError,ValueError,TypeError):
+                w.clear();w.update(backup)
+                raise DataError('请检查确认窗口中的日期、天数和人数。') from None
         state = {**pending, 'expires': time.time()+3600, 'started': False, 'messages': [],
-                 'generate_plan': args.get('generate_plan') is True, 'meal_cursor': 0}
+                 'generate_plan': args.get('generate_plan') is True, 'meal_cursor': 0,'errors':[]}
+        state['signature']=signature(w)
         w.pop('pending_auto_selection', None)
     if state['signature'] != signature(w) or state['expires'] < time.time():
         w.pop('auto_selection_run', None)
@@ -115,7 +159,16 @@ async def run(w, args, progress, model, handle, continuing=False):
             for category in state['categories']:
                 backup = copy.deepcopy(w)
                 try:
-                    if category=='spots' and (mode=='replace' or not w.get('selected_spots')):
+                    if category=='destination' and (mode=='replace' or not w['requirements'].get('city')) and not (state.get('proposed_requirements') or {}).get('city'):
+                        from .discovery import destinations
+                        pool=destinations()
+                        chosen,reason=await choose(w,pool,'依据已知出发地、偏好和参考预算选择一个旅游目的地，未知交通不假设已确定',model)
+                        place=next(p for p in pool if p['id']==chosen[0])
+                        from .agent import update_requirements
+                        update_requirements(w,{'city':place['name']});cat=w['catalog']
+                        transport={k:copy.deepcopy(w.get(k)) for k in ('selected_transport','selected_return')}
+                        notes.append('已选择目的地：'+place['name']+'。'+reason)
+                    elif category=='spots' and (mode=='replace' or not w.get('selected_spots')):
                         await handle(w, 'search_spots', {}, progress)
                         ids = (w.get('spot_search') or {}).get('ids') or [p['id'] for p in w.get('candidates', []) if p.get('kind')=='spot']
                         pool = [cat[i] for i in ids if i in cat and cat[i].get('kind')=='spot' and not cat[i].get('stale')]
@@ -128,25 +181,19 @@ async def run(w, args, progress, model, handle, continuing=False):
                         from .visit_analysis import analyze
                         await analyze(w, model, progress)
                         notes.append('已选择景点：'+'、'.join(cat[i]['name'] for i in chosen)+'。'+reason)
-                    elif category=='hotel' and (mode=='replace' or not w.get('selected_room') or (w.get('hotel') or {}).get('stale')):
+                    elif category=='hotel' and (mode=='replace' or not w.get('hotel') or w['hotel'].get('stale')):
                         if int(w['requirements']['days'])==1 or mode=='remaining' and w.get('stay_skipped'):
                             notes.append('保留一日游或自行安排住宿的选择。'); continue
-                        if mode=='remaining' and w.get('hotel') and not w['hotel'].get('stale'):
-                            hotel_id = w['hotel']['id']; reason = '保留已有酒店，补选可用房型'
-                        else:
-                            await handle(w, 'search_hotels', {}, progress)
-                            pool = [cat[i] for i in (w.get('hotel_query') or {}).get('ids', []) if i in cat and not cat[i].get('stale')]
-                            chosen, reason = await choose(w, pool, '按游览区域和参考预算选择住宿', model)
-                            hotel_id = chosen[0]
-                        await handle(w, 'hotel_detail', {'id': hotel_id}, progress)
-                        from .choices import room_choices
-                        quotes = [p for p in room_choices(cat[hotel_id],w['requirements']) if str(p.get('stock'))!='0']
-                        chosen, _ = await choose(w, quotes, '为'+cat[hotel_id]['name']+'选择合适人数及房间数量的房型报价', model)
-                        await handle(w, 'select_room', {'room_id': chosen[0]}, progress)
-                        notes.append('已选择住宿及房型：'+cat[hotel_id]['name']+'。'+reason)
+                        await handle(w, 'search_hotels', {}, progress)
+                        pool = [cat[i] for i in (w.get('hotel_query') or {}).get('ids', []) if i in cat and not cat[i].get('stale')]
+                        chosen, reason = await choose(w, pool, '按游览区域和参考预算选择住宿位置；房型可选，不要求具体房型报价', model)
+                        hotel_id = chosen[0]
+                        await handle(w, 'select', {'id': hotel_id}, progress)
+                        notes.append('已选择住宿：'+cat[hotel_id]['name']+'。'+reason+' 具体房型可稍后选择。')
                 except DataError as e:
                     w.clear(); w.update(backup); cat = w['catalog']
                     notes.append(LABELS[category]+'暂未完成：'+str(e))
+                    state['errors'].append({'scope':category,'message':str(e)})
             state['started'] = True
             state['slots'] = [dict(x) for x in schedule.build(w)['meal_slots']] if 'food' in state['categories'] else []
         slots = state['slots']; end = min(len(slots), state['meal_cursor']+8)
@@ -168,6 +215,7 @@ async def run(w, args, progress, model, handle, continuing=False):
             except DataError as e:
                 w.clear(); w.update(backup); cat = w['catalog']
                 notes.append(slot['date']+' '+schedule.PERIODS[slot['period']][0]+'未完成：'+str(e))
+                state['errors'].append({'scope':'food','date':slot['date'],'period':slot['period'],'message':str(e)})
         if any(w.get(k)!=v for k,v in transport.items()):
             raise DataError('自动配置中检测到交通选择发生变化，已停止本轮配置。')
         if state['meal_cursor'] < len(slots):
@@ -180,12 +228,14 @@ async def run(w, args, progress, model, handle, continuing=False):
         if state['generate_plan']:
             local = journey.is_local(w['requirements'])
             confirmed = all((w.get(k) or {}).get('selection_status')=='confirmed' for k in transport)
-            if local or confirmed:
+            if local or confirmed or state.get('allow_draft'):
                 try: notes.append(await handle(w,'plan',{},progress))
-                except DataError as e: notes.append('计划书尚未完成：'+str(e))
+                except DataError as e:
+                    notes.append('计划书尚未完成：'+str(e));state['errors'].append({'scope':'plan','message':str(e)})
+                if not local and not confirmed:notes.append('往返交通尚待你选定，当前仅为建议草稿，选定后需重新核对首尾日。')
             else: notes.append('请先在往返交通中手动选定车票或机票，再生成完整计划书。')
         result = '\n'.join(notes[-18:]) or '当前范围已有安排，已保留原有选择。'
-        w['auto_selection_result'] = {'mode':mode,'categories':state['categories'],'messages':notes}
+        w['auto_selection_result'] = {'mode':mode,'categories':state['categories'],'messages':notes,'errors':state['errors']}
         return result+'\n自动选择仅用于规划，未预订；可点击对应卡片或时间轴修改。'
     finally:
         # Even an interrupted or failed batch cannot silently replace ticket choices.

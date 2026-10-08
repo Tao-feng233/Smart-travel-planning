@@ -19,7 +19,7 @@ def test_missing_conditions_and_day_trip_have_different_next_steps():
 
 def test_hotel_selection_and_return_selection_guide_following_steps():
     w=trip();w['hotel']=w['catalog']['h1']
-    assert guidance.describe(w,'select',{'id':'h1'})['cta']['view']=='hotel'
+    assert guidance.describe(w,'select',{'id':'h1'})['cta']['action']=='complete_hotel'
     w['selected_room']={'id':'r1'}
     assert guidance.describe(w,'select_room',{'id':'r1'})['cta']['action']=='complete_hotel'
     w['catalog']['t1']={'kind':'train'}

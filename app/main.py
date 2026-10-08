@@ -40,6 +40,8 @@ async def lifespan(app):
         tools.SESSION=None
         from . import maps
         await maps.close()
+        from .request_cache import close
+        await close()
 
 app=FastAPI(title='识途',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
 app.include_router(auth.router)
@@ -205,6 +207,13 @@ async def perform(wid,body,jid,owner_id):
                 last_flush=time.monotonic();publish()
         def publish():
             ui={**w.get('ui',{}),'requirements':w['requirements'],'root_action':body.action,'reply_text':''.join(reply_buffer),'process_steps':[x['text'] for x in trace]}
+            # Only this authenticated job's factual query snapshots are previewed.
+            # Selections/revisions remain canonical until the final save.
+            ids=list((w.get('spot_search') or {}).get('ids',[]))+list((w.get('hotel_query') or {}).get('ids',[]))+list((w.get('food_query') or {}).get('ids',[]))
+            if ids:ui['workspace_preview']={'id':w['id'],'catalog':{cid:w['catalog'][cid] for cid in dict.fromkeys(ids) if cid in w['catalog']},
+                **{k:w[k] for k in ('spot_search','hotel_query','food_query') if w.get(k)}}
+            if ids and w.get('spot_search'):
+                ui['workspace_preview'].update(spot_page=discovery.page_info(w),discovery_mode=w.get('discovery_mode',False))
             storage.update_job(jid,ui=ui)
         sink_token=replies.SINK.set(emit);prefix_token=replies.PREFIX.set('')
         # Loading UI replaces the failed view. Keep its concrete diagnostics for

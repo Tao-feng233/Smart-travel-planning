@@ -9,6 +9,8 @@ def markdown(w):
         lines += [h['name']+'（选定，尚未预订）',h.get('address',''),f"列表起价：¥{h.get('price','未知')}；房型及住宿总价待核实",f"来源：{h['source']['name']}，查询时间：{h['source']['queried_at']}",'']
     else:lines+=['未确定住宿。','']
     room=w.get('selected_room')
+    if h and not room:
+        lines += ['具体房型：未选择（可选）。日程按已选住宿位置规划，住宿实际总价与入住条件请在预订前核实。','']
     if room:
         lines += [f"已选房型：{room['name']}，{room['quantity']}间；参考报价：¥{room.get('price','待核实')}，报价覆盖日期与整段总价需核实。",f"餐食：{room.get('meal') or '待核实'}；退改：{room.get('cancel') or '待核实'}"]
         lines += ['- '+x for x in room.get('review',{}).get('issues',[])]+['']

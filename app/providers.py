@@ -6,6 +6,7 @@ from jsonschema import validate
 from .config import ROOT, setting
 from .storage import now, cache_key, cached, put_cache, connect, record_llm_call, RUNTIME
 from .data_contracts import coordinate,scalar,place_quality
+from .request_cache import http_client,singleflight
 
 # HTTP logs can contain Amap's key query parameter. Never enable URL debug logs.
 for _name in ('httpx','httpcore','httpx2','httpcore2'):
@@ -30,11 +31,14 @@ async def amap_slot():
         AMAP_LAST_REQUEST=time.monotonic()
 
 async def amap(path, params, ttl=900):
+    return await singleflight(('amap',path,cache_key(path,params)),lambda:_amap(path,params,ttl))
+
+async def _amap(path, params, ttl=900):
     key=cache_key(path,params)
     old=cached(key)
     if old: return old
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with http_client(15) as client:
             async with AMAP_INFLIGHT:
                 await amap_slot()
                 r=await client.get('https://restapi.amap.com'+path,params={**params,'key':setting('AMAP_API_KEY')})
@@ -165,7 +169,7 @@ async def weather(location):
     if old: return old
     timeout=float(setting('QWEATHER_TIMEOUT_SECONDS','5'))
     try:
-        async with httpx.AsyncClient(timeout=timeout) as c:
+        async with http_client(timeout) as c:
             r=await c.get('https://'+setting('QWEATHER_API_HOST')+'/weather/v1/daily/'+pos,
                           headers={'X-QW-Api-Key':setting('QWEATHER_API_KEY')},params={'days':10,'localTime':'true','lang':'zh'})
             if r.status_code!=200: raise DataError(f'天气 HTTP {r.status_code}')
@@ -197,6 +201,9 @@ ALLOW={'hotel':{'tuniuHotelSearch','tuniuHotelDetail'},'train':{'searchLowestPri
 TUNIU_LOCK=asyncio.Lock()
 
 async def tuniu(service,tool,arguments):
+    return await singleflight(('tuniu',service,tool,cache_key(tool,arguments)),lambda:_tuniu(service,tool,arguments))
+
+async def _tuniu(service,tool,arguments):
     if tool not in ALLOW.get(service,set()): raise DataError('该工具不在只读查询白名单中')
     key=cache_key('tuniu:'+tool,arguments)
     old=cached(key)
@@ -240,6 +247,10 @@ async def tuniu(service,tool,arguments):
     put_cache(key,result,600)
     return result
 
+def llm_timeout():
+    try:return max(5,min(120,float(setting('LLM_TIMEOUT_SECONDS','45'))))
+    except (ValueError,TypeError):return 45
+
 async def llm(messages, tools=None, json_mode=False, max_tokens=2200, label='llm'):
     body={'model':setting('LLM_MODEL','deepseek-flash'),'messages':messages,'max_tokens':max_tokens,
           'thinking':{'type':'disabled'},'temperature':0.3}
@@ -248,7 +259,7 @@ async def llm(messages, tools=None, json_mode=False, max_tokens=2200, label='llm
     started=time.monotonic()
     usage={}                                   # kept so a late failure still reports what was billed
     try:
-        async with httpx.AsyncClient(timeout=100) as c:
+        async with http_client(llm_timeout()) as c:
             r=await c.post(setting('LLM_BASE_URL').rstrip('/')+'/chat/completions',headers={'Authorization':'Bearer '+setting('LLM_API_KEY')},json=body)
             if r.status_code!=200: raise DataError(f'大模型请求失败，HTTP {r.status_code}')
             data=r.json()
@@ -277,7 +288,7 @@ async def llm_stream(messages,on_delta,max_tokens=1600,label='reply_stream'):
     text='';usage={};finished=False
     started=time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=100) as c:
+        async with http_client(llm_timeout()) as c:
             async with c.stream('POST',setting('LLM_BASE_URL').rstrip('/')+'/chat/completions',headers={'Authorization':'Bearer '+setting('LLM_API_KEY')},json=body) as r:
                 if r.status_code!=200:raise DataError(f'大模型请求失败，HTTP {r.status_code}')
                 async for line in r.aiter_lines():

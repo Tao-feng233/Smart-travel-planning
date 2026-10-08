@@ -121,8 +121,7 @@ def next_step(w):
     if not w.get('selected_spots'):return {'message':'请在右侧选择想去的景点。','view':'spot'}
     if not w.get('spots_confirmed'):return {'message':'请先完成当前景点选择，点击“完成景点选择”；完成后比较住宿位置与房型。','view':'spot','action':'complete_spots','label':'完成景点选择'}
     skip_stay=w.get('stay_skipped') or int(r.get('days') or 0)==1
-    if not skip_stay and not w.get('hotel'):return {'message':'请比较住宿，也可以选择暂不安排住宿。','view':'hotel'}
-    if not skip_stay and not w.get('selected_room'):return {'message':'住宿已保存。请选择具体房型，或暂不安排住宿。','view':'hotel'}
+    if not skip_stay and (not w.get('hotel') or w['hotel'].get('stale')):return {'message':'请选择有效住宿位置，也可以选择暂不安排住宿。具体房型可选。','view':'hotel'}
     if is_local(r):return dining_step(w)
     if not r.get('origin'):return {'message':'请补充出发城市，然后查询往返交通。','view':'transport','missing':['出发城市']}
     for slot,label in [('selected_transport','去程'),('selected_return','返程')]:

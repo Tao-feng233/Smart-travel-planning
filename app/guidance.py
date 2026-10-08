@@ -14,6 +14,9 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     view=VIEWS.get(action) or (view if view in VALID_VIEWS else None)
     if action=='place_detail':view=args.get('view') if args.get('view') in VALID_VIEWS else view or {'food':'food','spot':'spot','market':'spot'}.get(catalog.get(args.get('id'),{}).get('kind'))
     if action=='complete_spots':view='transport' if int(r.get('days') or 0)==1 else 'hotel'
+    if action in ('complete_hotel','skip_hotel'):
+        from .journey import is_local
+        if is_local(r):view='food'
     if action=='select':view={'spot':'spot','hotel':'hotel','train':'transport','flight':'transport','food':'food'}.get(catalog.get(args.get('id'),{}).get('kind'),view)
     ui={'action':action,'view':view,'status':status,'focus_id':args.get('id'),'cta':None}
     def output(title,message,label=None,**target):
@@ -38,9 +41,8 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     if view=='hotel':
         if action=='complete_spots' and not all(r.get(k) for k in ('start_date','days','adults')):
             return output('景点选择已确认','比较住宿前需要出游日期、天数和人数。请在对话中补充，或编辑右侧旅行信息。','补充旅行信息',settings=True)
-        if action=='select' and not w.get('selected_room'):return output('住宿已选定','请选择具体房型与报价。','选择房型',view='hotel')
-        if action in ('select','select_room'):return output('住宿选择已保存','可继续核对房型；确认后点击“完成住宿选择”进入往返交通。','完成住宿选择',action='complete_hotel')
-        if action=='hotel_detail':return output('房型详情已更新','请核对人数、餐食与退改，再确认住宿。','查看房型',view='hotel')
+        if action in ('select','select_room'):return output('住宿选择已保存','已选住宿位置，可直接点击“完成住宿选择”继续；具体房型可选。','完成住宿选择',action='complete_hotel')
+        if action=='hotel_detail':return output('房型详情已更新','具体房型可选；如需选择，请核对人数、餐食与退改。','查看房型',view='hotel')
         if any(p.get('kind')=='hotel' and not p.get('stale') for p in catalog.values()):return output('住宿推荐','比较位置、价格与房型。选定住宿仅用于规划，尚未预订。','查看住宿',view='hotel')
         if not selected:return output('住宿推荐','先确认景点，再根据位置与通行条件比较住宿。','选择景点',view='spot')
         return output('住宿推荐','已进入住宿步骤。日期、天数和人数完整后可查询酒店。','查询住宿',action='search_hotels')

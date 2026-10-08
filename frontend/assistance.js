@@ -21,7 +21,7 @@ function syncPlanWarning(){
 }
 function ensureAutoConsent(){
  if($('#auto-selection-dialog'))return;
- const dialog=document.createElement('dialog');dialog.id='auto-selection-dialog';dialog.innerHTML='<form><div class="dialog-head"><h2>允许助手自动配置吗？</h2><button type="button" class="ghost" data-auto-cancel>暂不代选</button></div><p class="auto-selection-scope"></p><p class="auto-selection-notice"></p><label class="auto-plan-option"><input type="checkbox" id="auto-generate-plan"><span>完成代选后生成计划书（往返交通需先由你确认）</span></label><div class="auto-selection-actions"><button type="button" class="ghost" data-auto-cancel>保留当前选择</button><button type="submit" id="auto-selection-confirm">确认并开始</button></div></form>';document.body.append(dialog);
+ const dialog=document.createElement('dialog');dialog.id='auto-selection-dialog';dialog.innerHTML='<form><div class="dialog-head"><h2>允许助手自动配置吗？</h2><button type="button" class="ghost" data-auto-cancel>暂不代选</button></div><p class="auto-selection-scope"></p><p class="auto-selection-notice"></p><label class="auto-plan-option"><input type="checkbox" id="auto-generate-plan"><span>完成代选后生成计划书（交通未定时保留草稿标记）</span></label><div class="auto-selection-actions"><button type="button" class="ghost" data-auto-cancel>保留当前选择</button><button type="submit" id="auto-selection-confirm">确认并开始</button></div></form>';document.body.append(dialog);
  const stop=()=>{const id=workspace?.pending_auto_selection?.id;autoConsentKey=workspace?.id+':'+id;dialog.close();if(!busy)action('cancel_auto_selection')};
  dialog.querySelectorAll('[data-auto-cancel]').forEach(b=>b.onclick=stop);
  dialog.addEventListener('cancel',e=>{e.preventDefault();stop()});
@@ -29,7 +29,8 @@ function ensureAutoConsent(){
   e.preventDefault();if(busy)return;const id=workspace?.pending_auto_selection?.id;if(!id)return;
   autoConsentKey=workspace.id+':'+id;autoStopping=false;
   const generate=dialog.querySelector('#auto-generate-plan').checked;dialog.close();
-  action('approve_auto_selection',{approval_id:id,confirmed:true,generate_plan:generate}).then(()=>{if(workspace?.pending_auto_selection?.id===id&&!busy){autoConsentKey='';syncAutoConsent()}});
+  const requirements={};dialog.querySelectorAll('[data-auto-requirement]').forEach(input=>requirements[input.dataset.autoRequirement]=input.type==='number'?Number(input.value):input.value);
+  action('approve_auto_selection',{approval_id:id,confirmed:true,generate_plan:generate,requirements}).then(()=>{if(workspace?.pending_auto_selection?.id===id&&!busy){autoConsentKey='';syncAutoConsent()}});
  };
  const status=document.createElement('div');status.id='auto-selection-status';status.hidden=true;status.innerHTML='<span>正在按已确认的范围补齐安排，可随时停止。</span><button class="text-button" id="auto-selection-stop">停止自动配置</button>';$('#progress').after(status);
  $('#auto-selection-stop').onclick=async()=>{autoStopping=true;clearTimeout(autoContinueTimer);if(busy&&runningJobId){try{await api('/api/jobs/'+runningJobId+'/cancel',{method:'POST'})}catch(e){error(e.message)}}else if(!busy)action('cancel_auto_selection')};
@@ -41,7 +42,11 @@ function syncAutoConsent(){
  if(!pending||workspace.archived){if(dialog.open)dialog.close();return}
  const key=workspace.id+':'+pending.id;if(busy||autoConsentKey===key)return;
  dialog.querySelector('.auto-selection-scope').textContent=pending.description;dialog.querySelector('.auto-selection-notice').textContent=pending.notice;
- if(!dialog.open){dialog.querySelector('#auto-generate-plan').checked=false;dialog.showModal()}
+ if(!dialog.open){
+  dialog.querySelector('.auto-confirm-inputs')?.remove();
+  if(pending.proposed_requirements){const inputs=document.createElement('div');inputs.className='auto-confirm-inputs';const r=pending.proposed_requirements;inputs.innerHTML=`<label>游玩开始日期<input type="date" data-auto-requirement="start_date" value="${esc(r.start_date)}" required></label><label>游玩天数<input type="number" min="1" max="60" data-auto-requirement="days" value="${esc(r.days)}" required></label><label>成人数<input type="number" min="1" max="10" data-auto-requirement="adults" value="${esc(r.adults)}" required></label>`;dialog.querySelector('.auto-plan-option').before(inputs)}
+  dialog.querySelector('#auto-generate-plan').checked=pending.generate_plan_default===true;dialog.showModal()
+ }
 }
 function diagnosticHTML(c){
  const issues=c?.issues;if(!issues?.length)return conflictHTML(c);

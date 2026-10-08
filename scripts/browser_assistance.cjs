@@ -7,7 +7,8 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
  const p=await b.newPage({viewport:{width:1500,height:1000}}),errors=[],requests=[];p.on('pageerror',e=>errors.push(e.message));
  const source={name:'合成来源',queried_at:'2026-10-08'},s={id:'s',name:'栈桥',kind:'spot',location:'120.3,36.0',source};
  let w={id:'fixture',title:'合成旅行',revision:1,requirements:{city:'青岛',start_date:'2026-10-12',days:2,adults:1},catalog:{s,f:{id:'f',name:'已选餐厅',kind:'food',source}},selected_spots:['s'],messages:[],tickets:{},trace:[],meal_choices:{'2026-10-12|lunch':{mode:'chosen',food_id:'f'}},ui:{view:'spot',status:'ready'},next_step:{view:'food',message:'继续餐饮'},timeline:{entries:[],meal_slots:[],conflicts:[]}};
- let request,jid=0;
+ let request,jid=0,releasePreview=false;
+ const preview={id:'fixture',catalog:{newspot:{id:'newspot',name:'提前到达的景点资料',kind:'spot',location:'120.31,36.02',source}},spot_search:{ids:['newspot']},spot_page:{page:1,pages:1,ids:['newspot']},discovery_mode:false};
  await p.route(base+'/**',async r=>{
   const u=new URL(r.request().url());
   if(u.pathname.startsWith('/assets/'))return r.fulfill({path:path.join(root,'frontend',path.basename(u.pathname))});
@@ -15,12 +16,15 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
   if(u.pathname.endsWith('/map-image'))return r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768"><rect width="100%" height="100%" fill="#eff3f6"/></svg>'});
   if(u.pathname.endsWith('/actions')){request=r.request().postDataJSON();requests.push(request);return r.fulfill({contentType:'application/json',body:JSON.stringify({job_id:'j'+(++jid)})})}
   if(u.pathname.endsWith('/events')){
+   if(request.action==='search_spots')return r.fulfill({contentType:'text/event-stream',body:'event: progress\ndata: '+JSON.stringify({ui:{view:'spot',status:'loading',workspace_preview:preview}})+'\n\n'});
    let status='completed',error;w.revision++;w.ui={action:request.action,view:'food',status:'ready'};
    if(request.action==='chat'){
     w.pending_auto_selection={id:'consent-'+jid,mode:request.text.includes('重新')?'replace':'remaining',categories:['food'],description:request.text.includes('重新')?'重新选择并替换已有的餐饮':'保留已有选择，补齐尚未安排的餐饮',notice:'车票、机票由你手动确认；只用于规划，不进行预订。'};
+    if(request.text.includes('全程'))Object.assign(w.pending_auto_selection,{proposed_requirements:{start_date:'2026-10-12',days:3,adults:1},generate_plan_default:true});
     w.ui.action='request_auto_selection';w.messages.push({role:'assistant',content:'请核对弹窗中的代选范围。'});
    }else if(request.action==='approve_auto_selection'){
     assert.equal(request.args.approval_id,w.pending_auto_selection.id);assert.equal(request.args.confirmed,true);
+    if(w.pending_auto_selection.proposed_requirements){assert.equal(request.args.requirements.start_date,'2026-10-20');assert.equal(request.args.generate_plan,true);w.requirements={...w.requirements,...request.args.requirements}}
     delete w.pending_auto_selection;w.meal_choices['2026-10-12|dinner']={mode:'chosen',food_id:'f'};
    }else if(request.action==='cancel_auto_selection'){delete w.pending_auto_selection}
    else if(request.action==='approve_plan_warning'){
@@ -36,6 +40,10 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
     w.messages.push({role:'assistant',content:error,ui:w.ui});
    }
    return r.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({id:'j'+jid,status,action:request.action,error,workspace:w,ui:w.ui})+'\n\n'});
+  }
+  if(/^\/api\/jobs\/j\d+$/.test(u.pathname)&&request.action==='search_spots'){
+   if(releasePreview){w.catalog={...w.catalog,...preview.catalog};w.spot_page=preview.spot_page;w.spot_search=preview.spot_search;w.ui={view:'spot',status:'ready'}}
+   return r.fulfill({contentType:'application/json',body:JSON.stringify({id:'j'+jid,status:releasePreview?'completed':'running',progress:'补充推荐中',ui:{view:'spot',status:releasePreview?'ready':'loading',workspace_preview:preview},workspace:releasePreview?w:undefined})});
   }
   const data=u.pathname.endsWith('/auth/me')?{user:{id:'qa',nickname:'检查'},csrf_token:'test'}:u.pathname==='/api/workspaces'?{items:[{id:w.id,title:w.title}],total:1}:w;
   return r.fulfill({contentType:'application/json',body:JSON.stringify(data)});
@@ -71,6 +79,15 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
   assert.equal(w.plan.title,originalTitle);assert.match(await p.locator('.plan-warning-issues').innerText(),/2026-10-13.*2026-10-12/);assert.equal(await p.locator('#error').isVisible(),false);await p.screenshot({path:path.join(root,'.展示检查/规划提醒-继续生成确认.png')});
   await p.keyboard.press('Escape');await p.waitForFunction(()=>!busy&&!workspace.pending_plan_warning);assert.equal(requests.at(-1).action,'cancel_plan_warning');assert.equal(w.plan.title,originalTitle);
   await p.evaluate(()=>action('plan',{advisory:true}));await p.waitForSelector('#plan-warning-dialog[open]');await p.locator('#plan-warning-dialog button[type=submit]').click();await p.waitForFunction(()=>!busy&&!workspace.pending_plan_warning);assert.equal(requests.at(-1).action,'approve_plan_warning');assert.equal(w.plan.title,'确认后的提醒草稿');assert.equal(w.plan.warning_acceptance.confirmed,true);
+  await p.evaluate(()=>action('chat',{},'全程帮我安排'));await p.waitForSelector('#auto-selection-dialog[open]');
+  assert.equal(w.requirements.start_date,'2026-10-12');assert.equal(await p.locator('#auto-generate-plan').isChecked(),true);
+  await p.locator('[data-auto-requirement=start_date]').fill('2026-10-20');await p.click('#auto-selection-confirm');await p.waitForFunction(()=>!busy&&!workspace.pending_auto_selection);
+  assert.equal(w.requirements.start_date,'2026-10-20');
+  await p.evaluate(()=>{action('search_spots')});await p.waitForFunction(()=>busy&&document.querySelector('#content').textContent.includes('提前到达的景点资料'));
+  assert.deepEqual(await p.evaluate(()=>workspace.selected_spots),['s']);
+  await p.evaluate(()=>applyWorkspacePreview({id:'different-trip',catalog:{foreign:{id:'foreign',name:'另一会话',kind:'spot'}}}));
+  assert.equal(await p.evaluate(()=>workspace.catalog.foreign),undefined);
+  releasePreview=true;await p.waitForFunction(()=>!busy);
   assert.deepEqual(errors,[]);fs.writeFileSync(path.join(root,'data/runtime/browser-assistance.json'),JSON.stringify({passed:true,fixture:true,checks:['consent-before-selection','explicit-replace','cancel-preserves-choices','actionable-diagnostics','place-jump','return-jump','smart-revision-updates-book','advisory-confirmation','advisory-cancel-keeps-plan'],errors},null,2));console.log('ASSISTANCE BROWSER PASSED');
  }finally{await b.close()}
 })().catch(e=>{console.error(e.stack);process.exitCode=1});

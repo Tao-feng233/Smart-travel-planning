@@ -81,6 +81,10 @@ async def search(w,args,progress,recommend):
     progress('正在查询景点并筛选重复地点与附属设施')
     items,more=await fetch(w,keywords,1)
     if not items:raise DataError('未找到新的景点候选，请调整兴趣或搜索名称。')
+    w['catalog'].update({p['id']:p for p in items[:8]});w['candidates']=items[:8]
+    w['spot_search']={'city':city,'keywords':keywords,'ids':[p['id'] for p in items[:8]],'page':1,'provider_page':1,'exhausted':True}
+    w['discovery_mode']=False
+    progress('基础景点资料已到达，正在补充推荐与通行核对')
     for p in items:
         p['classic']=any(clean_name(n)==clean_name(p['name']) for n in classic)
         if p['classic']:p['discovery_label']='城市代表景点'
