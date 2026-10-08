@@ -50,6 +50,9 @@ async def _amap(path, params, ttl=900):
     put_cache(key,result,ttl)
     return result
 
+def poi_radius(radius):
+    return min(10000,max(100,int(radius)))
+
 async def search_poi(city, keywords, category='spot',page=1,page_size=6,location=None,radius=5000):
     if not 1<=int(page)<=20 or not 1<=int(page_size)<=25:raise DataError('地点分页参数超出支持范围')
     params={'keywords':keywords,'region':city,'city_limit':'true','page_size':int(page_size),'page_num':int(page),'show_fields':'business,navi,photos,children'}
@@ -59,7 +62,7 @@ async def search_poi(city, keywords, category='spot',page=1,page_size=6,location
     path='/v5/place/text'
     if location:
         path='/v5/place/around';params.pop('region',None);params.pop('city_limit',None)
-        params.update(location=location,radius=min(10000,max(100,int(radius))))
+        params.update(location=location,radius=poi_radius(radius))
     r=await amap(path,params)
     items=[]
     pois=r['data'].get('pois',[])
