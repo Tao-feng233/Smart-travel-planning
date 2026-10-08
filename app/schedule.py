@@ -34,19 +34,46 @@ def windows(w,dt):
  end=max(0,cutoff) if cutoff is not None else 1440
  return start,end
 
+def policy_identity(w,dt,direction):
+    """时间口径的缓存身份：只比班次 ID 会在换酒店/换末站/改顺序后继续用旧值。
+
+    复核报告 S3：把方向、日期、班次时刻、起终点与交通偏好都算进来；
+    任何一项变化都视为缓存失效，重新按兜底口径计算。
+    """
+    selected=(w.get('selected_transport') if direction=='arrival' else w.get('selected_return')) or {}
+    hotel=w.get('hotel') or {}
+    stops=[(w.get('catalog') or {}).get(cid) or {} for cid in (w.get('selected_spots') or [])]
+    last_stop=str((stops[-1] if stops else {}).get('id') or '')
+    requirements=w.get('requirements') or {}
+    return {'direction':direction,'date':dt,'transport_id':selected.get('id'),
+            'departure':selected.get('departure'),'arrival':selected.get('arrival'),
+            'station':selected.get('arrival_station') if direction=='arrival' else selected.get('departure_station'),
+            'hotel_id':hotel.get('id'),'hotel_location':hotel.get('location'),
+            'last_stop':last_stop,'transport_mode':requirements.get('transport_mode'),
+            'pace':requirements.get('pace'),'day_start':requirements.get('day_start'),
+            'day_end':requirements.get('day_end')}
+
+def policy_matches(w,dt,direction,entry):
+    """缓存条目是否仍适用于当前工作区状态。"""
+    if not isinstance(entry,dict) or not isinstance(entry.get('minutes'),int):return False
+    identity=policy_identity(w,dt,direction)
+    if entry.get('identity') is not None:return entry.get('identity')==identity
+    # 兼容没有身份字段的旧条目：至少班次 ID 要一致。
+    return entry.get('transport_id')==identity.get('transport_id')
+
 def arrival_ready_minutes(w,dt):
  """抵达日需要的准备分钟数：统一由 time_policy 计算，缺路线依据时标明待核实。"""
  solution=w.get('time_policy') or {}
  entry=(solution.get('arrival') or {}).get(dt)
- if isinstance(entry,dict) and isinstance(entry.get('minutes'),int) and entry.get('transport_id')==(w.get('selected_transport') or {}).get('id'):
+ if policy_matches(w,dt,'arrival',entry):
   return entry['minutes']
  return time_policy.arrival_ready(w.get('selected_transport'),None)['minutes']
 
 def return_preparation_minutes(w,dt):
- """返程日需要提前的分钟数：统一由 time_policy 计算；班次变了就不能复用旧值。"""
+ """返程日需要提前的分钟数：统一由 time_policy 计算；相关选择一变就不能复用旧值。"""
  solution=w.get('time_policy') or {}
  entry=(solution.get('return') or {}).get(dt)
- if isinstance(entry,dict) and isinstance(entry.get('minutes'),int) and entry.get('transport_id')==(w.get('selected_return') or {}).get('id'):
+ if policy_matches(w,dt,'return',entry):
   return entry['minutes']
  return time_policy.return_preparation(w.get('selected_return'),None)['minutes']
 

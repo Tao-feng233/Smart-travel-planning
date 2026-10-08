@@ -7,13 +7,18 @@ def travel_date(r,direction='return'):
     return r.get('return_date') or ((date.fromisoformat(r['start_date'])+timedelta(days=int(r.get('days') or 2))).isoformat() if r.get('start_date') else None)
 
 def return_date_confirmed(w):
-    """返程日期是否由用户明确给定：明确返程日或已选返程班次才算确定。"""
+    """返程日期是否已确定：用户明确给出返程日，或返程班次已经确认。
+
+    只"选定"但仍是推荐态（selection_status='recommended'）不算确定，
+    否则会把助手推荐的时间当成用户条件（复核报告 P4）。
+    """
     r=w.get('requirements') or {}
     if r.get('return_date'):return True
-    return bool((w.get('selected_return') or {}).get('departure'))
+    selected=w.get('selected_return') or {}
+    return bool(selected.get('departure')) and selected.get('selection_status')=='confirmed'
 
 def return_date_status(w):
-    """返程日期口径：不把"游玩结束次日"当成用户确认的条件。
+    """返程日期口径：不把"游玩结束次日"或推荐态班次当成用户确认的条件。
 
     返回 {'date','status','basis'}；status 为 confirmed 或 suggested。
     未确定时给出待确认建议，由业务层保存来源与确认状态。
@@ -22,9 +27,14 @@ def return_date_status(w):
     explicit=r.get('return_date')
     if explicit:
         return {'date':explicit,'status':'confirmed','basis':'用户明确给出的返程日期'}
-    departure=(w.get('selected_return') or {}).get('departure','')
+    selected=w.get('selected_return') or {}
+    departure=selected.get('departure','')
+    if departure and selected.get('selection_status')=='confirmed':
+        return {'date':departure[:10],'status':'confirmed','basis':'已确认返程班次的出发日期'}
     if departure:
-        return {'date':departure[:10],'status':'confirmed','basis':'已选定返程班次的出发日期'}
+        return {'date':departure[:10],'status':'suggested',
+                'basis':'返程班次目前是' + ('推荐待核对的日期 ' if selected.get('selection_status')=='recommended' else '尚未确认的日期 ')
+                        + departure[:10] + '，需用户确认后才是确定条件'}
     suggested=travel_date(r)
     if not suggested:
         return {'date':None,'status':'suggested','basis':'出游日期尚未确定，无法给出返程建议'}

@@ -16,6 +16,15 @@ BINDING_FOLLOW='follow_spot'
 BINDING_FLEXIBLE='flexible'
 BINDING_LABELS={BINDING_FIXED:'固定日期',BINDING_FOLLOW:'跟随景点',BINDING_FLEXIBLE:'未绑定'}
 BINDING_METHODS={'same_day':'与景点同日','same_half_day':'与景点同半天','explicit':'用户指定跟随'}
+# 时段归属：餐次与景点时段按同一套半天口径比较；any 跨全天，不能说"同半天"。
+PERIOD_HALVES={'breakfast':('morning',),'morning':('morning',),'lunch':('midday',),
+               'afternoon':('afternoon',),'dinner':('evening',),'evening':('evening',),'any':()}
+
+def same_half_day(meal_period,spot_period):
+    """餐次与景点是否确实在同一半天；任一侧为 any 时都不成立。"""
+    meal=PERIOD_HALVES.get(meal_period,())
+    spot=PERIOD_HALVES.get(spot_period,())
+    return bool(meal) and bool(spot) and set(meal)==set(spot)
 
 
 def binding_of(choice):
@@ -82,6 +91,14 @@ def binding_status(w,dt,period):
                       reason='跟随的'+str(choice.get('bind_spot_name') or spot_id)+'已改到'+intent['date']
                              +'（原为'+dt+'），需要决定这餐是否跟随改期或重新选餐厅',
                       spot_intent=intent)
+        return status
+    # 日期没变但时段变了：原本说好"同半天"的绑定不再成立，也要提示（复核 S1）。
+    if binding_method_label(choice)=='与景点同半天' and not same_half_day(period,intent.get('period','any')):
+        status.update(affected=True,
+                      reason='跟随的'+str(choice.get('bind_spot_name') or spot_id)+'时段已改为'
+                             +str(intent.get('period'))
+                             +'，与这餐不再同半天，需要确认这餐是否仍跟随',
+                      spot_intent=intent)
     return status
 
 
@@ -117,8 +134,8 @@ def resolve_binding(w,args,dt,period):
     if len(candidates)==1:
         spot=w['catalog'].get(candidates[0]) or {}
         intent=spot_intent(w,candidates[0])
-        # 只有用户明确写了时段，才能说"同半天"；否则只承诺同日。
-        method='same_half_day' if (w['visit_requests'][candidates[0]] or {}).get('period') in ('morning','afternoon','evening') else 'same_day'
+        # 只有餐次与景点确实在同一半天时才说"同半天"；否则只能承诺同日。
+        method='same_half_day' if same_half_day(period,intent.get('period','any')) else 'same_day'
         return {'binding':BINDING_FOLLOW,'binding_method':method,'bind_spot_id':candidates[0],
                 'bind_spot_name':spot.get('name'),'bind_spot_intent':intent}
     return {'binding':BINDING_FIXED,'binding_method':'explicit','bind_spot_id':None,'bind_spot_name':None,'bind_spot_intent':None}

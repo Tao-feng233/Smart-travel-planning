@@ -1,3 +1,11 @@
+def _source_line(record):
+    """来源是可信度声明；历史记录可能没有，降级说明而不是让导出让崩。"""
+    source=(record or {}).get('source') or {}
+    name=source.get('name');stamp=source.get('queried_at')
+    if not name:return '来源：未记录（该记录写入时未保存来源，无法追溯）'
+    return f"来源：{name}"+(f"，查询时间：{stamp}" if stamp else "，查询时间未记录")
+
+
 def markdown(w):
     p=w['plan'];r=w['requirements']
     lines=['# '+p['title'],'',f"生成时间：{p['created']}；工作区版本：{w['revision']}",'',
@@ -6,7 +14,7 @@ def markdown(w):
            f"总预算：{r.get('budget','未确定')}；节奏：{r.get('pace','balanced')}",'','## 已选住宿','']
     h=w.get('hotel')
     if h:
-        lines += [h['name']+'（选定，尚未预订）',h.get('address',''),f"列表起价：¥{h.get('price','未知')}；房型及住宿总价待核实",f"来源：{h['source']['name']}，查询时间：{h['source']['queried_at']}",'']
+        lines += [h['name']+'（选定，尚未预订）',h.get('address',''),f"列表起价：¥{h.get('price','未知')}；房型及住宿总价待核实",_source_line(h),'']
     else:lines+=['未确定住宿。','']
     room=w.get('selected_room')
     if room:
@@ -28,7 +36,7 @@ def markdown(w):
     lines+=['','## 往返交通','']
     for label,key in [('去程','selected_transport'),('返程','selected_return')]:
         tr=w.get(key)
-        if tr:lines += [f"- {label}：{tr['name']}，{tr.get('departure')} → {tr.get('arrival')}；仅选定，尚未预订。",f"  来源：{tr['source']['name']}，查询：{tr['source']['queried_at']}"]
+        if tr:lines += [f"- {label}：{tr['name']}，{tr.get('departure')} → {tr.get('arrival')}；仅选定，尚未预订。",'  '+_source_line(tr)]
         else:lines += ['- '+label+'：尚未选定，接驳与可用时间需核实。']
     lines+=['','## 每日安排','']
     for d in p['days']:
@@ -36,8 +44,8 @@ def markdown(w):
         for e in d['events']:
             lines += [f"- {e['start']}–{e['end']} {e['name']}：{e.get('note','')}"]
             if e.get('route'):
-                rt=e['route'];lines += [f"  方式：{rt['mode']}；高德预计 {rt['minutes']} 分钟；另留 {e['buffer']} 分钟缓冲；查询：{rt['source']['queried_at']}"]
-            if e.get('poi'):lines += [f"  地址：{e['poi'].get('address','未知')}；来源：高德地图 {e['poi']['source']['queried_at']}"]
+                rt=e['route'];lines += [f"  方式：{rt['mode']}；高德预计 {rt['minutes']} 分钟；另留 {e['buffer']} 分钟缓冲；查询："+str(((rt.get('source') or {}).get('queried_at')) or '未记录')]
+            if e.get('poi'):lines += [f"  地址：{e['poi'].get('address','未知')}；"+_source_line(e['poi'])]
         lines+=['']
     lines+=['## 预算与未核实费用','']
     b=p.get('budget') or {}
@@ -62,7 +70,7 @@ def markdown(w):
         dates={d['date'] for d in p['days']}
         for d in weather['days']:
             if d['date'] in dates:lines+=[f"- {d['date']}：{d['text']}，{d['low']}–{d['high']}℃；降水概率 {round(d['rain']*100) if d.get('rain') is not None else '未知'}%"]
-        lines+=['来源：和风天气，'+weather['source']['queried_at']]+weather.get('attributions',[])
+        lines+=[_source_line({'source':weather.get('source') or {'name':'和风天气'}})]+weather.get('attributions',[])
     else:lines+=['尚未查询天气；超出预报范围的日期保持待定。']
     lines+=['','## 出发前待办与风险','']+['- '+x for x in p['todos']+p['warnings']]+['','## 携带建议','']+['- '+x for x in p.get('packing',[])]
     review=p.get('review',{})

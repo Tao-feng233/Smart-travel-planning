@@ -182,11 +182,9 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                     overloaded=groups_overload(w,repaired,allowed_tour)
                     if set(moved)==allowed_ids and not overloaded:
                         progress('模型两次未排开，已按当日可用时间自动重排景点日期')
+                        # 只更新 groups：并入 by_date 统一放在本批末尾做一次，
+                        # 否则同一天会被加入两次（items += 自己还会翻倍）。
                         groups=repaired;errors=[]
-                        for d in groups:
-                            dt=d['date']
-                            if dt not in by_date:by_date[dt]=d
-                            else:by_date[dt]['items']+=d['items']
                         break
                     if overloaded:
                         # 同一把尺子复核不过：宁可给出可读冲突，也不交给规划阶段
@@ -210,6 +208,6 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
         for key in ('packing','todos'):draft[key]=list(dict.fromkeys(draft[key]+[x for x in value.get(key,[]) if isinstance(x,str)]))
         for day in groups:
             dt=day['date']
-            if dt not in by_date:by_date[dt]=day
-            else:by_date[dt]['items']+=day['items']
+            if dt not in by_date:by_date[dt]={**day,'items':list(day['items'])}
+            else:by_date[dt]['items']=by_date[dt]['items']+list(day['items'])
     return draft,list(by_date.values()),usage

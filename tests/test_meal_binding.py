@@ -38,7 +38,8 @@ def test_user_specified_day_makes_a_follow_binding():
     choice = w['meal_choices'][D1 + '|lunch']
     assert choice['binding'] == foods.BINDING_FOLLOW
     assert choice['bind_spot_id'] == 's1' and choice['bind_spot_name'] == '栈桥'
-    assert choice['binding_method'] == 'same_half_day'
+    # 上午景点配午餐：只承诺同日；"同半天"要求两者归属同一半天（复核 S1）
+    assert choice['binding_method'] == 'same_day'
     status = foods.binding_status(w, D1, 'lunch')
     assert status['binding'] == 'follow_spot' and status['affected'] is False
 
