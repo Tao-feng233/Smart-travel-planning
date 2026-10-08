@@ -107,7 +107,7 @@ async def _generate(w, progress):
     progress('主助手正在组织每天的景点顺序与游览建议')
     schema='{"title":"旅行主题","days":[{"date":"YYYY-MM-DD","theme":"当日主题","items":[{"candidate_id":"真实候选ID","period":"morning/afternoon/evening/any","duration":90,"note":"游玩建议与日期时段安排理由","evidence_ids":["资料ID"]}]}],"packing":["携带建议"],"todos":["出发前待办"]}'
     prompt=('你是旅游规划助手，输出 JSON。只用给定已选景点ID，每个ID恰好出现一次，不得新增景点、酒店、餐厅或事实。'
-            '优先将同一景区的主景点和子景点安排在同日连续游览，避免重复计算完整景区游玩。只输出有景点的日期，无景点日期由程序补齐。把景点按位置和节奏分到给定日期，duration 是建议游玩分钟数，范围30至240。不要自己估交通耗时，程序会查询。'
+            '优先将同一景区的主景点和子景点安排在同日连续游览，避免重复计算完整景区游玩。只输出有景点的日期，无景点日期由程序补齐。把景点按位置和节奏分到给定日期，duration 是建议游玩分钟数，按景点范围、玩法和节奏分别估计；大型景区可安排半天或全天，不能统一90分钟。技术范围15至720分钟，不得为塞入日程而缩短大型景区时长。不要自己估交通耗时，程序会查询。'
             'visit_requests是用户指定日期与时段，必须遵守；visit_suggestion是灵活推荐，按地区和实际时间优化。结合季节与营业资料区分白天和晚上，没夜间开放依据不能假设可入园。上午项目在下午项目之前，晚上项目最后。'
             '以对用户说明的语气写游玩提示：建议如何逛、停留重点和安排理由，不写自言自语式分析。待办与携带建议用“请注意核实”“建议携带并保管好”等明确语气。'
             '已选去程到达后90分钟超过每日结束时刻时，当日items必须为空，仅入住休息。返程日游玩必须在出发前120分钟结束，时间不足就不安排景点。'
@@ -122,6 +122,11 @@ async def _generate(w, progress):
     payload={'requirements':r,'dates':[(date.fromisoformat(begin)+timedelta(days=i)).isoformat() for i in range(span)],'tour_dates':tour_dates,'spots':spots,
              'visit_requests':w.get('visit_requests',{}),'visit_order':w.get('visit_order',[]),'selected_room':w.get('selected_room'),'hotel':w.get('hotel'),'selected_transport':w.get('selected_transport'),'selected_return':w.get('selected_return'),'official_guides':guides}
     if w.get('planning_feedback'):payload['validation_feedback']=w['planning_feedback']+'。调整可变景点日期或同日顺序，保留已选地点、班次、餐厅与用户明确日期时段，不可修改用户选择来掩盖冲突。'
+    from . import visit_analysis
+    payload['day_budgets']=visit_analysis.budgets(w)
+    payload['visit_analysis']=visit_analysis.current(w)
+    payload['initial_balanced_estimate']=visit_analysis.preview(w)
+    prompt+='按day_budgets和全部景点平衡每天的游玩分钟数与体力负担。visit_analysis是经校验的建议，优先延续；如调整需在note说明原因。少量景点分散各日并保留自由时间，较多景点提示密集，不自行新增未选地点。模型知识仅用于建议玩法和时长，不补造营业或实时事实。'
     payload['meal_choices']={key:{**value,'food':catalog.get(value.get('food_id'))} for key,value in w.get('meal_choices',{}).items()}
     # Model output is a proposal. Enforce exact candidate identity and allow one
     # repair with concrete validation feedback, never silently add/remove spots.
@@ -301,6 +306,7 @@ async def _generate(w, progress):
         computed.append({'date':d['date'],'theme':d.get('theme','当日行程'),'events':events,'end':clock(t)})
     plan={'title':draft.get('title') or r['city']+'旅行计划','summary':'','days':computed,'created':now(),
           'packing':draft.get('packing',[]),'todos':draft.get('todos',[]),'guides':guides,'warnings':warnings,'stale':False,'usage':usage}
+    plan['selection_notices']=visit_analysis.notices(w,[{**item,'date':d['date']} for d in groups for item in d['items']])
     for key,value in w.get('meal_choices',{}).items():
         if value.get('mode')=='chosen' and key not in scheduled_meals:
             meal_date,meal_period=key.split('|')

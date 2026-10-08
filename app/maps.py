@@ -29,7 +29,6 @@ def points(w,dt='',focus=''):
    from .visits import meal_refs
    items=meal_refs(w,dt,'dinner')
  else:items=[catalog[i] for i in w.get('selected_spots',[]) if i in catalog]
- if not items and not dt:items=[p for p in catalog.values() if p.get('kind')=='spot'][:12]
  if w.get('hotel') and coordinate(w['hotel']):items=[w['hotel']]+items
  if not dt:
   items+=[catalog[c['food_id']] for c in w.get('meal_choices',{}).values() if c.get('mode')=='chosen' and c.get('food_id') in catalog]
@@ -45,7 +44,7 @@ def viewport(coords):
  if len(coords)==1:return center,15
  span_x=max(xs)-min(xs);span_y=max(ys)-min(ys)
  # Reserve space for markers; use the logical dimensions of a scale=1 map.
- levels=[math.log2(size/(256*span)) for size,span in ((660,span_x),(320,span_y)) if span>0]
+ levels=[math.log2(size/(512*span)) for size,span in ((660,span_x),(320,span_y)) if span>0]
  return center,max(1,min(17,math.floor(min(levels)))) if levels else 15
 
 def params(items,ordered=False,zoom=None,center=None,overlays=True):

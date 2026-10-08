@@ -46,13 +46,8 @@ def from_text(w,text):
  return [{'candidate_id':p['id'],'date':dt,'period':period} for p in matches]
 
 def meal_refs(w,dt,period):
- ds=dates(w);catalog=w['catalog'];items=[catalog[i] for i in w.get('selected_spots',[]) if i in catalog]
- chosen=[]
- for p in items:
-  intent=w.get('visit_requests',{}).get(p['id']) or p.get('visit_suggestion') or {}
-  if intent.get('date')==dt:chosen.append((p,intent.get('period','any')))
- if not chosen and dt in ds and items:
-  # Provisional grouping only, before the actual plan exists.
-  n=max(1,(len(items)+len(ds)-1)//len(ds));index=ds.index(dt);chosen=[(p,'any') for p in items[index*n:(index+1)*n]]
+ from .visit_analysis import preview
+ catalog=w['catalog']
+ chosen=[(catalog[i['candidate_id']],i.get('period','any')) for i in preview(w) if i['date']==dt]
  target=('morning','any') if period=='lunch' else ('afternoon','evening','any')
  return [p for p,s in chosen if s in target] or [p for p,s in chosen]

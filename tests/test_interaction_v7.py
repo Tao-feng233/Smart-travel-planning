@@ -59,11 +59,14 @@ def test_long_plan_proposals_are_batched_and_keep_all_ids(tmp_path):
  calls=[];spots=[{'id':str(i),'name':'地点'+str(i)} for i in range(35)];dates=[(date(2026,10,10)+timedelta(days=i)).isoformat() for i in range(21)]
  async def model(messages,**args):
   payload=json.loads(messages[1]['content']);calls.append(payload)
-  return {'content':json.dumps({'title':'分阶段旅行','days':[{'date':payload['tour_dates'][0],'items':[{'candidate_id':p['id'],'duration':60} for p in payload['spots']]}]})},{}
- draft,groups,usage=asyncio.run(create(trip(),spots,{'dates':dates,'tour_dates':dates},'约束',lambda _:None,model,tmp_path))
+  grouped={d:[] for d in payload['tour_dates']}
+  for n,p in enumerate(payload['spots']):grouped[payload['tour_dates'][n%len(payload['tour_dates'])]].append({'candidate_id':p['id'],'duration':60})
+  return {'content':json.dumps({'title':'分阶段旅行','days':[{'date':d,'items':items} for d,items in grouped.items() if items]})},{}
+ w=trip();w['requirements'].update(start_date=dates[0],days=len(dates))
+ draft,groups,usage=asyncio.run(create(w,spots,{'dates':dates,'tour_dates':dates},'约束',lambda _:None,model,tmp_path))
  assert len(calls)==3 and max(len(p['spots']) for p in calls)<=16
  assert {i['candidate_id'] for d in groups for i in d['items']}=={p['id'] for p in spots}
- assert len({d['date'] for d in groups})==3
+ assert len({d['date'] for d in groups})==17
 
 
 def test_excess_selection_and_distance_produce_soft_warnings():

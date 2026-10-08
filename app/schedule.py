@@ -48,18 +48,13 @@ def meal_start(w,dt,period,preferred=None):
 def point(w,cid):return w.get('catalog',{}).get(cid)
 
 def provisional(w):
+ from . import visit_analysis
  ds=visits.dates(w);cat=w.get('catalog',{});pins=w.get('visit_requests',{});hotel=w.get('hotel');selected=[cat[i] for i in w.get('selected_spots',[]) if i in cat]
  if not ds:return []
- buckets={dt:[] for dt in ds};free=[]
+ estimates={x['candidate_id']:x for x in visit_analysis.preview(w)}
+ buckets={dt:[] for dt in ds}
  for p in selected:
-  pin=pins.get(p['id'],{})
-  if pin.get('date') in buckets:buckets[pin['date']].append(p)
-  else:free.append(p)
- usable=[dt for dt in ds if windows(w,dt)[1]-max(windows(w,dt)[0],minutes(w['requirements'].get('day_start','09:00')))>=30]
- for index,p in enumerate(free):
-  suggested=(p.get('visit_suggestion') or {}).get('date')
-  dt=suggested if suggested in usable else min(usable or ds,key=lambda d:(len(buckets[d]),d))
-  buckets[dt].append(p)
+  if estimates.get(p['id'],{}).get('date') in buckets:buckets[estimates[p['id']]['date']].append(p)
  rows=[];order={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
  for dt,places in buckets.items():
   floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
@@ -67,15 +62,21 @@ def provisional(w):
   # coordinates. Straight distance is never displayed as road travel time.
   while places:
    def rank(p):
-    period=pins.get(p['id'],{}).get('period') or (p.get('visit_suggestion') or {}).get('period','any')
+    period=estimates[p['id']].get('period','any')
     return ({'morning':0,'any':1,'afternoon':2,'evening':3}.get(period,1),order.get(p['id'],9999),coordinate_distance(last,p) if last and last.get('location') and p.get('location') else 0)
-   p=min(places,key=rank);places.remove(p);period=pins.get(p['id'],{}).get('period') or (p.get('visit_suggestion') or {}).get('period','any')
+   p=min(places,key=rank);places.remove(p);estimate=estimates[p['id']];period=estimate.get('period','any');duration=estimate['duration']
    t=max(t,{'afternoon':13*60,'evening':18*60}.get(period,0))
-   if t<12*60 and t+90>12*60:t=13*60+15
-   if 12*60<=t<13*60+15:t=13*60+15
-   if t>=17*60+30 and t<19*60 and period!='evening':t=19*60
-   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(t+90),'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True})
-   t+=110;last=p
+   # A long visit can span lunch with a labelled meal pause. Do not move a
+   # whole half-day visit into the afternoon just because it crosses noon.
+   for _,at,length in PERIODS.values():
+    if at<=t<at+length:t=at+length
+   finish=t+duration
+   for _,at,length in PERIODS.values():
+    if t<at<finish:finish+=length
+   pin_period=pins.get(p['id'],{}).get('period')
+   over=finish>min(end,day_end(w,dt)) or pin_period in ('morning','afternoon') and finish>{'morning':720,'afternoon':1080}[pin_period]
+   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':finish-t>duration,'over_capacity':over})
+   t=finish+20;last=p
   rows+=arranged
   for period,(label,at,duration) in PERIODS.items():
    at=meal_start(w,dt,period)
@@ -106,7 +107,9 @@ def build(w):
   if p and dt and not any(x['kind']=='transport' and x['date']==dt.date().isoformat() and x['time']==dt.strftime('%H:%M') for x in rows):rows.append({'key':key,'date':dt.date().isoformat(),'time':dt.strftime('%H:%M'),'kind':'transport','candidate_id':p.get('id'),'direction':'return' if key=='selected_return' else 'outbound','name':kind+' · '+p.get('name','班次'),'confirmed':p.get('selection_status')=='confirmed','estimated':False})
  rows.sort(key=lambda x:(x['date'],x['time'],x['key']))
  slots=[x for x in rows if x['kind']=='meal']
- return {'entries':rows,'meal_slots':slots,'provisional':not bool(plan and not plan.get('stale')),'conflicts':conflicts(w)}
+ from . import visit_analysis
+ analysis=visit_analysis.current(w)
+ return {'entries':rows,'meal_slots':slots,'provisional':not bool(plan and not plan.get('stale')),'conflicts':conflicts(w),'analysis_status':analysis['status'] if analysis else 'initial','notices':visit_analysis.notices(w,visit_analysis.preview(w))}
 
 def conflicts(w):
  result=[];arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure');pins=w.get('visit_requests',{});ds=visits.dates(w)

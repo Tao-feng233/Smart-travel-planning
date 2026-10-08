@@ -96,7 +96,7 @@ class GraphState(TypedDict):
 
 FUNCTION={'type':'function','function':{'name':'submit_intent','description':'理解用户的本轮需求，更新必要条件并选择下一项查询或规划动作。不要补造用户没说的条件。',
  'parameters':{'type':'object','properties':{
-  'action':{'type':'string','enum':['discover_destinations','search_spots','spots_page','complete_spots','search_hotels','weather','train','flight','ticket','place_detail','plan','chat','select_room','complete_hotel','search_foods','meal_choice','visit_schedule','complete_food']},
+  'action':{'type':'string','enum':['discover_destinations','search_spots','spots_page','complete_spots','search_hotels','weather','train','flight','ticket','place_detail','plan','chat','select_room','complete_hotel','search_foods','meal_choice','visit_schedule','analyze_visits','complete_food']},
   'patch':{'type':'object','description':'仅本轮明确提供的条件，未提供不填写','properties':{
    'end_date':{'type':'string'},'local_trip':{'type':'boolean'},'return_date':{'type':'string'},'outbound_date':{'type':'string'},'food_preferences':{'type':'array','items':{'type':'string'}},'city':{'type':'string'},'origin':{'type':'string'},'start_date':{'type':'string'},'days':{'type':'integer'},'adults':{'type':'integer'},
    'children':{'type':'integer'},'child_ages':{'type':'array','items':{'type':'integer'}},'rooms':{'type':'integer'},'budget':{'type':'number'},
@@ -136,6 +136,7 @@ async def understand(s):
     prompt+='日期区间同时提取start_date、end_date和含首尾的days。同城时origin与city均应保留，不能因为相同而漏掉出发地。本地游无需查询城际票。中午高铁查询使用11:00至14:00与highspeed；更精确时段以用户为准。长行程支持1至60天，超过单轮容量按阶段规划，不要求限制5天。'
     prompt+='本轮讨论明确主题时填写view，使工作台跟随话题。简短解释后告诉用户当前可以做什么，不要求一次完成所有选择。'
     prompt+='用户指定第几天或某日期游玩某景点时使用visit_schedule并返回visit_requests；只使用目录ID，不能把单个景点日期当整个出发日期。把日期与上午/下午/晚上分开记录，后续计划必须遵守；不可行要说明，不能静默忽略。交通确认后先进入餐饮，让用户选餐厅、完成餐饮或自行安排，再生成计划。'
+    prompt+='用户要求优化每日分配、分析游玩时长或均衡安排但尚不需要计划书时使用analyze_visits。该动作会分析全部已选景点并更新临时时间轴，不要把它误称为已生成正式计划。'
     prompt+='用户要求调整先后顺序时使用visit_schedule和visit_order，记录真实已选ID；要求按位置自动优化并重排时使用plan，保留已选班次、餐厅和明确日期时段。给用户说明具体冲突的日期和相关地点，不能把返程次日误当成最后游玩日。'
     visible_ids=list(discovery.page_info(w)['ids'])+list((w.get('hotel_query') or {}).get('ids',[]))+list((w.get('food_query') or {}).get('ids',[]))+[p['id'] for p in (w.get('transport') or {}).get('items',[])]+w['selected_spots']
     visible_ids+= [p['id'] for p in (w.get('hotel'),w.get('selected_transport'),w.get('selected_return')) if p and p.get('id')]
@@ -234,7 +235,18 @@ async def recommend(w,items,task,guides=None):
 async def handle(w,action,args,progress):
     r=w['requirements']; w.setdefault('catalog',{})
     if action=='chat':return ''
-    if action=='visit_schedule':return visits.save(w,args.get('visit_requests',[]),args.get('visit_order'))
+    if action=='visit_schedule':
+        result=visits.save(w,args.get('visit_requests',[]),args.get('visit_order'))
+        if r.get('start_date') and r.get('days') and w.get('selected_spots'):
+            from . import visit_analysis
+            value=await visit_analysis.analyze(w,llm,progress)
+            result+='\n'+visit_analysis.summary(w,value)
+        return result
+    if action=='analyze_visits':
+        from . import visit_analysis
+        value=await visit_analysis.analyze(w,llm,progress,force=True)
+        w['ui']=guidance.describe(w,action,view='spot',status='loading')
+        return visit_analysis.summary(w,value)
     if action=='complete_food':
         w['dining_reviewed']=True;w['ui']=guidance.describe(w,'complete_food',view='plan',status='loading')
         return '餐饮安排已确认。未选餐厅的餐次保留自行安排。**下一步：生成旅行计划书。**'
@@ -292,15 +304,20 @@ async def handle(w,action,args,progress):
     if action=='complete_spots':
         if not w['selected_spots']:raise DataError('请至少选择一个景点，再完成此步骤。')
         w['spots_confirmed']=True;w['discovery_mode']=False;w['stage']='住宿'
+        analysis=''
+        if r.get('start_date') and r.get('days'):
+            from . import visit_analysis
+            value=await visit_analysis.analyze(w,llm,progress)
+            analysis=visit_analysis.summary(w,value)+'\n'
         if int(r.get('days') or 0)==1:
             w['ui']=guidance.describe(w,action,view='transport',status='loading')
-            return f'已确认景点（{len(w["selected_spots"])}个）。\n本次为一日游，可跳过住宿。下一步请选择往返交通，或生成计划草稿。'
+            return analysis+f'已确认景点（{len(w["selected_spots"])}个）。\n本次为一日游，可跳过住宿。下一步请选择往返交通，或生成计划草稿。'
         missing=[label for key,label in [('start_date','出游日期'),('days','旅行天数'),('adults','成人数')] if not r.get(key)]
         if missing:
             w['ui']=guidance.describe(w,action,view='hotel',status='loading')
-            return f'已确认景点（{len(w["selected_spots"])}个）。\n下一步比较住宿。请先补充{"、".join(missing)}，可以直接在对话中回复，或填写右侧“旅行信息”。'
+            return analysis+f'已确认景点（{len(w["selected_spots"])}个）。\n下一步比较住宿。请先补充{"、".join(missing)}，可以直接在对话中回复，或填写右侧“旅行信息”。'
         result=await handle(w,'search_hotels',{},progress)
-        return f'已确认景点（{len(w["selected_spots"])}个）。现在根据所选景点位置比较住宿。\n'+result
+        return analysis+f'已确认景点（{len(w["selected_spots"])}个）。现在根据所选景点位置比较住宿。\n'+result
     if action in ('complete_hotel','skip_hotel'):
         if action=='complete_hotel' and (not w.get('hotel') or w['hotel'].get('stale')):raise DataError('请选择有效住宿，或点击“暂不安排住宿”。')
         if action=='complete_hotel' and not w.get('selected_room'):
@@ -507,7 +524,7 @@ async def handle(w,action,args,progress):
             progress('正在重新核对已选住宿的位置')
             await locate_hotel(w,h,local_tool)
         w['plan']=await generate(w,progress);w['stage']='计划书'
-        return '旅行计划书已生成，请查看右侧每日安排。**如需调整，直接发送消息告诉我**，例如调整某天景点、更换餐厅或放慢节奏；未核实条件仍标为草稿。'
+        return '旅行计划书已生成，请查看右侧每日安排。'+('\n'+'\n'.join(w['plan'].get('selection_notices',[])) if w['plan'].get('selection_notices') else '')+'\n**如需调整，直接发送消息告诉我**，例如调整某天景点、更换餐厅或放慢节奏；未核实条件仍标为草稿。'
     raise DataError('暂不支持这个操作')
 
 async def run_chat(w,text,progress):

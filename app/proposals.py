@@ -5,6 +5,8 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
     from .providers import DataError
     from .planning import round_up
     requests=w.get('visit_requests',{})
+    from . import visit_analysis
+    estimates={i['candidate_id']:i for i in visit_analysis.preview(w)}
     spots=sorted(spots,key=lambda p:requests.get(p['id'],{}).get('date') or (p.get('visit_suggestion') or {}).get('date') or '9999')
     chunks=[spots[i:i+16] for i in range(0,len(spots),16)]
     dates=payload['dates'];tour_dates=payload['tour_dates'];by_date={};draft={'packing':[],'todos':[]};usage={}
@@ -38,7 +40,10 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                         if pin.get('date') and dt!=pin['date']:errors.append('必须遵守指定日期：'+cid+' '+pin['date'])
                         period=pin.get('period') or item.get('period') or 'any'
                         if period not in ('any','morning','afternoon','evening'):period='any'
-                        seen.add(cid);items.append({**item,'period':period,'duration':round_up(max(30,min(240,int(item.get('duration',90)))),15)})
+                        duration=item.get('duration',estimates.get(cid,{}).get('duration',90))
+                        if isinstance(duration,bool) or not isinstance(duration,(int,float)) or not 15<=duration<=720:
+                            errors.append('时长必须为15至720分钟的建议值：'+cid);continue
+                        seen.add(cid);items.append({**item,'period':period,'duration':round_up(duration,15)})
                     if items and dt in allowed_tour:
                         from .schedule import windows,minutes
                         low,high=windows(w,dt)
@@ -53,6 +58,8 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                     groups.append({**day,'items':items})
                 if seen!=allowed_ids:errors.append('遗漏ID：'+','.join(allowed_ids-seen))
                 if len({d['date'] for d in groups})!=len(groups):errors.append('日期重复')
+                allocation=[{**item,'date':d['date']} for d in groups for item in d['items']]
+                errors.extend(visit_analysis.distribution_errors(w,allocation,allowed_tour))
             except (ValueError,TypeError,KeyError,AttributeError):errors.append('JSON日程结构或时长无效')
             if not errors:break
             if attempt:
