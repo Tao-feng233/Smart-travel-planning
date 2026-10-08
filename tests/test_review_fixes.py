@@ -243,6 +243,31 @@ def test_meal_conflict_on_the_real_return_day_does_say_return(monkeypatch, tmp_p
     assert schedule.limit_reason(w, D2).startswith('该日是返程日')
 
 
+def test_day_end_is_the_single_deadline_including_return_cutoff():
+    """返程日的每日结束时刻必须已含接驳截止：时间轴、容量、游玩强度分析共用一处。
+
+    整合分支的 provisional()/visit_analysis 直接用 day_end() 判超容量；
+    若 day_end() 不收紧返程截止，返程日会一边按接驳准备要求提前结束，
+    一边允许把活动排到接驳之后（与统一时间契约矛盾）。
+    """
+    from app import schedule
+    w = workspace(days=2, day_end='22:00', back=D2 + ' 16:00', spots=('s1',))
+    w['visit_requests'] = {'s1': {'date': D2, 'period': 'evening'}}      # 有晚间景点 → 原本延到 22:00
+    plain = workspace(days=2, day_end='22:00', spots=('s1',))
+    plain['visit_requests'] = {'s1': {'date': D1, 'period': 'evening'}}
+    # 非返程日：晚间景点把上限延到 22:00
+    assert schedule.day_end(plain, D1) == 22 * 60
+    # 返程日：即使有晚间景点，也不能超过返程截止（16:00 − 准备时长）
+    cutoff = schedule.return_cutoff_minutes(w, D2)
+    assert cutoff is not None
+    assert schedule.day_end(w, D2) == cutoff, (schedule.day_end(w, D2), cutoff)
+    # 两个名字必须同口径，不允许再出现两套截止定义
+    for dt in (D1, D2):
+        assert schedule.day_limit(w, dt) == schedule.day_end(w, dt)
+    # 餐次窗口也用同一上限
+    assert schedule.meal_window(w, D2, 'dinner')[1] <= schedule.day_end(w, D2)
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report

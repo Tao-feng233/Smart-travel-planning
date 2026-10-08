@@ -96,19 +96,21 @@ def return_cutoff_minutes(w,dt):
  return depart-return_preparation_minutes(w,dt)
 
 def day_end(w,dt):
+ """当天最后一次活动允许结束的分钟数：唯一口径。
+
+ 取"每日结束时刻（有晚间景点时延到 22:00）"与"返程日接驳截止时刻"的更早者。
+ 时间轴、容量、餐次窗口与游玩强度分析都必须用它，否则返程日会一边按接驳
+ 准备收紧、一边允许把活动排到接驳之后（复核报告 P2/时间契约的同一原则）。
+ """
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})
  evening=any((pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('date')==dt and (pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('period')=='evening' for cid in w.get('selected_spots',[]))
- return max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
-
-def day_limit(w,dt):
- """当天最后一次活动允许结束的分钟数：每日结束时刻与返程截止时刻取更早者。
-
- 餐次窗口与容量判断都必须用它，否则会出现"餐次窗口说可以、容量说不行"，
- 或反过来把返程日的晚餐排到接驳准备之后。
- """
- limit=day_end(w,dt)
+ limit=max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
  cutoff=return_cutoff_minutes(w,dt)
  return limit if cutoff is None else min(limit,cutoff)
+
+def day_limit(w,dt):
+ """兼容别名：与 day_end 同口径，保留旧调用点以免两处定义漂移。"""
+ return day_end(w,dt)
 
 def meal_window(w,dt,period):
  low,high=windows(w,dt);begin,end=MEAL_WINDOWS[period]
