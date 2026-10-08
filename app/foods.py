@@ -170,13 +170,14 @@ def bindings_clear_or_mark(w):
 
 def infeasible(w,dt,period):
     """Reject meals outside the same buffered window used by the timeline."""
-    from .schedule import meal_start,windows,clock
+    from .schedule import meal_start,windows,clock,limit_reason,meal_window
     from . import time_policy
     if meal_start(w,dt,period) is not None:return None
     low,high=windows(w,dt)
     name=PERIODS[period]
     if high<1440:
-        detail='返程接驳准备需在'+clock(high)+'开始'
+        # 要说清是"返程接驳准备"还是"当日结束时刻"在卡，非返程日不能提返程准备。
+        detail='可用时间不足以容纳完整用餐（'+clock(high)+'前须结束）：'+limit_reason(w,dt)
     elif low>0:
         detail='去程抵达及'+str(time_policy.FALLBACK_ARRIVAL_BUFFER_MINUTES)+'分钟准备后，最早可从'+clock(low)+'安排'
     else:detail='当前每日结束时刻不足以容纳完整用餐时长'
