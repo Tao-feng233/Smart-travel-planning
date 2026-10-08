@@ -545,6 +545,8 @@ async def handle(w,action,args,progress):
         previous=w.get('stay_plan')
         # 重算编排行，但保留未变化夜晚已查到的候选，避免补查一晚把其它晚清空。
         w['stay_plan']=stay_plan.merge_plan(w,stay_plan.plan(w),previous)
+        # 逐晚分配按当前选择推导后发布给前端：存下的行可能来自旧版本或已过时。
+        w['stay_plan']['assignments']=stay_plan.assignment_view(w)
         plan_rows=w['stay_plan']
         if args.get('keyword'):
             # 用户指定了酒店名或区域关键词：按其指定条件直接查，不按晚锚定。

@@ -819,6 +819,40 @@ def test_night_reuse_is_dropped_when_its_dependencies_change(monkeypatch, tmp_pa
     assert dropped['rows'][0].get('candidate_ids') in (None, [])
 
 
+def test_assignment_view_is_derived_not_read_from_stale_rows():
+    """已存编排行缺 hotel_source 或已过时时，逐晚分配必须按当前选择推导。
+
+    实测场景：用户第一天选了酒店，界面却显示"尚未选这一晚的住宿"——
+    因为存下的行没有 hotel_source 字段（该字段是后加的），前端读不到就落到兜底分支。
+    """
+    from app import stay_plan
+    w = workspace(days=3, spots=('s1',))
+    w['catalog']['hA'] = {'id': 'hA', 'kind': 'hotel', 'name': 'A酒店', 'location': '120.30,36.00'}
+    w['hotel'] = dict(w['catalog']['hA'])
+    nights = stay_plan.nights(w)
+    # 模拟旧版本存下的行：有 hotel_id，但没有 hotel_source
+    w['stay_plan'] = {'nights': nights, 'rows': [
+        {'date': d, 'hotel_id': 'hA', 'anchor_name': '栈桥', 'candidate_ids': []} for d in nights]}
+    view = stay_plan.assignment_view(w)
+    assert set(view) == set(nights)
+    # 主住宿覆盖的夜晚必须标成 primary，界面据此显示"沿用主住宿"，而不是"尚未选"
+    assert {v['source'] for v in view.values()} == {'primary'}
+    assert {v['hotel_id'] for v in view.values()} == {'hA'}
+    # 明确指定的一晚变成 explicit
+    w['stay_hotels'] = {nights[1]: 'hA'}
+    assert stay_plan.assignment_view(w)[nights[1]]['source'] == 'explicit'
+    # 换主住宿后视图必须跟着变，不能沿用旧行里的酒店
+    w['catalog']['hB'] = {'id': 'hB', 'kind': 'hotel', 'name': 'B酒店', 'location': '120.40,36.10'}
+    w['hotel'] = dict(w['catalog']['hB'])
+    refreshed = stay_plan.assignment_view(w)
+    assert refreshed[nights[0]]['hotel_id'] == 'hB'
+    assert refreshed[nights[1]]['hotel_id'] == 'hA'      # 明确指定的那晚不受影响
+    # 没有主住宿也没有指定时才是 unset
+    w['hotel'] = None
+    w['stay_hotels'] = {}
+    assert {v['source'] for v in stay_plan.assignment_view(w).values()} == {'unset'}
+
+
 def test_report_export_survives_missing_source_fields():
     """复核确认的输出兼容问题：历史记录缺 source 时，导出要降级而不是崩。"""
     from app import report

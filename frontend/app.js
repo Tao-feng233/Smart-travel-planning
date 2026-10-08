@@ -166,16 +166,22 @@ function content(){
   // 住宿按晚编排：每晚一个锚点（当天收尾地点）、已选酒店与一组候选，而不是全程一个中心。
   const stayHTML=stay?`<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${(stay.rows||[]).map(row=>{
     const found=(row.candidate_ids||[]).map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
-    const picked=row.hotel_id?w.catalog[row.hotel_id]:null;
-    const explicit=row.hotel_source==='explicit';          // 只有用户明确指定才算"已选"
-    const inherited=row.hotel_source==='primary';          // 沿用主住宿，不能说成已选
+    // hotel_source 是后加的字段，且已存行可能过时：一律以后端发布的权威分配为准，
+    // 再退回行内字段推导。否则会出现"第一天选了酒店却显示尚未选这一晚的住宿"。
+    const primaryId=stay.primary_hotel_id||w.hotel?.id;
+    const assigned=(stay.assignments||{})[row.date];
+    const rowHotelId=assigned?assigned.hotel_id:row.hotel_id;
+    const picked=rowHotelId?w.catalog[rowHotelId]:null;
+    const source=(assigned&&assigned.source)||row.hotel_source||(rowHotelId?(rowHotelId===primaryId?'primary':'explicit'):'unset');
+    const explicit=source==='explicit';                    // 只有用户明确指定才算"已选"
+    const inherited=source==='primary';                    // 沿用主住宿，不能说成已选
     const onway=(row.dinner_hint||[]).filter(x=>x.on_the_way).map(x=>x.name);
-    const needs=(row.hotel_source==='unset');              // 没有可用住宿，必须自己选一晚
-    const label=explicit?esc(picked.name)+'（这一晚已选）'
-      :inherited?esc(row.anchor_name||'待定')+' 周边'
+    const needs=source==='unset';                          // 没有可用住宿，必须自己选一晚
+    const pickedName=(picked||{}).name||'已选住宿';
+    const label=explicit?esc(pickedName)+'（这一晚已选）'
       :esc(row.anchor_name||'待定')+' 周边';
     const sub=explicit?esc(row.anchor_basis||'')
-      :inherited?'沿用主住宿「'+esc(picked.name)+'」；点下面候选可只改这一晚'
+      :inherited?'沿用主住宿「'+esc(pickedName)+'」；点下面候选可只改这一晚'
       :'尚未选这一晚的住宿';
     return `<div class="stay-row${needs?' needs-hotel':''}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}${row.anchor_is_station?' · 次日赶车':''}</small>${explicit&&row.anchor_is_station?'<small>次日要赶车，这一晚离出发站较近</small>':''}${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">${needs?'选这晚':'查这晚'}</button>`}</div>${found.length?`<div class="cards stay-cards">${found.map(card).join('')}</div>`:''}</div>`}).join('')}${(stay.needs_own_hotel||[]).length?`<p class="panel-footnote">${esc(stay.needs_own_hotel.join('、'))} 还没有选住宿（次日赶车，主住宿不适合）；请点“选这晚”分别挑选。</p>`:((stay.unassigned||[]).length?'<p class="panel-footnote">只有明确点选的夜晚才算单独指定；其余夜晚沿用主住宿，可按每晚改。</p>':'')}</div>`:'';
   return chosen+`<div class="candidate-head"><div><h3>住宿推荐</h3><p>${stay?'按每天最后一个景区所在区域逐晚推荐，一晚一组候选，可每晚分别选择':(w.hotel_query?.anchor?'以'+esc(w.hotel_query.anchor)+'为中心（'+esc(w.hotel_query.anchor_basis||'')+'）':'结合已选景点比较位置、通行与房型')}</p></div><button data-action="complete_hotel" ${w.hotel&&!w.hotel.stale&&w.selected_room?'':'disabled'}>完成住宿选择</button></div>`+(missing.length?`<div class="inline-requirements"><strong>查询住宿需要补充信息</strong><p>${missing.map(x=>x[1]).join('、')}尚未确定。可以直接在对话中提供，或编辑右侧旅行信息。</p><button data-open-settings>补充旅行信息</button></div>`:'')+stayHTML+`<div class="toolbar"><p>${items.length} 家候选${w.hotel_query?.keyword?' · '+esc(w.hotel_query.keyword):''}${stay?' · 已按每晚分别查询':''}</p><button class="ghost" data-action="search_hotels">查询住宿</button></div>`+(items.length&&!stay?`<div class="cards">${items.sort((a,b)=>(a.recommendation_rank??99)-(b.recommendation_rank??99)).map(card).join('')}</div>`:items.length?'':empty('02','住宿安排',Number(w.requirements.days)===1?'本次为一日游，可以跳过住宿。':'确认景点与日期后查询住宿。已有住宿或暂未决定时，可以先继续规划。'))+`<div class="panel-footer-actions"><button class="ghost" data-action="skip_hotel">暂不安排住宿，继续</button></div>`;

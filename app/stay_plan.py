@@ -309,6 +309,30 @@ def hotel_assignments(w):
             for row in _plan_rows(w)}
 
 
+def assignment_view(w):
+    """给前端的权威逐晚分配：{日期: {hotel_id, source}}。
+
+    已存的编排行可能来自旧版本（缺 hotel_source），也可能在主住宿更换后过时；
+    前端显示必须按当前选择推导，而不是读可能过时的行内字段——否则会出现
+    "第一天选了酒店，却显示尚未选这一晚的住宿"。
+    """
+    stays = w.get('stay_hotels') or {}
+    primary_id = (w.get('hotel') or {}).get('id')
+    rows = {row['date']: row for row in _plan_rows(w)}
+    view = {}
+    for day in nights(w):
+        row = rows.get(day) or {}
+        if stays.get(day):
+            view[day] = {'hotel_id': stays[day], 'source': 'explicit'}
+        elif row.get('hotel_fallback_unsuitable'):
+            view[day] = {'hotel_id': None, 'source': 'unset'}
+        elif primary_id:
+            view[day] = {'hotel_id': primary_id, 'source': 'primary'}
+        else:
+            view[day] = {'hotel_id': None, 'source': 'unset'}
+    return view
+
+
 def assignment_map(w):
     """逐晚最终酒店 ID（内部使用）：显式分配优先，未指定的夜晚用主住宿补齐。"""
     return {day: item['hotel_id'] for day, item in hotel_assignments(w).items()}
