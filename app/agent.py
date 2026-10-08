@@ -517,8 +517,13 @@ async def handle(w,action,args,progress):
                 answer_extra=''
             w['stay_skipped']=False
             w['stay_hotels']=w.get('stay_hotels') or {}
-            # 这里不主动拉房型：误触也会白花一次查询额度。界面自动跳到该卡的房型区，
-            # 由用户看到后再决定是否取房型。
+            # 选中即查看房型：同一次操作里取回房型与报价，用户不必再点一次"房型详情"。
+            # 取不到（额度/网络）不打断选择，只在回复里说明可重试。
+            if not p.get('detail') and p.get('provider_id'):
+                try:
+                    await load_hotel_detail(w,p,progress)
+                except DataError as error:
+                    detail_error=str(error)
         elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
@@ -532,9 +537,10 @@ async def handle(w,action,args,progress):
                 answer=answer_extra+'已选择住宿：'+p["name"]+'。但'+enrichment.room_availability_message(detail)
             elif rooms:
                 answer=answer_extra+'已选择住宿：'+p["name"]+'，房型已展开（'+str(rooms)+' 个报价）——请选择具体房型后点“完成住宿选择”。选定仅用于规划，尚未预订。'
+            elif detail_error:
+                answer=answer_extra+'已选择住宿：'+p["name"]+'。房型与报价这次没有取到：'+detail_error+'可稍后点该卡的“房型详情”重试。'
             else:
-                # 不主动拉取房型：只说清下一步，由用户点"房型详情"再查，避免误触白花额度。
-                answer=answer_extra+'已选择住宿：'+p["name"]+'。已为你打开这一家的房型区，点“房型详情”即可查看并选择具体报价。选定仅用于规划，尚未预订。'
+                answer=answer_extra+'已选择住宿：'+p["name"]+'。这家没有返回可查询的房型信息，可换一家或点“房型详情”重试。'
             if leaves:answer+='\n还有'+str(len(leaves))+' 晚沿用主住宿（'+'、'.join(leaves)+'）；想每晚分开住可以点对应夜晚的“住这家”。'
             if spread:answer+='\n'+spread
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'

@@ -902,9 +902,10 @@ def test_single_night_query_is_not_blocked_by_the_local_budget(monkeypatch, tmp_
     assert w2['hotel_query']['skipped_nights'] == [D2, '2026-10-14']
 
 
-def test_selecting_a_hotel_does_not_fetch_rooms_until_asked(monkeypatch):
-    """选择住宿不主动拉房型：误触不该白花一次查询额度，界面只跳到房型区。"""
+def test_selecting_a_hotel_immediately_shows_room_types(monkeypatch):
+    """点选住宿即查看房型：同一次操作取回房型，不再弹一次"请展开房型详情"。"""
     from app import agent
+    from app.providers import DataError
     w = workspace(days=2, spots=('s1',))
     candidate = {'id': 'tuniu:hotel:900003@' + D1, 'provider_id': 900003, 'kind': 'hotel',
                  'name': '示例酒店', 'location': '120.30,36.00',
@@ -919,19 +920,18 @@ def test_selecting_a_hotel_does_not_fetch_rooms_until_asked(monkeypatch):
                 'source': {'name': '途牛'}}
     monkeypatch.setattr(agent, 'tuniu', vendor)
     reply = asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
-    # 选择本身不发任何供应商查询
-    assert detail_calls == [], detail_calls
-    assert not candidate.get('room_choices')
-    assert w['hotel']['id'] == candidate['id']
-    # 回复要指向"房型详情"，让用户自己决定是否查询
-    assert '已选择住宿' in reply and '房型详情' in reply
-    # 用户主动点了房型详情才真正查询，且用该候选自己的入住日期
-    asyncio.run(agent.handle(w, 'hotel_detail', {'id': candidate['id']}, lambda _: None))
-    assert len(detail_calls) == 1
+    # 一次操作就把房型取回来，并沿用该候选自己的入住日期
+    assert len(detail_calls) == 1, detail_calls
     tool_name, params = detail_calls[0]
     assert tool_name == 'tuniuHotelDetail'
     assert params['checkIn'] == D1 and params['checkOut'] == D2
-    assert candidate.get('room_choices'), '点房型详情后房型必须就绪'
+    assert candidate.get('room_choices'), '点选住宿后房型必须已就绪'
+    assert '房型已展开' in reply, reply
+    assert '请展开房型详情' not in reply
+    # 已经有房型时不再重复请求
+    detail_calls.clear()
+    asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
+    assert detail_calls == []
 
 
 def test_report_export_survives_missing_source_fields():
