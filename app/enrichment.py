@@ -1,6 +1,6 @@
 """Keep provider facts and unknowns separate from travel recommendations."""
 import re
-from datetime import date
+from datetime import date,timedelta
 from .providers import DataError
 from .storage import now
 
@@ -15,7 +15,7 @@ def model_facts(value):
     if isinstance(value,list):return [model_facts(v) for v in value]
     return value
 
-def hotel_detail(d):
+def hotel_detail(d,requirements=None):
     # Explicit field allowlists keep payment / booking credentials out of workspace snapshots.
     out={k:d[k] for k in HOTEL_FIELDS if k in d and k!='roomTypes'}
     def scrub(x):
@@ -27,7 +27,35 @@ def hotel_detail(d):
         row={k:scrub(room[k]) for k in ROOM_FIELDS if k in room and k!='ratePlans'}
         row['ratePlans']=[{k:scrub(rate[k]) for k in RATE_FIELDS if k in rate} for rate in (room.get('ratePlans') or [])[:100]]
         out['roomTypes'].append(row)
+    # 区分"没查过"和"查了但供应商没有可售报价"：前者没有 detail，后者是空数组。
+    # 面板与回复必须说清是哪一种，否则用户看到"0种"无法判断是没查还是真没房。
+    r=requirements or {}
+    out['room_type_count']=len(out['roomTypes'])
+    out['availability_status']='no_availability' if not out['roomTypes'] else 'available'
+    out['queried_at']=now()
+    try:
+        check_in=r.get('start_date')
+        check_out=(date.fromisoformat(check_in)+timedelta(days=max(1,int(r.get('days') or 2)))).isoformat() if check_in else None
+    except (TypeError,ValueError):check_in,check_out=None,None
+    out['query_conditions']={'checkIn':check_in,'checkOut':check_out,
+                             'adults':int(r.get('adults') or 0),'rooms':int(r.get('rooms') or 1),
+                             'children':int(r.get('children') or 0)}
     return out
+
+
+def room_availability_message(detail):
+    """零房型时的可操作说明；供应商没有可售报价不等于这家酒店不存在。"""
+    conditions=(detail or {}).get('query_conditions') or {}
+    window=''
+    if conditions.get('checkIn') and conditions.get('checkOut'):
+        window=conditions['checkIn']+' 至 '+conditions['checkOut']
+    guests=[]
+    if conditions.get('adults'):guests.append(str(conditions['adults'])+' 位成人')
+    if conditions.get('children'):guests.append(str(conditions['children'])+' 位儿童')
+    if conditions.get('rooms'):guests.append(str(conditions['rooms'])+' 间房')
+    scope=window+('、'+'／'.join(guests) if guests else '')
+    return ('供应商在本次查询条件（'+(scope or '当前日期与人数')+'）下没有返回可售房型或报价；'
+            '该酒店的基础档案仍在，可更换入住日期、人数或房间数后重新查询房型，或另选酒店。')
 
 def ticket_date(w,p,args):
     chosen=args.get('visit_date')

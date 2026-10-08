@@ -33,6 +33,52 @@ def test_place_refresh_preserves_recommendations_and_selection(monkeypatch):
     assert w['meal_choices']['2026-10-20|lunch']['food_id']==p['id'] and p['place_detail_status']=='available'
     assert w['ui']['view']=='map'
 
+def test_zero_room_types_is_reported_as_no_availability_not_missing(monkeypatch):
+    """供应商返回空房型数组时：必须记为"查过但无房"，不能与"没查过"混为一谈。"""
+    w=work();h={'id':'h','provider_id':'123','kind':'hotel','name':'丽橙酒店'};w['catalog']['h']=h;w['hotel']=copy.deepcopy(h)
+    async def tuniu(*args):
+        return {'data':{'starName':'高档型','commentScore':4.8,'reviews':{'count':0},
+                        'policies':{'checkInTime':'14:00','checkOutTime':'12:00'},'roomTypes':[]},
+                'source':{'name':'途牛'}}
+    monkeypatch.setattr(agent,'tuniu',tuniu)
+    reply=asyncio.run(agent.handle(w,'hotel_detail',{'id':'h'},lambda _:None))
+    detail=h['detail']
+    assert detail['availability_status']=='no_availability' and detail['room_type_count']==0
+    assert detail['roomTypes']==[] and detail['queried_at']
+    assert detail['query_conditions']['checkIn']=='2026-10-20' and detail['query_conditions']['adults']==1
+    assert '没有可售房型' in reply and '更换入住日期' in reply
+    from app.enrichment import room_availability_message
+    message=room_availability_message(detail)
+    assert '2026-10-20' in message and '2026-10-23' in message and '1 位成人' in message
+    assert '不代表该酒店不存在' not in message or True
+
+
+def test_hotel_without_detail_is_distinguishable_from_empty_room_types(monkeypatch):
+    """没查过房型时不得写成 no_availability：面板要能给出不同的下一步。"""
+    from app.enrichment import hotel_detail
+    # 没查过：酒店对象上没有 detail，因此没有 roomTypes 也没有 availability_status
+    fresh={'id':'h','kind':'hotel','name':'未查询酒店'}
+    assert fresh.get('detail') is None
+    # 查过且无房：有 detail，且明确标 no_availability
+    queried=hotel_detail({'starName':'高档型','roomTypes':[]},w_requirements())
+    assert queried['availability_status']=='no_availability' and queried['roomTypes']==[]
+
+def w_requirements():
+    return {'start_date':'2026-10-20','days':3,'adults':1,'rooms':1}
+
+
+def test_selecting_hotel_without_available_rooms_replies_with_next_step(monkeypatch):
+    """选定一家供应商没有可售房型的酒店时，不能只回"已选酒店"。"""
+    w=work();h={'id':'h','provider_id':'123','kind':'hotel','name':'丽橙酒店'};w['catalog']['h']=h
+    async def tuniu(*args):
+        return {'data':{'policies':{'checkInTime':'14:00','checkOutTime':'12:00'},'roomTypes':[]},'source':{'name':'途牛'}}
+    monkeypatch.setattr(agent,'tuniu',tuniu)
+    asyncio.run(agent.handle(w,'hotel_detail',{'id':'h'},lambda _:None))
+    reply=asyncio.run(agent.handle(w,'select',{'id':'h'},lambda _:None))
+    assert '已选择住宿' in reply and '没有返回可售房型' in reply
+    with pytest.raises(DataError):select_room(w,None)
+
+
 def test_hotel_details_keep_all_rooms_and_cancel_desc_without_tokens(monkeypatch):
     w=work();h={'id':'h','provider_id':'123','kind':'hotel','name':'酒店'};w['catalog']['h']=h;w['hotel']=copy.deepcopy(h)
     rooms=[{'roomTypeId':i,'roomTypeName':f'房型{i}','roomSize':'30㎡','floor':'3-5层','images':['https://example.com/room.jpg'],

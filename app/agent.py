@@ -1,4 +1,4 @@
-﻿import asyncio, json, re
+import asyncio, json, re
 from datetime import date,timedelta
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -350,7 +350,13 @@ async def handle(w,action,args,progress):
         elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
-        elif p['kind']=='hotel':answer=f'已选择住宿：{p["name"]}。请展开房型详情，选择具体报价后点击“完成住宿选择”。选定仅用于规划，尚未预订。'
+        elif p['kind']=='hotel':
+            detail=p.get('detail') or {}
+            if detail.get('availability_status')=='no_availability':
+                # 查过且供应商没有可售房型：不能只回"已选酒店"就结束，要给出下一步。
+                answer=f'已选择住宿：{p["name"]}。但'+enrichment.room_availability_message(detail)
+            else:
+                answer=f'已选择住宿：{p["name"]}。请展开房型详情，选择具体报价后点击“完成住宿选择”。选定仅用于规划，尚未预订。'
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer
@@ -369,7 +375,7 @@ async def handle(w,action,args,progress):
         detail_result=await tuniu('hotel','tuniuHotelDetail',params)
         d=unwrap(detail_result['data']);p['detail_source']=detail_result['source']
         if not isinstance(d,dict):raise DataError('酒店详情未返回可用结构，请稍后重试。')
-        p['detail']=enrichment.hotel_detail(d);p['room_choices']=room_choices(p,r)
+        p['detail']=enrichment.hotel_detail(d,r);p['room_choices']=room_choices(p,r)
         if not p.get('address') and isinstance(d.get('address'),str) and d['address']:
             p['address']=d['address'];p['address_source']=detail_result['source']
         from .locations import coordinate,locate_hotel
@@ -378,6 +384,8 @@ async def handle(w,action,args,progress):
         if (w.get('hotel') or {}).get('id')==p['id']:
             w['hotel']['detail']=p['detail']
             if p.get('address'):w['hotel']['address']=p['address']
+        if p['detail'].get('availability_status')=='no_availability':
+            return ('房型详情已更新，但这次没有可售房型：'+enrichment.room_availability_message(p['detail']))
         return '房型详情已更新。请核对日期、人数、餐食与退改；列表起价仍不是确认后的总价。'
     if not r.get('city'):raise DataError('先告诉我想去哪个城市；还没想好也可以先聊旅行偏好。')
     if action=='search_spots':
