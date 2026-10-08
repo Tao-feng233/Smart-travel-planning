@@ -902,10 +902,9 @@ def test_single_night_query_is_not_blocked_by_the_local_budget(monkeypatch, tmp_
     assert w2['hotel_query']['skipped_nights'] == [D2, '2026-10-14']
 
 
-def test_selecting_a_hotel_immediately_loads_room_types(monkeypatch):
-    """选中住宿后直接进入房型选择：同一次操作取回房型，不用再点一次"房型详情"。"""
+def test_selecting_a_hotel_does_not_fetch_rooms_until_asked(monkeypatch):
+    """选择住宿不主动拉房型：误触不该白花一次查询额度，界面只跳到房型区。"""
     from app import agent
-    from app.providers import DataError
     w = workspace(days=2, spots=('s1',))
     candidate = {'id': 'tuniu:hotel:900003@' + D1, 'provider_id': 900003, 'kind': 'hotel',
                  'name': '示例酒店', 'location': '120.30,36.00',
@@ -913,30 +912,26 @@ def test_selecting_a_hotel_immediately_loads_room_types(monkeypatch):
     w['catalog'][candidate['id']] = candidate
     detail_calls = []
     async def vendor(service, tool, params):
-        detail_calls.append(params)
+        detail_calls.append((tool, params))
         return {'data': {'starName': '高档型', 'policies': {'checkInTime': '14:00'},
                          'roomTypes': [{'roomTypeId': 'r1', 'roomTypeName': '大床房',
                                         'ratePlans': [{'rmbPrices': '199', 'count': 3}]}]},
                 'source': {'name': '途牛'}}
     monkeypatch.setattr(agent, 'tuniu', vendor)
     reply = asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
-    assert detail_calls, '选择住宿必须同时取房型'
-    # 逐晚候选必须用该候选自己的入住日期查详情
-    assert detail_calls[0]['checkIn'] == D1 and detail_calls[0]['checkOut'] == D2
-    assert candidate.get('room_choices'), '房型报价必须已经就绪，界面才能直接选'
-    assert reply.count('房型已展开') == 1
-
-    # 取房型失败不能把"选择住宿"一起弄失败，要给出可重试的说明
-    w2 = workspace(days=2, spots=('s1',))
-    c2 = dict(candidate, id='tuniu:hotel:900004@' + D1, provider_id=900004)
-    c2.pop('room_choices', None); c2['detail'] = None
-    w2['catalog'][c2['id']] = c2
-    async def failing(service, tool, params):
-        raise DataError('本项目的途牛查询预算已用完，请稍后再试')
-    monkeypatch.setattr(agent, 'tuniu', failing)
-    answer = asyncio.run(agent.handle(w2, 'select', {'id': c2['id']}, lambda _: None))
-    assert w2['hotel']['id'] == c2['id'], '取房型失败也必须保留住宿选择'
-    assert '已选择住宿' in answer and '重试' in answer
+    # 选择本身不发任何供应商查询
+    assert detail_calls == [], detail_calls
+    assert not candidate.get('room_choices')
+    assert w['hotel']['id'] == candidate['id']
+    # 回复要指向"房型详情"，让用户自己决定是否查询
+    assert '已选择住宿' in reply and '房型详情' in reply
+    # 用户主动点了房型详情才真正查询，且用该候选自己的入住日期
+    asyncio.run(agent.handle(w, 'hotel_detail', {'id': candidate['id']}, lambda _: None))
+    assert len(detail_calls) == 1
+    tool_name, params = detail_calls[0]
+    assert tool_name == 'tuniuHotelDetail'
+    assert params['checkIn'] == D1 and params['checkOut'] == D2
+    assert candidate.get('room_choices'), '点房型详情后房型必须就绪'
 
 
 def test_report_export_survives_missing_source_fields():
