@@ -245,8 +245,8 @@ def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
     assert all(cid in w['catalog'] for cid in still)
 
 
-def test_timeline_shows_each_nights_own_hotel(monkeypatch):
-    """时间轴的住宿条目必须逐晚取分配结果；没选的夜晚不显示任何酒店。"""
+def test_nightly_hotels_remain_assigned_without_invented_checkin_times():
+    """逐晚住宿选择保留在住宿编排，未询问确认时不生成定时入住。"""
     from app import schedule
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
@@ -255,13 +255,10 @@ def test_timeline_shows_each_nights_own_hotel(monkeypatch):
         'only2': {'id': 'only2', 'kind': 'hotel', 'name': '第二晚酒店', 'location': '120.40,36.10'}})
     stay_plan.assign(w, 'main', [D1])
     stay_plan.assign(w, 'only2', [D2])
-    entries = [e for e in schedule.build(w)['entries'] if e['kind'] == 'hotel']
-    names = {e['date']: e['name'] for e in entries}
-    assert len(entries) == len(names), ('同一晚不能出现多条住宿', entries)
-    assert names[D1] == '第一晚酒店', names
-    assert names[D2] == '第二晚酒店', names
-    # D3 没选住宿：时间轴不显示酒店条目，而不是显示别人的
-    assert D3 not in names, names
+    assert not any(e['kind'] == 'hotel' for e in schedule.build(w)['entries'])
+    assert stay_plan.hotel_for(w, D1)['name'] == '第一晚酒店'
+    assert stay_plan.hotel_for(w, D2)['name'] == '第二晚酒店'
+    assert stay_plan.hotel_for(w, D3) is None
 
 
 def test_unpicked_nights_show_as_unpicked(monkeypatch):

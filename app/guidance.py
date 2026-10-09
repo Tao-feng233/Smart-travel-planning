@@ -42,7 +42,7 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     if view=='hotel':
         if action=='complete_spots' and not all(r.get(k) for k in ('start_date','days','adults')):
             return output('景点选择已确认','请补充一下出游日期、天数和人数，便于按实际条件比较住宿；可在对话中提供或编辑旅行信息。','补充旅行信息',settings=True)
-        if action in ('select','select_room'):return output('住宿选择已保存','已选住宿位置，可直接点击“完成住宿选择”继续；具体房型可选。','完成住宿选择',action='complete_hotel')
+        if action in ('select','select_room'):return output('住宿选择已保存','已选住宿位置，具体房型可选。入住时刻请在对话中说明，可自行安排或先请助手建议；不会默认晚上入住。','完成住宿选择',action='complete_hotel')
         if action=='hotel_detail':return output('房型详情已更新','具体房型可选；如需选择，请核对人数、餐食与退改。','查看房型',view='hotel')
         if any(p.get('kind')=='hotel' and not p.get('stale') for p in catalog.values()):return output('住宿推荐','比较位置、价格与房型。选定住宿仅用于规划，尚未预订。','查看住宿',view='hotel')
         if not selected:return output('住宿推荐','先确认景点，再根据位置与通行条件比较住宿。','选择景点',view='spot')

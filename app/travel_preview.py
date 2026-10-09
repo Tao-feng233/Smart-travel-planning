@@ -10,7 +10,7 @@ from .providers import DataError
 
 def signature(w):
     endpoints=[w.get('hotel')]+[w.get('catalog',{}).get(cid) for cid in w.get('selected_spots',[])]
-    value={'version':2,'visit_inputs':visit_analysis.signature(w),'analysis':visit_analysis.current(w),
+    value={'version':3,'visit_inputs':visit_analysis.signature(w),'analysis':visit_analysis.current(w),
         'endpoints':[{k:p.get(k) for k in ('id','location','entrance','citycode')} for p in endpoints if p],
         'selected_rooms':w.get('selected_rooms',{}),'selected_room':w.get('selected_room'),'meal_choices':w.get('meal_choices',{}),'meal_mode':w.get('meal_mode'),
         'foods':[{k:w.get('catalog',{}).get(c.get('food_id'),{}).get(k) for k in ('id','name','location','entrance','citycode')}

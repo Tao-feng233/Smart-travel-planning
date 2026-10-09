@@ -107,8 +107,6 @@ def provisional(w):
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'included_in_room':included['included'],'name':label+' · '+('酒店含早（'+included['note']+'）' if included['included'] else p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
-  hotel=stay_plan.hotel_for(w,dt)
-  if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
 def pending_legs(w,rows):
@@ -154,17 +152,14 @@ def plan_rows(w,plan,provisional=False):
    arrival=transport_time(ticket,'arrival') if kind=='transport' else None
    period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if kind=='meal' else None
    route=e.get('route') or {}
-   confirmed=bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))) if kind=='meal' else bool(pins.get(cid)) if provisional and kind in ('spot','spot_continue') else kind in ('spot','spot_continue','transport','arrival')
+   confirmed=bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))) if kind=='meal' else bool(pins.get(cid)) if provisional and kind in ('spot','spot_continue') else kind in ('spot','spot_continue','transport')
    rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if kind=='spot_continue' else '|'+kind+'|'+str(i) if kind not in ('spot','meal') else ''),
                 'date':d['date'],'time':e['start'],'end':arrival.strftime('%H:%M') if arrival else e['end'],'end_date':arrival.date().isoformat() if arrival else None,'kind':kind,'rest_type':e.get('rest_type'),
-                'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':confirmed,'estimated':provisional or kind in ('rest','unknown_route','transfer_plan'),
+                'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':confirmed,'estimated':provisional or kind in ('arrival','rest','unknown_route','transfer_plan'),
                 'duration':e.get('duration'),'included_in_room':e.get('included_in_room',False),'transport_kind':(ticket.get('kind') if kind=='transport' else None),'train_type':(ticket.get('train_type') if kind=='transport' else None),
                  'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
                 'route_status':route.get('status') or ('waiting_estimate' if e.get('transfer_scope')=='waiting' else 'unknown' if kind in ('unknown_route','transfer_plan') else None),
                 'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
- for dt,cid in stay_plan.assignment_map(w).items():
-  h=w.get('catalog',{}).get(cid) or (w.get('hotel') if (w.get('hotel') or {}).get('id')==cid else None)
-  if h:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':cid,'name':h['name'],'confirmed':True,'estimated':True})
  return rows
 
 
