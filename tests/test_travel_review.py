@@ -53,6 +53,23 @@ def test_arrival_day_anchors_on_the_arrival_point():
     assert tour_basis != basis
 
 
+def test_arrival_night_has_a_stay_entry_even_before_a_hotel_is_picked():
+    """提前抵达日还没选酒店时，时间轴也要有住宿条目（按抵达地点），不能看起来像漏排。"""
+    w = workspace()
+    w['stay_hotels'] = {}
+    entry = stay_plan.hotel_for(w, D_OUT)
+    assert entry is not None, '提前抵达日必须有住宿条目'
+    assert entry.get('arrival_area') is True
+    assert '洛阳龙门站' in entry['name']
+    # 已选酒店时以已选为准
+    w['catalog']['h1'] = {'id': 'h1', 'kind': 'hotel', 'name': '示例酒店'}
+    w['stay_hotels'] = {D_OUT: 'h1'}
+    assert stay_plan.hotel_for(w, D_OUT)['name'] == '示例酒店'
+    # 普通游玩日没选酒店时不应凭空造一条
+    w['stay_hotels'] = {}
+    assert stay_plan.hotel_for(w, '2026-10-11') is None
+
+
 def test_lunch_is_planned_only_when_arrival_is_early_enough():
     """15:00 前抵达才安排午餐，更晚直接跳过并说明原因。"""
     can, minutes = tr.arrival_can_lunch(workspace(arrival='2026-10-09 12:00'))

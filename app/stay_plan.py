@@ -384,7 +384,17 @@ def hotel_for(w,day,*,morning=False):
     if 'stay_hotels' not in w:
         return w.get('hotel')
     cid=(w.get('stay_hotels') or {}).get(night)
-    return (w.get('catalog') or {}).get(cid) if cid else None
+    if cid:
+        return (w.get('catalog') or {}).get(cid)
+    # 提前抵达日还没选定酒店，但那一晚确实要住：用抵达地点作参照，
+    # 否则时间轴上这一晚会没有任何住宿条目，看起来像系统漏排了。
+    from . import travel_review
+    if any(d.isoformat()==night for d in travel_review.pre_tour_days(w)):
+        anchor=travel_review.arrival_anchor(w)
+        if anchor:
+            return {**anchor,'kind':'hotel','name':'抵达'+str(anchor.get('name'))+'周边住宿',
+                    'arrival_area':True,'basis':anchor.get('basis')}
+    return None
 
 
 def anchor(w,day,*,morning=False):
