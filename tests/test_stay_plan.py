@@ -43,12 +43,13 @@ def test_each_night_is_queried_with_its_own_anchor_and_keeps_its_own_quote(monke
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
                     {'candidate_id': 's2', 'date': D2, 'period': 'afternoon'}])
     calls = install(monkeypatch)
-    answer = asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D1}, lambda _: None))
-    assert len(calls) == 1 and calls[0]['checkIn'] == D1
-    assert calls[0]['poiName'] == '栈桥', calls[0]
+    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D1}, lambda _: None))
+    night = [c for c in calls if c['checkIn'] == D1 and c['checkOut'] == D2]
+    assert len(night) == 1 and night[0]['poiName'] == '栈桥', night
     calls.clear()
-    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D2}, lambda _: None))
-    assert calls[0]['checkIn'] == D2 and calls[0]['poiName'] == '八大关', calls[0]
+    answer = asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D2}, lambda _: None))
+    night = [c for c in calls if c['checkIn'] == D2 and c['checkOut'] == D3]
+    assert len(night) == 1 and night[0]['poiName'] == '八大关', night
     # 两晚各自留下候选，且报价不同（同店不同晚不能互相覆盖）
     rows = {r['date']: r for r in w['stay_plan']['rows']}
     first = w['catalog'][rows[D1]['candidate_ids'][0]]
@@ -125,17 +126,75 @@ def test_room_fetch_failure_keeps_the_hotel_selection(monkeypatch):
     assert w['hotel']['id'] == candidate['id'], '取房型失败也必须保留住宿选择'
     assert '已选择住宿' in reply and '重试' in reply
 
+
+def test_full_run_queries_only_within_budget_and_marks_skipped(monkeypatch):
     """一次查全程受剩余额度限制，未查的晚次要明确标出，不能静默少查。"""
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
     calls = install(monkeypatch)
     monkeypatch.setattr(agent, 'hotel_query_budget', lambda: asyncio.sleep(0, result=1))
     asyncio.run(agent.handle(w, 'search_hotels', {}, lambda _: None))
-    assert len(calls) == 1
+    # 逐晚只查了 1 晚；另外会发一次"全部景点中心"的主住宿查询
     assert w['hotel_query']['skipped_nights'], '未查的晚次必须标出'
 
 
+def test_primary_hotel_is_queried_from_the_centre_of_all_spots(monkeypatch):
+    """主住宿参照点必须是全部已选景点的中心，而不是某一天的收尾地点。
+
+    只看某一天会把主住宿拉偏到行程一端；"设为主住宿"是一次决定住哪一带。
+    """
+    w = workspace()
+    # 三个景点排成一条东西向的线：中心落在中间那个
+    w['catalog'].update({
+        'w1': {'id': 'w1', 'kind': 'spot', 'name': '西端景点', 'location': '120.10,36.05'},
+        'w2': {'id': 'w2', 'kind': 'spot', 'name': '中间景点', 'location': '120.30,36.05'},
+        'w3': {'id': 'w3', 'kind': 'spot', 'name': '东端景点', 'location': '120.50,36.05'}})
+    w['selected_spots'] = ['w1', 'w2', 'w3']
+    center, count = stay_plan.center_of_spots(w)
+    assert count == 3
+    lng, lat = (float(x) for x in center['location'].split(','))
+    assert abs(lng - 120.30) < 1e-6 and abs(lat - 36.05) < 1e-6, center
+    params, nearest, n = stay_plan.center_search_plan(w)
+    # 检索名取离中心最近的已选景点，覆盖的正是中心地带
+    assert nearest['name'] == '中间景点', nearest
+    assert params['poiName'] == '中间景点'
+    # 主住宿覆盖整段行程的夜晚
+    assert params['checkIn'] == D1 and params['checkOut'] == '2026-10-15', params
+
+    calls = install(monkeypatch)
+    visits.save(w, [{'candidate_id': 'w2', 'date': D1, 'period': 'morning'}])
+    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D1}, lambda _: None))
+    center_calls = [c for c in calls if c.get('poiName') == '中间景点' and c['checkOut'] == '2026-10-15']
+    assert center_calls, '必须发出一次以全部景点中心为参照的主住宿查询'
+    assert w['hotel_query']['center_matches'], '主住宿候选要单独列出，便于设为主住宿'
+
+
+def test_timeline_uses_the_same_first_last_day_timing_as_the_plan(monkeypatch):
+    """时间轴与计划书必须同一口径：首尾日准备时长用同一份 travel_timing。"""
+    from app import schedule, time_policy
+    w = workspace()
+    w['selected_transport'] = {'id': 'a', 'kind': 'train', 'name': 'G0',
+                               'departure': D1 + ' 06:00', 'arrival': D1 + ' 10:00',
+                               'selection_status': 'confirmed', 'source': {'name': '途牛'}}
+    w['selected_return'] = {'id': 'b', 'kind': 'train', 'name': 'G1',
+                            'departure': D3 + ' 15:00', 'arrival': D3 + ' 19:00',
+                            'selection_status': 'confirmed', 'source': {'name': '途牛'}}
+    # 没有 travel_timing 时退回 time_policy 的保守默认值
+    start, end = schedule.windows(w, D1)
+    assert start == 10 * 60 + time_policy.FALLBACK_ARRIVAL_BUFFER_MINUTES
+    _, back_end = schedule.windows(w, D3)
+    assert back_end == 15 * 60 - time_policy.FALLBACK_PREPARATION_MINUTES
+    # 有实查结果时用实查结果（这里给一个更短、更贴近实际路线的准备时长）
+    w['travel_timing'] = {'arrival_ready': {'minutes': 40}, 'return_preparation': {'minutes': 75}}
+    start, _ = schedule.windows(w, D1)
+    assert start == 10 * 60 + 40, '时间轴必须用实查准备时长'
+    _, back_end = schedule.windows(w, D3)
+    assert back_end == 15 * 60 - 75
+
+
 def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatch):
+
+
     """逐晚选择：给某一晚单独选酒店，不得把其它晚一起改成这家。
 
     这是用户反复遇到的问题：点一个酒店，剩下几晚全被覆盖。

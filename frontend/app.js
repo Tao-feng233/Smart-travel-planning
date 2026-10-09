@@ -64,6 +64,13 @@ function openRoomView(id){
  else{const d=document.querySelector('#candidate-dialog');if(d&&!d.open)d.showModal()}
 }
 
+// 主住宿候选：以"全部已选景点的中心"为参照。设为主住宿后，未单独指定的夜晚都住这家。
+function centerStayHTML(){
+ const w=workspace,ids=(w.hotel_query?.center_matches||[]),found=ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
+ if(!found.length)return '';
+ const basis=w.hotel_query?.center_basis||'全部已选景点的中心';
+ return `<div class="stay-plan center-stay"><div class="stay-head"><strong>主住宿（住全程）</strong><small>以${esc(basis)}为参照，适合一次定下全程住宿；未单独指定的夜晚都住这家。</small></div><div class="cards">${found.map(p=>card(p)).join('')}</div><p class="panel-footnote">想让某一晚单独换一家，在下面"住宿编排"里点那一晚的候选即可，不会影响其它夜晚。</p></div>`;
+}
 // 逐晚住宿编排：每晚一行，显示该晚锚点、已选酒店与候选卡片。
 // 行内卡片点选=只改这一晚（带上 data-stay-date）；不带则作为主住宿。
 function stayPlanHTML(){
@@ -188,7 +195,7 @@ function content(){
   const chosen=w.hotel?`<div class="current-stay"><small>已选住宿</small><strong>${esc(w.hotel.name)}</strong><span>${w.selected_room?esc(w.selected_room.name)+' · '+w.selected_room.quantity+'间':'房型可选 · 未选择'}</span></div>`:'';
   const items=w.hotel_query?w.hotel_query.ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale):Object.values(w.catalog||{}).filter(p=>p.kind==='hotel'&&!p.stale);
   const missing=[['start_date','出游日期'],['days','旅行天数'],['adults','成人数']].filter(([k])=>!w.requirements[k]);
-  return chosen+`<div class="candidate-head"><div><h3>住宿推荐</h3><p>选定酒店即可继续 · 具体房型可选</p></div><button data-action="complete_hotel" ${w.hotel&&!w.hotel.stale?'':'disabled'}>完成住宿选择</button></div>`+(missing.length?`<div class="inline-requirements"><strong>查询住宿需要补充信息</strong><p>${missing.map(x=>x[1]).join('、')}尚未确定。可以直接在对话中提供，或编辑右侧旅行信息。</p><button data-open-settings>补充旅行信息</button></div>`:'')+stayPlanHTML()+`<div class="toolbar"><p>${items.length} 家候选${w.hotel_query?.keyword?' · '+esc(w.hotel_query.keyword):''} · 结合游览区域比较</p><button class="ghost" data-action="search_hotels">查询住宿</button></div>`+(items.length&&!w.stay_plan?`<div class="cards">${items.sort((a,b)=>(a.recommendation_rank??99)-(b.recommendation_rank??99)).map(card).join('')}</div>`:items.length?'':empty('02','住宿安排',Number(w.requirements.days)===1?'本次为一日游，可以跳过住宿。':'确认景点与日期后查询住宿。已有住宿或暂未决定时，可以先继续规划。'))+`<div class="panel-footer-actions"><button class="ghost" data-action="skip_hotel">暂不安排住宿，继续</button></div>`;
+  return chosen+`<div class="candidate-head"><div><h3>住宿推荐</h3><p>选定酒店即可继续 · 具体房型可选</p></div><button data-action="complete_hotel" ${w.hotel&&!w.hotel.stale?'':'disabled'}>完成住宿选择</button></div>`+(missing.length?`<div class="inline-requirements"><strong>查询住宿需要补充信息</strong><p>${missing.map(x=>x[1]).join('、')}尚未确定。可以直接在对话中提供，或编辑右侧旅行信息。</p><button data-open-settings>补充旅行信息</button></div>`:'')+stayPlanHTML()+centerStayHTML()+`<div class="toolbar"><p>${items.length} 家候选${w.hotel_query?.keyword?' · '+esc(w.hotel_query.keyword):''} · 结合游览区域比较</p><button class="ghost" data-action="search_hotels">查询住宿</button></div>`+((items.length||(w.hotel_query?.center_matches||[]).length)&&!w.stay_plan?`<div class="cards">${(w.hotel_query?.center_matches||[]).map(id=>w.catalog[id]).filter(p=>p&&!p.stale).map(card).join('')+items.sort((a,b)=>(a.recommendation_rank??99)-(b.recommendation_rank??99)).map(card).join('')}</div>`:items.length?'':empty('02','住宿安排',Number(w.requirements.days)===1?'本次为一日游，可以跳过住宿。':'确认景点与日期后查询住宿。已有住宿或暂未决定时，可以先继续规划。'))+`<div class="panel-footer-actions"><button class="ghost" data-action="skip_hotel">暂不安排住宿，继续</button></div>`;
  }
  if(tab==='weather')return weatherHTML();
  if(tab==='transport')return transportHTML();

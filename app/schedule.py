@@ -21,15 +21,34 @@ def transport_time(p,key):
  except (ValueError,TypeError):return None
 
 def windows(w,dt):
- arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure')
- start=0;end=1440
- if arrival:
-  if dt<arrival.date().isoformat():return 1440,0
-  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+90
- if back:
-  if dt>back.date().isoformat():return 1440,0
-  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-120)
- return start,end
+    """当天可安排游览的时间窗（分钟）。
+
+    首尾日的准备时长与计划书同源：优先用 planning 按实查接驳算出的 travel_timing
+    （存在 w 上，随工作区一起下发），没有时退回 time_policy 的保守估计。
+    时间轴与计划书必须同一口径，否则同一输入会显示两套时间。
+    """
+    arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure')
+    ready,preparation=travel_preparation(w)
+    start=0;end=1440
+    if arrival:
+        if dt<arrival.date().isoformat():return 1440,0
+        if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+ready
+    if back:
+        if dt>back.date().isoformat():return 1440,0
+        if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-preparation)
+    return start,end
+
+def travel_preparation(w):
+    """首尾日准备分钟数：与计划书共用；缺依据时用 time_policy 的保守默认值。"""
+    from . import time_policy
+    saved=w.get('travel_timing') or {}
+    ready=(saved.get('arrival_ready') or {}).get('minutes')
+    preparation=(saved.get('return_preparation') or {}).get('minutes')
+    try:ready=int(ready)
+    except (TypeError,ValueError):ready=time_policy.FALLBACK_ARRIVAL_BUFFER_MINUTES
+    try:preparation=int(preparation)
+    except (TypeError,ValueError):preparation=time_policy.FALLBACK_PREPARATION_MINUTES
+    return ready,preparation
 
 def day_end(w,dt):
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})

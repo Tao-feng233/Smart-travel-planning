@@ -113,6 +113,30 @@ def _usable(w, cid):
     return p if p and p.get('location') else None
 
 
+def center_of_spots(w):
+    """全部已选景点的几何中心：主住宿（一键住全程）的推荐参照点。
+
+    逐晚推荐以"当天收尾地点"为锚点，但"设为主住宿、其余夜晚沿用"是一次决定
+    住哪一带，必须照顾整趟行程的所有景点，只看某一天会把住宿拉偏到一端。
+    返回 (中心点, 参与计算的景点数) 或 (None, 0)。
+    """
+    points = []
+    for cid in w.get('selected_spots') or []:
+        p = _usable(w, cid)
+        if p:
+            try:
+                lng, lat = (float(x) for x in str(p['location']).split(',')[:2])
+            except (TypeError, ValueError):
+                continue
+            points.append((lng, lat))
+    if not points:
+        return None, 0
+    lng = sum(p[0] for p in points) / len(points)
+    lat = sum(p[1] for p in points) / len(points)
+    return {'id': 'center:all-spots', 'kind': 'anchor', 'name': '全部已选景点的中心',
+            'location': f'{lng:.6f},{lat:.6f}', 'center_of_spots': True}, len(points)
+
+
 def trip_closure(w, before_day=None):
     """行程最后一个活动的地点：某晚没有当天活动时用它作兜底参照。
 
@@ -416,3 +440,44 @@ def day_search_plan(w, day):
     if row.get('anchor_name'):
         params['poiName'] = row['anchor_name']
     return params
+
+
+def center_search_plan(w):
+    """主住宿（住全程）的查询参数：以全部已选景点的中心为参照。
+
+    途牛按 poiName 检索，取"离中心最近的那个已选景点"作为检索名，
+    这样检索半径覆盖的正是所有景点的中心地带，而不是某一天的一端。
+    """
+    r = w.get('requirements') or {}
+    center, count = center_of_spots(w)
+    if not center:
+        return None, None, 0
+    try:
+        clng, clat = (float(x) for x in center['location'].split(',')[:2])
+    except (TypeError, ValueError):
+        return None, None, 0
+    nearest, best = None, None
+    for cid in w.get('selected_spots') or []:
+        p = _usable(w, cid)
+        if not p:
+            continue
+        try:
+            lng, lat = (float(x) for x in str(p['location']).split(',')[:2])
+        except (TypeError, ValueError):
+            continue
+        gap = (lng - clng) ** 2 + (lat - clat) ** 2
+        if best is None or gap < best:
+            nearest, best = p, gap
+    days = nights(w)
+    params = {'cityName': r.get('city'), 'checkIn': days[0] if days else r.get('start_date'),
+              'checkOut': days[-1] if days else None, 'adultNum': int(r.get('adults') or 2)}
+    if params['checkOut']:
+        params['checkOut'] = (date.fromisoformat(params['checkOut']) + timedelta(days=1)).isoformat()
+    if nearest:
+        params['poiName'] = nearest['name']
+    if r.get('children'):
+        if len(r.get('child_ages') or []) != int(r['children']):
+            from .providers import DataError
+            raise DataError('酒店查询需要每位儿童的年龄。')
+        params.update(childNum=int(r['children']), childAges=r['child_ages'])
+    return params, nearest, count

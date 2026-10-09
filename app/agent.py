@@ -86,9 +86,39 @@ async def search_hotels(w,args,progress,recommend):
         row['candidate_ids']=[p['id'] for p in items];row['queried_at']=now();row['empty']=not items
         collected+=items
     w['stay_plan']['assignments']=stay_plan.assignment_view(w)
+    # 主住宿参照点：全部已选景点的中心。"设为主住宿、其余夜晚沿用"是一次决定住哪一带，
+    # 只看某一天会把住宿拉偏到行程一端，所以单独给一组以中心为参照的候选。
+    center_matches=[]
+    center_params,center_nearest,center_count=stay_plan.center_search_plan(w)
+    if center_params:
+        progress('按全部已选景点的中心（'+str(center_count)+' 个地点）查询主住宿候选')
+        try:
+            center_result=await tuniu('hotel','tuniuHotelSearch',center_params)
+            cd=unwrap(center_result['data']);center_hotels=cd.get('hotels',[]) if isinstance(cd,dict) else []
+        except DataError:
+            center_hotels=[]
+        for h in center_hotels[:4]:
+            center_matches.append({'id':'tuniu:hotel:'+str(h['hotelId'])+'@center','provider_id':h['hotelId'],'kind':'hotel',
+                'name':h['hotelName'],'address':h.get('address'),'rating':h.get('commentScore'),
+                'price':h.get('lowestPrice'),'price_basis':'全程列表起价，房型与总价待核实',
+                'review_summary':h.get('commentDigest'),'area':h.get('business'),'room':h.get('roomName'),
+                'window':h.get('roomWindow'),'meal':h.get('meal'),'refund':h.get('refund'),
+                'photos':[h.get('firstPic')] if h.get('firstPic') else [],'source':center_result['source'],
+                'query_conditions':dict(center_params),'location':None,'match_status':'待核对地图位置',
+                'anchor_name':'全部已选景点的中心','anchor_basis':'全部已选景点的中心（'+str(center_count)+' 个地点）',
+                'center_of_spots':True,
+                'recommendation_basis':('以全部 '+str(center_count)+' 个已选景点的中心为参照，'
+                    +('最近参照点为「'+str(center_nearest['name'])+'」；' if center_nearest else '')
+                    +'适合设为主住宿、其余夜晚沿用。')})
+        if center_matches:
+            from .locations import locate_hotel
+            for p in center_matches:await locate_hotel(w,p,local_tool)
+            w['catalog'].update({p['id']:p for p in center_matches})
     w['hotel_query']={**(w.get('hotel_query') or {}),'keyword':'','ids':[p['id'] for p in collected],
                       'anchor':(stay_plan.row_for(w,targets[0]) or {}).get('anchor_name'),
                       'anchor_basis':'逐晚以当天最后一个活动为锚点',
+                      'center_matches':[p['id'] for p in center_matches],
+                      'center_basis':'全部已选景点的中心（'+str(center_count)+' 个地点）',
                       'source':collected[0].get('source') if collected else None,
                       'stay_plan':w['stay_plan'],'skipped_nights':skipped}
     w['candidates']=collected;w['stage']='住宿'

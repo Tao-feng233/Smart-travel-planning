@@ -159,6 +159,8 @@ async def _generate(w, progress):
     # 首尾日准备时长按实查接驳路线算一次，全天共用；缺依据时退回保守估计并标注待核实。
     timing=await travel_timing(w,spots)
     payload['travel_timing']={'arrival_ready':timing['arrival_ready'],'return_preparation':timing['return_preparation']}
+    # 存到工作区：时间轴（schedule.windows）与计划书必须同一口径，否则同一输入会显示两套时间。
+    w['travel_timing']=payload['travel_timing']
     if w.get('planning_feedback'):payload['validation_feedback']=w['planning_feedback']+'。调整可变景点日期或同日顺序，保留已选地点、班次、餐厅与用户明确日期时段，不可修改用户选择来掩盖冲突。'
     from . import visit_analysis
     payload['day_budgets']=visit_analysis.budgets(w)
