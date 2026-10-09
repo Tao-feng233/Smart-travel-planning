@@ -32,8 +32,9 @@ async def check(w,p,anchor,route_options,choose_route,meal=None):
             back_route=choose_route(back,r)
             if back_route:
                 result['return_route']=back_route
-                from .schedule import day_end,windows
-                limit=min(day_end(w,meal[0]),windows(w,meal[0])[1])
+                from .schedule import meal_latest_end
+                # 晚餐上界与时间轴同源：不被当天活动结束时刻卡住。
+                limit=meal_latest_end(w,meal[0],meal[1])
                 if low+chosen['minutes']+15+meal_duration(w,meal[0],meal[1])+back_route['minutes']+15>limit:
                     result.update(status='time_conflict',message='该餐次含前往餐厅、完整用餐及返回住宿的通行，超过当前结束或返程准备时刻')
             elif back and all(x.get('status')=='no_route' for x in back):result.update(status='no_route',message='当前已核对的方式均未返回餐厅至住宿的方案')
