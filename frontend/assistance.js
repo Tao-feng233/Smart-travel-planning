@@ -63,5 +63,18 @@ const assistanceFinishJob=finishJob;finishJob=function(j,name,args={}){
 };
 document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-diagnostic-candidate]');if(jump&&!busy){const id=jump.dataset.diagnosticCandidate,p=workspace.catalog[id];if(!p)return;if(p.kind==='food'&&jump.dataset.diagnosticDate){mealDate=jump.dataset.diagnosticDate;mealPeriod=jump.dataset.diagnosticPeriod||mealPeriod}focusCandidate(id,true);return}
- if(e.target.closest('[data-show-diagnostics]')){const blocks=[...document.querySelectorAll('#messages .planning-diagnostics')];if(blocks.length)blocks.at(-1).scrollIntoView({behavior:'smooth',block:'center'});else if(workspace?.ui?.conflict)$('#error').innerHTML=diagnosticHTML(workspace.ui.conflict)}
+ if(e.target.closest('[data-show-diagnostics]')){
+  // 1) 聊天里已有诊断块：直接滚过去
+  const blocks=[...document.querySelectorAll('#messages .planning-diagnostics')];
+  if(blocks.length){blocks.at(-1).scrollIntoView({behavior:'smooth',block:'center'});return}
+  // 2) 生成计划书时的可操作问题（含日期与景点 ID），此前从未被渲染，导致点击无反应
+  const issues=(workspace?.plan?.planning_issues||[]).filter(i=>i&&i.message);
+  const source=issues.length?{issues,view:'spot'}:(workspace?.ui?.conflict||null);
+  if(!source)return;
+  const html=(typeof diagnosticHTML==='function')?diagnosticHTML(source):'';
+  if(!html)return;
+  const box=$('#error');if(!box)return;
+  box.hidden=false;box.innerHTML=html;
+  box.scrollIntoView({behavior:'smooth',block:'center'});
+ }
 });
