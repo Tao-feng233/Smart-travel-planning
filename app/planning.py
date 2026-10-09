@@ -330,6 +330,27 @@ async def _generate(w, progress, *, preview=False):
                                    'note':'路线查询失败，暂留30分钟占位；实际是否足够待核实'})
                     t+=30
             duration=item['duration']
+            # 景区开放时间约束：资料在手就不能把游客排在闭馆之后。
+            # 先尝试推迟到开放时段内；若当天放不下，则如实记提醒并截断可游玩时长。
+            from . import opening_hours as _oh
+            _ok,_why,_limit=_oh.check(p.get('opening'),p.get('name'),t,duration)
+            if not _ok:
+                _opens,_closes,_last=_oh.parse(p.get('opening'))
+                _shift=max([x for x in (_opens,_last) if x is not None] or [0])
+                if t<_shift and _shift+duration<=(_limit if _limit is not None else 24*60):
+                    events.append({'kind':'free','name':'等候开放','start':clock(t),'end':clock(_shift),
+                                   'note':'该地点按其开放资料尚未开始接待，先作机动安排。'})
+                    t=_shift
+                    _ok,_why,_limit=_oh.check(p.get('opening'),p.get('name'),t,duration)
+            if not _ok:
+                _cap=_limit if _limit is not None else 24*60
+                _usable=max(0,_cap-t)
+                boundary_issues.append({'code':'opening_hours','level':'warning','view':'spot','date':d['date'],
+                    'candidate_ids':[p['id']],'overrun_minutes':max(0,duration-_usable),
+                    'available_minutes':_usable,
+                    'message':d['date']+' '+p['name']+'：'+_why+'。当天该时段已改为按开放资料截断（可用约 '+str(_usable)+' 分钟），建议改到开放时段或调整顺序。'})
+                duration=max(0,_usable)
+                if duration<15:continue
             period=item.get('period','any');floor=max({'afternoon':13*60,'evening':18*60}.get(period,0),minute(item.get('not_before') or '00:00'))
             if t<floor:
                 events.append({'kind':'free','name':'自由活动与休息','start':clock(t),'end':clock(floor),'note':'为后续指定游玩时段保留弹性时间。'});t=floor
@@ -375,6 +396,17 @@ async def _generate(w, progress, *, preview=False):
                                    'route':chosen,'options':[chosen],'buffer':allocation-chosen['minutes'],'note':'返回景区继续游览，具体入口与二次入园条件待核实。'})
                     t+=allocation
                 if t+remaining>24*60:raise DataError('游览加午餐及往返路线已超出当天，请调整可变安排。',{'date':d['date'],'candidate_ids':[p['id']],'view':'spot'})
+                # 继续游览同样受开放时间约束：闭馆后不能接着逛。
+                _cok,_cwhy,_climit=_oh.check(p.get('opening'),p.get('name'),t,remaining)
+                if not _cok:
+                    _ccap=_climit if _climit is not None else 24*60
+                    _cusable=max(0,_ccap-t)
+                    boundary_issues.append({'code':'opening_hours','level':'warning','view':'spot','date':d['date'],
+                        'candidate_ids':[p['id']],'overrun_minutes':max(0,remaining-_cusable),
+                        'available_minutes':_cusable,
+                        'message':d['date']+' '+p['name']+'（午餐后继续游览）：'+_cwhy+'。已按开放资料截断（可用约 '+str(_cusable)+' 分钟），建议缩短上午段或改到开放时段。'})
+                    remaining=max(0,_cusable)
+                    if remaining<15:continue
                 events.append({'kind':'spot_continue' if continuing else 'spot','candidate_id':p['id'],
                                'name':p['name']+(' · 继续游览' if continuing else ''),'start':clock(t),'end':clock(t+remaining),
                                'duration':remaining,'note':note+'；用餐地点、景区内移动和二次入园条件需出发前核实。','poi':p,'evidence':evidence})
