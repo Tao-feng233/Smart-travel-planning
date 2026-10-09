@@ -1,4 +1,4 @@
-let workspace=null,tab='spot',busy=false,renderedMessages='',detailOpenId=null,jobUI=null,destinationPage=1,transportMode='train',transportDirection='outbound',trainType='all',timeStart='',timeEnd='',replaceTarget=null,liveReply='',liveSteps=[],workbenchExpanded=false,transportDates={},mealDate='',mealPeriod='lunch',foodAnchor='',pickedHotelOpen=null,stayOpenDate='',settledNight='';
+let workspace=null,tab='spot',busy=false,renderedMessages='',detailOpenId=null,jobUI=null,destinationPage=1,transportMode='train',transportDirection='outbound',trainType='all',timeStart='',timeEnd='',replaceTarget=null,liveReply='',liveSteps=[],workbenchExpanded=false,transportDates={},mealDate='',mealPeriod='lunch',foodAnchor='',pickedHotelOpen=null,pendingSettledNight=null,stayOpenDate='',settledNight='';
 const actionViews={discover_destinations:'spot',choose_destination:'spot',spots_page:'spot',dismiss_spot:'spot',complete_spots:'hotel',complete_hotel:'transport',skip_hotel:'transport',plan:'plan',optimize_plan:'plan',complete_food:'plan',visit_schedule:'spot',search_foods:'food',meal_choice:'food',search_hotels:'hotel',hotel_detail:'hotel',select_room:'hotel',train:'transport',flight:'transport',search_spots:'spot',ticket:'spot',weather:'weather',transport_arrangement:'food'};
 const sceneNames={spot:'目的地与景点',hotel:'住宿选择',transport:'往返交通',weather:'天气',plan:'旅行计划书',knowledge:'资料与依据',food:'餐饮选择',map:'旅行地图'};
 const $=s=>document.querySelector(s);
@@ -22,6 +22,11 @@ function guideButton(cta){if(!cta)return '';const attr=cta.view&&sceneNames[cta.
 function guidanceHTML(ui,reply=false){if(!ui)return '';if(reply)return '';return ui.status==='loading'?`<div class="scene-guide"><span>${esc(ui.title)}</span><span class="spinner" aria-hidden="true"></span></div>`:'';}
 function initialView(w){const view=w.ui?.view;return sceneNames[view]?view:w.plan?'plan':w.hotel?'hotel':'spot'}
 async function action(name,args={},text=''){
+ // 记录动作前最早未选的宿夜：选定酒店后后端会把它从 unassigned 移除，
+ // 事后再取首位会指向下一晚，导致折叠到错的那一晚。
+ pendingSettledNight=(workspace?.stay_plan?.unassigned||[])[0]||null;
+ // 每次动作都重置：只有刚选定/刚查询的那一晚保持展开，已选的其它夜晚不该一直展开。
+ stayOpenDate='';
  if(busy||!workspace||workspace.archived)return;const wid=workspace.id,epoch=tripEpoch;liveReply='';liveSteps=[];
  const p=workspace.catalog?.[args.id],view=name==='complete_spots'&&Number(workspace.requirements.days)===1?'transport':(name==='place_detail'?args.view||tab:actionViews[name])||(name==='select'?({spot:'spot',hotel:'hotel',train:'transport',flight:'transport',food:'food'}[p?.kind]):null);
  jobUI={action:name,view,status:'loading',title:name==='chat'?'正在理解你的想法':name==='select'?'正在保存你的选择':`正在处理${sceneNames[view]||'旅行条件'}`,message:name==='chat'?'识别需求后，工作台会切换到对应内容。':'结果更新后，可查看推荐与安排建议。'};
@@ -51,6 +56,8 @@ function applyWorkspacePreview(preview){
  render();
 }
 function finishJob(j,name,args){applyQueryControls(j.ui?.controls,false);runningJobId=null;jobUI=null;liveReply='';liveSteps=[];setBusy(false);if(!j.workspace)return;workspace=j.workspace;const performed=(name||j.action)==='chat'?workspace.last_action:name||j.action;if(['train','flight'].includes(performed)&&workspace.transport){transportMode=performed;transportDirection=workspace.transport.direction||'outbound'}const pickedHotel=performed==='select'&&workspace.catalog[args.id]?.kind==='hotel'?args.id:null;
+ // 刚选定的那一晚：逐晚点选时带 stay_date；从主列表点选时，后端会落到最早未选的那一晚，因此用 unassigned 的首位反推。
+ const justSettled=!pickedHotel?'':(args.stay_date||pendingSettledNight||'');
  if(performed==='hotel_detail'||pickedHotel)detailOpenId=pickedHotel||args.id||j.ui?.focus_id;
  // 选择住宿后直接打开该酒店的房型详情：房型已由后端在同一次操作里取回。
  // Room details open only when the user requests them; selecting a hotel stays lightweight.
@@ -59,11 +66,12 @@ function finishJob(j,name,args){applyQueryControls(j.ui?.controls,false);running
  // 所以按"这次是否真的给某晚定好了酒店"来判断，而不是只看动作名。
  // 折叠只影响对应那一晚：未选夜晚展开、已选夜晚折叠、刚选定那一晚强制折叠，
  // 不把其它夜晚一起收起（此前清空 stayOpenDate 会连带折叠所有夜晚）。
- settledNight=performed==='select'&&args.stay_date?args.stay_date:'';
+ settledNight=pickedHotel?justSettled:'';
  if(settledNight)stayOpenDate=settledNight;
  else if(performed==='search_hotels'&&args.stay_date)stayOpenDate=args.stay_date;
 const view=j.ui?.view||actionViews[performed];if(sceneNames[view]&&tab!==view)switchTab(view);else render();if(j.status==='completed'&&workspace.feedback?.id===j.id)toast(workspace.feedback.text);else if(j.status==='completed'&&['search_spots','search_hotels','weather','train','flight'].includes(performed))toast('查询结果已更新，可在右侧查看');if(j.status==='completed'&&performed==='select'){const picked=workspace.catalog[args.id];if(picked&&['train','flight'].includes(picked.kind)&&picked.direction!=='return'&&(!workspace.selected_return||workspace.selected_return.selection_status==='recommended'))$('#return-dialog').showModal()}if(j.ui?.suggested_view&&j.status==='completed'){switchTab(j.ui.suggested_view);toast(workspace.next_step?.message||'往返班次已确认。');if(j.ui.suggested_view==='food'){const slot=nextMealSlot();if(slot){mealDate=slot.date;mealPeriod=slot.period;render();const epoch=tripEpoch,wid=workspace.id;setTimeout(()=>{if(epoch===tripEpoch&&workspace.id===wid&&!busy)action('search_foods',{meal_date:slot.date,meal_period:slot.period})},120)}}}else if(['train','flight'].includes(performed)&&j.status==='completed'){scrollToResults()}
  pickedHotelOpen=null;
+ if(pickedHotel&&j.status==='completed')openRoomView(pickedHotel);
  if(j.error)error(j.error);}
 // 打开某家酒店的房型详情：复用详情弹窗，与点“房型详情”看到的是同一个界面。
 function openRoomView(id){
