@@ -114,11 +114,17 @@ async def search_hotels(w,args,progress,recommend):
             from .locations import locate_hotel
             for p in center_matches:await locate_hotel(w,p,local_tool)
             w['catalog'].update({p['id']:p for p in center_matches})
+    # 主住宿候选单独保存：逐晚查询会替换 w['candidates']，但"设为主住宿"这一组的
+    # 候选必须一直在，否则用户切到某一晚查完就再也看不到主住宿选项。
+    center_bank={**(w.get('center_hotel_quotes') or {})}
+    for p in center_matches:center_bank[p['id']]=p['id']
+    if center_bank:w['center_hotel_quotes']=center_bank
+    center_ids=[cid for cid in (w.get('center_hotel_quotes') or {}) if cid in (w.get('catalog') or {})]
     w['hotel_query']={**(w.get('hotel_query') or {}),'keyword':'','ids':[p['id'] for p in collected],
                       'anchor':(stay_plan.row_for(w,targets[0]) or {}).get('anchor_name'),
                       'anchor_basis':'逐晚以当天最后一个活动为锚点',
-                      'center_matches':[p['id'] for p in center_matches],
-                      'center_basis':'全部已选景点的中心（'+str(center_count)+' 个地点）',
+                      'center_matches':center_ids,
+                      'center_basis':'全部已选景点的中心（'+str(center_count)+' 个地点）' if center_count else '全部已选景点的中心',
                       'source':collected[0].get('source') if collected else None,
                       'stay_plan':w['stay_plan'],'skipped_nights':skipped}
     w['candidates']=collected;w['stage']='住宿'

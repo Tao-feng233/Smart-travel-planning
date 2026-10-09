@@ -192,7 +192,30 @@ def test_timeline_uses_the_same_first_last_day_timing_as_the_plan(monkeypatch):
     assert back_end == 15 * 60 - 75
 
 
+def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
+    """主住宿候选必须留下来：逐晚查询会替换候选列表，但不能让主住宿组消失。
+
+    用户看到的现象：切到某一晚查完，主住宿（全部景点中心）那组就没了。
+    """
+    w = workspace()
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D2, 'period': 'afternoon'}])
+    calls = install(monkeypatch)
+    # 第一次：查全程中心 → 产生主住宿候选
+    asyncio.run(agent.handle(w, 'search_hotels', {}, lambda _: None))
+    first_center = list(w['hotel_query'].get('center_matches') or [])
+    assert first_center, '主住宿组必须有候选'
+    assert any(p.get('center_of_spots') for p in (w['catalog'][i] for i in first_center))
+    # 第二次：只查某一晚 → 主住宿组必须还在
+    calls.clear()
+    asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D2}, lambda _: None))
+    still = list(w['hotel_query'].get('center_matches') or [])
+    assert still == first_center, ('逐晚查询不能让主住宿组消失', first_center, still)
+    assert all(cid in w['catalog'] for cid in still)
+
+
 def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatch):
+
 
 
     """逐晚选择：给某一晚单独选酒店，不得把其它晚一起改成这家。

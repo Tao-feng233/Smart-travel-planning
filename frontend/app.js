@@ -66,10 +66,13 @@ function openRoomView(id){
 
 // 主住宿候选：以"全部已选景点的中心"为参照。设为主住宿后，未单独指定的夜晚都住这家。
 function centerStayHTML(){
- const w=workspace,ids=(w.hotel_query?.center_matches||[]),found=ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
- if(!found.length)return '';
- const basis=w.hotel_query?.center_basis||'全部已选景点的中心';
- return `<div class="stay-plan center-stay"><div class="stay-head"><strong>主住宿（住全程）</strong><small>以${esc(basis)}为参照，适合一次定下全程住宿；未单独指定的夜晚都住这家。</small></div><div class="cards">${found.map(p=>card(p)).join('')}</div><p class="panel-footnote">想让某一晚单独换一家，在下面"住宿编排"里点那一晚的候选即可，不会影响其它夜晚。</p></div>`;
+ const w=workspace,hq=w.hotel_query||{};
+ const ids=(hq.center_matches||[]).length?hq.center_matches:Object.keys(w.center_hotel_quotes||{});
+ const found=ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
+ const basis=hq.center_basis||'全部已选景点的中心';
+ const head=`<div class="stay-head"><strong>主住宿（住全程）</strong><small>以${esc(basis)}为参照，适合一次定下全程住宿；未单独指定的夜晚都住这家。</small></div>`;
+ if(!found.length)return `<div class="stay-plan center-stay">${head}<p class="panel-footnote">还没有以全部景点中心查过主住宿。点上面的“查询住宿”会同时给出这一组候选；也可以直接在住宿编排里逐晚挑。</p></div>`;
+ return `<div class="stay-plan center-stay">${head}<div class="cards">${found.map(p=>card(p)).join('')}</div><p class="panel-footnote">想让某一晚单独换一家，在下面“住宿编排”里点那一晚的候选即可，不会影响其它夜晚。</p></div>`;
 }
 // 逐晚住宿编排：每晚一行，显示该晚锚点、已选酒店与候选卡片。
 // 行内卡片点选=只改这一晚（带上 data-stay-date）；不带则作为主住宿。
