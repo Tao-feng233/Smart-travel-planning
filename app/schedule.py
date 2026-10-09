@@ -179,7 +179,6 @@ def provisional(w):
    if period=='breakfast' and hotel:anchor=hotel
    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'included_in_room':included['included'],'name':label+' · '+('酒店含早（'+included['note']+'）' if included['included'] else p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
   hotel=stay_plan.hotel_for(w,dt)
-  if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
 def pending_legs(w,rows):
@@ -235,7 +234,6 @@ def plan_rows(w,plan,provisional=False):
                 'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
  for dt,cid in stay_plan.assignment_map(w).items():
   h=w.get('catalog',{}).get(cid) or (w.get('hotel') if (w.get('hotel') or {}).get('id')==cid else None)
-  if h:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':cid,'name':h['name'],'confirmed':True,'estimated':True})
  return rows
 
 

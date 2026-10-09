@@ -802,6 +802,7 @@ async def handle(w,action,args,progress):
             elif detail_error:answer=answer_extra+f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。'
             else:answer=answer_extra+f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
             if left:answer+='\n还有 '+str(len(left))+' 晚没有选住宿（'+'、'.join(left)+'）：在住宿编排里逐晚挑，没选就是还没选。'
+            answer+='\n入住时间尚未因选定酒店而确定。你打算自行安排，还是希望我结合抵达和游玩行程给出建议？'
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'+answer_extra
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer
