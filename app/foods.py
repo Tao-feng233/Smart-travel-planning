@@ -356,7 +356,31 @@ def meal_slots(w):
         return []
 
 
+def prune_unavailable(w):
+    """移除时间轴已排不下的就餐选择。
+
+    班次或日期变更后，原先可行的餐次可能变得排不下（例如抵达日改乘晚班车，
+    到店已过晚餐窗口）。这类选择若继续保留，会反复触发同一冲突，让用户"卡住
+    走不下去"——所以这里只做如实清理：能排下的保留，排不下的移除并记录。
+    """
+    choices=dict(w.get('meal_choices') or {})
+    if not choices:return []
+    slots=set(meal_slots(w))
+    if not slots:return []
+    removed=[]
+    for key in list(choices):
+        if key in slots:continue
+        choices.pop(key,None)
+        dt,_,period=key.partition('|')
+        removed.append(dt+' '+(PERIODS.get(period) or period))
+    if removed:
+        w['meal_choices']=choices
+        w['meal_removed_notice']='已移除排不下的餐次选择：'+'、'.join(removed)+'（当天可用时段不足，可改选日期或班次后重选）。'
+    return removed
+
+
 def select_meal(w,args):
+    prune_unavailable(w)
     dates=meal_dates(w['requirements']);dt=args.get('meal_date');period=args.get('meal_period')
     mode=args.get('mode') or args.get('meal_mode') or 'chosen';cid=args.get('food_id') or args.get('id')
     if mode=='self' and not dt and not period:

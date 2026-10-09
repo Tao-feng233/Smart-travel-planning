@@ -261,6 +261,14 @@ async def perform(wid,body,jid,owner_id):
                         answer=await replies.compose(w,answer)
                 performed=w.get('turn_action') if body.action=='chat' else body.action
                 selected_kind=w.get('catalog',{}).get(body.args.get('id'),{}).get('kind') if body.action=='select' else None
+                # 班次、日期或选择变化后，原先可行的餐次可能已排不下（例如抵达日改乘
+                # 晚班车，到店已过晚餐窗口）。这类残留选择会反复触发同一冲突并让用户卡住，
+                # 因此每次动作后如实清理一次，并保留提示说明移除了哪一餐。
+                try:
+                    from .foods import prune_unavailable
+                    prune_unavailable(w)
+                except Exception:
+                    pass
                 choices=json.dumps({'hotel':(w.get('hotel') or {}).get('id'),'outbound':(w.get('selected_transport') or {}).get('id'),'return':(w.get('selected_return') or {}).get('id'),'meals':w.get('meal_choices',{})},sort_keys=True)
                 if tuple(w.get('selected_spots',[]))!=before_spots or performed in ('adjust_timeline','select_room','review_timeline','complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
                     from .travel_preview import refresh

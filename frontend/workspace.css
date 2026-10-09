@@ -166,3 +166,4 @@ body:has(.workbench-expanded) #toast{z-index:19}
 .stay-candidates>summary:hover{color:inherit}
 .stay-candidates .cards{margin-top:6px}
 .stay-unqueried{margin-right:6px;color:#98a2b8}
+.meal-removed-notice{margin:8px 0;padding:8px 10px;border-radius:8px;background:#fdf6ec;color:#8a6636;font-size:12px;line-height:1.6}
