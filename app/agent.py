@@ -20,6 +20,143 @@ def unwrap(d):
         else:break
     return d
 
+async def search_hotels(w,args,progress,recommend):
+    """住宿查询：每晚以"当天最后一个活动"为锚点分别查询，而不是全程一个中心点。
+
+    保留整合分支原有的关键词直查与候选卡片形态；逐晚编排只是把锚点按天算清，
+    并把每一晚的结果分开保存，避免同一天推荐和另一天的候选互相覆盖。
+    """
+    r=w['requirements']
+    from . import stay_plan
+    if args.get('keyword'):
+        # 用户指定品牌或区域：按其条件直查，不按晚锚定。
+        return await search_hotels_by_keyword(w,args,progress,recommend)
+    chosen=[w['catalog'][i] for i in w['selected_spots'] if i in w.get('catalog',{})]
+    if not chosen:raise DataError('先选择景点，我再按每天最后一个活动的位置推荐住宿。也可以明确告诉我想先查哪个住宿区域。')
+    stay=stay_plan.merge_plan(w,stay_plan.plan(w),w.get('stay_plan'))
+    if not stay['nights']:raise DataError('本次行程没有需要住宿的夜晚，可以直接继续规划。')
+    w['stay_plan']=stay
+    explicit=[d for d in (args.get('stay_dates') or []) if d in stay['nights']]
+    if args.get('stay_date') in stay['nights']:explicit=[args['stay_date']]
+    budget=await hotel_query_budget()
+    if explicit:targets=explicit
+    elif budget>0:targets=stay['nights'][:budget]
+    else:
+        # 额度用完：仍查第一晚（用户能看到一条完整样例），其余等用户按晚点开。
+        targets=stay['nights'][:1]
+    skipped=[d for d in stay['nights'] if d not in targets]
+    collected=[]
+    for day in targets:
+        row=stay_plan.row_for(w,day)
+        progress('以'+str(row.get('anchor_name') or r['city'])+'为中心（'+str(row.get('anchor_basis') or '当天收尾地点')+'）查询 '+day+' 当晚住宿')
+        params=stay_plan.day_search_plan(w,day)
+        if r.get('children'):
+            if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店查询需要每位儿童的年龄。')
+            params.update(childNum=int(r['children']),childAges=r['child_ages'])
+        result=await tuniu('hotel','tuniuHotelSearch',params);d=unwrap(result['data'])
+        hotels=d.get('hotels',[]) if isinstance(d,dict) else []
+        items=[]
+        for h in hotels[:4]:
+            # 候选 ID 带上这一晚的日期：同店不同晚的价格与库存不同，不能互相覆盖。
+            items.append({'id':'tuniu:hotel:'+str(h['hotelId'])+'@'+day,'provider_id':h['hotelId'],'kind':'hotel',
+                          'name':h['hotelName'],'address':h.get('address'),'rating':h.get('commentScore'),
+                          'price':h.get('lowestPrice'),'price_basis':day+' 入住列表起价，房型与总价待核实',
+                          'review_summary':h.get('commentDigest'),'area':h.get('business'),'room':h.get('roomName'),
+                          'window':h.get('roomWindow'),'meal':h.get('meal'),'refund':h.get('refund'),
+                          'photos':[h.get('firstPic')] if h.get('firstPic') else [],'source':result['source'],
+                          'query_conditions':dict(params),'quote_date':day,'stay_date':day,
+                          'stay_anchor_id':row.get('anchor_id'),'stay_anchor_name':row.get('anchor_name'),
+                          'location':None,'match_status':'待核对地图位置'})
+        if items:
+            progress('核对 '+day+' 候选酒店的位置与到当天收尾地点的通行')
+            from .locations import locate_hotel
+            for p in items:await locate_hotel(w,p,local_tool)
+            from .access import screen
+            anchor_point=(w.get('catalog') or {}).get(row.get('anchor_id'))
+            items,excluded=await screen(w,items,lambda p:anchor_point,route_options,choose_route)
+            row['excluded']=excluded
+            for p in items:
+                p['anchor_route']=p['access'].get('route');p['route_options']=p['access'].get('options',[])
+                p['anchor_name']=row.get('anchor_name')
+                p['recommendation_basis']=('以当天收尾地点「'+str(row.get('anchor_name'))+'」为参照（'
+                                           +str(row.get('anchor_basis') or '当天最后一个活动')+'），核对 '+day
+                                           +' 当晚通行；'+('已核算该路段。' if p['anchor_route'] else '实际通行尚待核实。'))
+                p['dinner_hint']=stay_plan.dinner_options(w,day,p)
+            w['catalog'].update({p['id']:p for p in items})
+        row['candidate_ids']=[p['id'] for p in items];row['queried_at']=now();row['empty']=not items
+        collected+=items
+    w['stay_plan']['assignments']=stay_plan.assignment_view(w)
+    w['hotel_query']={**(w.get('hotel_query') or {}),'keyword':'','ids':[p['id'] for p in collected],
+                      'anchor':(stay_plan.row_for(w,targets[0]) or {}).get('anchor_name'),
+                      'anchor_basis':'逐晚以当天最后一个活动为锚点',
+                      'source':collected[0].get('source') if collected else None,
+                      'stay_plan':w['stay_plan'],'skipped_nights':skipped}
+    w['candidates']=collected;w['stage']='住宿'
+    if not collected:
+        where='、'.join(str((stay_plan.row_for(w,d) or {}).get('anchor_name') or '当天收尾地点') for d in targets)
+        return '本次在'+where+'周边没有查到酒店。这仅是本次查询结果，不能断定附近没有住宿；可换锚点或放宽条件后重查。'
+    lines=[]
+    for row in stay['rows']:
+        names=[(w['catalog'].get(cid) or {}).get('name') for cid in (row.get('candidate_ids') or [])]
+        names=[x for x in names if x]
+        onway=[x['name'] for x in (row.get('dinner_hint') or []) if x.get('on_the_way')]
+        lines.append('· '+row['date']+' 住'+str(row.get('anchor_name') or '待定')+'周边（'+str(row.get('anchor_basis') or '')
+                     +'）'+('：'+ '、'.join(names) if names else '：本次未查，可点“查这晚”'))
+        if onway:lines[-1]+='；晚餐顺路建议：'+ '、'.join(onway)
+    tail=''
+    if skipped:tail='\n受每日查询额度限制，以下晚次尚未查询，可点对应晚次单独查：'+ '、'.join(skipped)
+    summary=await recommend(w,collected,'按每天收尾地点分别比较位置与通行；每晚给出一组候选，不把未核算路线当最优')
+    return ('已按行程逐晚安排住宿，每晚以当天最后一个活动为中心：\n'+'\n'.join(lines)+tail+'\n'+summary)
+
+async def search_hotels_by_keyword(w,args,progress,recommend):
+    """按用户给出的品牌或区域关键词直查酒店：不按晚锚定。"""
+    r=w['requirements'];keyword=args.get('keyword') or ''
+    progress('按关键词“'+str(keyword)+'”查询途牛酒店候选')
+    params={'cityName':r.get('city'),'checkIn':r.get('start_date'),
+            'checkOut':(date.fromisoformat(r['start_date'])+timedelta(days=max(1,int(r.get('days',2))))).isoformat(),
+            'adultNum':int(r.get('adults') or 2),'keyword':keyword}
+    if r.get('children'):
+        if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店查询需要每位儿童的年龄。')
+        params.update(childNum=int(r['children']),childAges=r['child_ages'])
+    result=await tuniu('hotel','tuniuHotelSearch',params);d=unwrap(result['data'])
+    hotels=d.get('hotels',[]) if isinstance(d,dict) else []
+    w['hotel_query']={**(w.get('hotel_query') or {}),'keyword':keyword,'ids':[],'anchor':r.get('city'),
+                      'anchor_basis':'按关键词直接查询，未按当天收尾地点锚定','source':result['source']}
+    if not hotels:
+        w['candidates']=[]
+        return ('本次未查到“'+str(keyword)+'”相关酒店（'+str(r.get('start_date'))+' 入住）。'
+                '这仅是本次查询结果，不能断定该品牌在当地没有门店；您对位置、价格或房型有什么偏好？'
+                '可据此换关键词，也可以改用按每天收尾地点的住宿推荐。')
+    items=[]
+    for h in hotels[:4]:
+        items.append({'id':'tuniu:hotel:'+str(h['hotelId']),'provider_id':h['hotelId'],'kind':'hotel',
+                      'name':h['hotelName'],'address':h.get('address'),'rating':h.get('commentScore'),
+                      'price':h.get('lowestPrice'),'price_basis':'指定日期列表起价，房型与总价待核实',
+                      'review_summary':h.get('commentDigest'),'area':h.get('business'),'room':h.get('roomName'),
+                      'window':h.get('roomWindow'),'meal':h.get('meal'),'refund':h.get('refund'),
+                      'photos':[h.get('firstPic')] if h.get('firstPic') else [],'source':result['source'],
+                      'query_conditions':params,'location':None,'match_status':'待核对地图位置'})
+    progress('核对候选酒店的地图位置与地址')
+    from .locations import locate_hotel
+    for p in items:await locate_hotel(w,p,local_tool)
+    w['hotel_query']['ids']=[p['id'] for p in items]
+    w['candidates']=items;w['catalog'].update({p['id']:p for p in items});w['stage']='住宿'
+    summary=await recommend(w,items,'按用户指定关键词查询；未按当天收尾地点比较，位置是否合适请结合行程判断')
+    return summary+'\n可展开房型信息。选定酒店后再生成包含住宿往返的计划书。'
+
+async def hotel_query_budget():
+    """本次操作还能发几次住宿查询：受途牛每日查询预算约束，用于"一次查全程"时顺延。"""
+    from .config import setting
+    from .storage import connect
+    limit=int(setting('TUNIU_DAILY_LIMIT','40'))
+    try:
+        import time as _time
+        with connect() as c:
+            used=c.execute('SELECT COUNT(*) FROM calls WHERE provider=? AND time>?',('tuniu',_time.time()-86400)).fetchone()[0]
+    except Exception:
+        return max(0,limit)
+    return max(0,limit-int(used))
+
 def mark_stale(w):
     if w.get('plan'): w['plan']['stale']=True
 
@@ -507,50 +644,7 @@ async def handle(w,action,args,progress):
     if action=='search_hotels':
         if not r.get('start_date') or not r.get('adults'):raise DataError('查住宿前，请补充出游日期和成人/儿童人数。')
         if int(r.get('days',2))==1:raise DataError('当前为一日行程，无默认住宿晚数；需要住宿请明确跨日安排。')
-        chosen=[w['catalog'][i] for i in w['selected_spots']]
-        points=[p for p in chosen if p.get('location')]
-        if points:
-            anchor=min(points,key=lambda p:sum(journey.coordinate_distance(p,q) for q in points));chosen=[anchor]+[p for p in chosen if p['id']!=anchor['id']]
-        if not chosen and not args.get('keyword'):raise DataError('先选择景点，我再按它们的位置推荐住宿。也可以明确告诉我想先查哪个住宿区域。')
-        progress('根据已选景点查询途牛酒店候选')
-        params={'cityName':r['city'],'checkIn':r['start_date'],
-                'checkOut':(date.fromisoformat(r['start_date'])+timedelta(days=int(r.get('days',2)))).isoformat(),'adultNum':int(r['adults'])}
-        if r.get('children'):
-            if len(r.get('child_ages',[]))!=int(r['children']):raise DataError('酒店查询需要每位儿童的年龄。')
-            params.update(childNum=int(r['children']),childAges=r['child_ages'])
-        if chosen:params['poiName']=chosen[0]['name']
-        if args.get('keyword'):params['keyword']=args['keyword']
-        result=await tuniu('hotel','tuniuHotelSearch',params);d=unwrap(result['data'])
-        hotels=d.get('hotels',[]) if isinstance(d,dict) else []
-        w['hotel_query']={'keyword':args.get('keyword',''),'ids':[],'anchor':chosen[0]['name'] if chosen else r['city'],'source':result['source']}
-        if not hotels:
-            w['candidates']=[]
-            return f'本次未查到{args.get("keyword") or "符合条件的酒店"}（{w["hotel_query"]["anchor"]}周边，指定入住日期）。这仅是本次查询结果，不能断定附近没有住宿。您对位置、价格或房型有什么偏好？可据此扩大范围继续查询。'
-        items=[]
-        for h in hotels[:4]:
-            p={'id':'tuniu:hotel:'+str(h['hotelId']),'provider_id':h['hotelId'],'kind':'hotel','name':h['hotelName'],
-               'address':h.get('address'),'rating':h.get('commentScore'),'price':h.get('lowestPrice'),'price_basis':'指定日期列表起价，房型与总价待核实',
-               'review_summary':h.get('commentDigest'),'area':h.get('business'),'room':h.get('roomName'),'window':h.get('roomWindow'),
-               'meal':h.get('meal'),'refund':h.get('refund'),'photos':[h.get('firstPic')] if h.get('firstPic') else [],
-               'source':result['source'],'query_conditions':params,'location':None,'match_status':'待核对地图位置'}
-            items.append(p)
-        w['catalog'].update({p['id']:p for p in items})
-        w['hotel_query']['ids']=[p['id'] for p in items];w['candidates']=items
-        progress('基础酒店资料已到达，正在核对地图位置及通行')
-        progress('核对酒店地图位置，并比较到已选景点的真实通行')
-        from .locations import locate_hotel
-        for p in items:await locate_hotel(w,p,local_tool)
-        from .access import screen
-        items,excluded=await screen(w,items,lambda p:chosen[0] if chosen else None,route_options,choose_route)
-        w['hotel_query']['excluded']=excluded
-        for p in items:
-            if chosen:
-                p['anchor_route']=p['access'].get('route');p['route_options']=p['access'].get('options',[]);p['anchor_name']=chosen[0]['name']
-                if p.get('location'):p['area_comparison']=[{'name':q['name'],'straight_km':round(journey.coordinate_distance(p,q),1)} for q in chosen[:8] if q.get('location')]
-                p['recommendation_basis']='以'+chosen[0]['name']+'为主要区域参照，结合'+str(len(chosen))+'个已选地点分布比较；'+('已核算参照路段。' if p['anchor_route'] else '实际通行尚待核实。')+'其余直线距离仅用于位置比较。'
-        summary=await recommend(w,items,'根据已选景点和住宿偏好比较；结合所选地点分布和已计算路线比较，不把未核算路线当全程最优')
-        w['hotel_query']['ids']=[p['id'] for p in items];w['candidates']=items;w['catalog'].update({p['id']:p for p in items});w['stage']='住宿'
-        return summary+'\n可展开房型信息。选定酒店后再生成包含住宿往返的计划书。'
+        return await search_hotels(w,args,progress,recommend)
     if action=='weather':
         p=next((w['catalog'][i] for i in w['selected_spots'] if w['catalog'][i].get('location')),None)
         if not p:raise DataError('先查询或选择一个目的地景点，用真实坐标查天气。')
