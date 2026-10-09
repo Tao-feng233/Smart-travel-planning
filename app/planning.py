@@ -460,8 +460,12 @@ async def _generate(w, progress, *, preview=False):
             except (KeyError,TypeError,ValueError):value=None
             if value is None:unknown.append(night+'住宿价格')
             refs.append({'date':night,'hotel_id':cid,'reference':value*rooms if value is not None else None})
-        plan['budget']={'hotel_reference':sum(x['reference'] for x in refs) if refs and not unknown else None,
-            'nightly_reference':refs,'nights':len(refs),'rooms':rooms,'basis':'各晚有效列表起价参考分别汇总，非已确认房费；未知项未按零计算',
+        # 已给出价格的夜晚先如实汇总；缺失的夜晚单独列出，不因个别未知就把整栏置空。
+        priced=[x for x in refs if x['reference'] is not None]
+        plan['budget']={'hotel_reference':sum(x['reference'] for x in priced) if priced else None,
+            'nights_priced':len(priced),'nights':len(refs),'rooms':rooms,
+            'basis':'各晚有效列表起价参考分别汇总（仅计入已给出价格的 ' + str(len(priced)) + ' 晚），非已确认房费；未知项未按零计算',
+            'nightly_reference':refs,
             'unknown':unknown+['往返交通','门票实际日期及适用票种','餐饮','市内交通','房型与实际住宿总价']}
     plan['selected_room']=w.get('selected_room')
     if hotel and not w.get('selected_room'):
