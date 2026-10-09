@@ -1,4 +1,4 @@
-let workspace=null,tab='spot',busy=false,renderedMessages='',detailOpenId=null,jobUI=null,destinationPage=1,transportMode='train',transportDirection='outbound',trainType='all',timeStart='',timeEnd='',replaceTarget=null,liveReply='',liveSteps=[],workbenchExpanded=false,transportDates={},mealDate='',mealPeriod='lunch',foodAnchor='',pickedHotelOpen=null;
+let workspace=null,tab='spot',busy=false,renderedMessages='',detailOpenId=null,jobUI=null,destinationPage=1,transportMode='train',transportDirection='outbound',trainType='all',timeStart='',timeEnd='',replaceTarget=null,liveReply='',liveSteps=[],workbenchExpanded=false,transportDates={},mealDate='',mealPeriod='lunch',foodAnchor='',pickedHotelOpen=null,stayOpenDate='';
 const actionViews={discover_destinations:'spot',choose_destination:'spot',spots_page:'spot',dismiss_spot:'spot',complete_spots:'hotel',complete_hotel:'transport',skip_hotel:'transport',plan:'plan',optimize_plan:'plan',complete_food:'plan',visit_schedule:'spot',search_foods:'food',meal_choice:'food',search_hotels:'hotel',hotel_detail:'hotel',select_room:'hotel',train:'transport',flight:'transport',search_spots:'spot',ticket:'spot',weather:'weather'};
 const sceneNames={spot:'目的地与景点',hotel:'住宿选择',transport:'往返交通',weather:'天气',plan:'旅行计划书',knowledge:'资料与依据',food:'餐饮选择',map:'旅行地图'};
 const $=s=>document.querySelector(s);
@@ -56,6 +56,9 @@ function finishJob(j,name,args){applyQueryControls(j.ui?.controls,false);running
  if(pickedHotel&&workspace.catalog[pickedHotel]?.room_choices?.length)pickedHotelOpen=pickedHotel;
 const view=j.ui?.view||actionViews[performed];if(sceneNames[view]&&tab!==view)switchTab(view);else render();if(j.status==='completed'&&workspace.feedback?.id===j.id)toast(workspace.feedback.text);else if(j.status==='completed'&&['search_spots','search_hotels','weather','train','flight'].includes(performed))toast('查询结果已更新，可在右侧查看');if(j.status==='completed'&&performed==='select'){const picked=workspace.catalog[args.id];if(picked&&['train','flight'].includes(picked.kind)&&picked.direction!=='return'&&(!workspace.selected_return||workspace.selected_return.selection_status==='recommended'))$('#return-dialog').showModal()}if(j.ui?.suggested_view&&j.status==='completed'){switchTab(j.ui.suggested_view);toast(workspace.next_step?.message||'往返班次已确认。');if(j.ui.suggested_view==='food'){const slot=nextMealSlot();if(slot){mealDate=slot.date;mealPeriod=slot.period;render();const epoch=tripEpoch,wid=workspace.id;setTimeout(()=>{if(epoch===tripEpoch&&workspace.id===wid&&!busy)action('search_foods',{meal_date:slot.date,meal_period:slot.period})},120)}}}else if(['train','flight'].includes(performed)&&j.status==='completed'){scrollToResults()}
  if(pickedHotelOpen&&pickedHotelOpen===pickedHotel)openRoomView(pickedHotel);pickedHotelOpen=null;
+ // 选好某一晚的住宿后把那一晚折叠起来；查过某一晚则保持该晚展开。
+ if(performed==='select'&&args.stay_date)stayOpenDate='';
+ else if(performed==='search_hotels'&&args.stay_date)stayOpenDate=args.stay_date;
  if(j.error)error(j.error);}
 // 打开某家酒店的房型详情：复用详情弹窗，与点“房型详情”看到的是同一个界面。
 function openRoomView(id){
@@ -91,7 +94,10 @@ function stayPlanHTML(){
   const sub=chosen?'这一晚单独指定'
    :'尚未选这一晚的住宿'+(row.anchor_is_station?'（次日赶车，建议靠近出发站）':'');
   const onway=(row.dinner_hint||[]).filter(x=>x.on_the_way).map(x=>x.name);
-  return `<div class="stay-row${chosen?'':' needs-hotel'}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${found.length?`<div class="cards stay-cards">${found.map(card).join('')}</div>`:''}</div>`;
+  // 已选好住宿的那一晚折叠候选，避免整页一直是长列表；要换再点开。
+  const expanded=!chosen||stayOpenDate===row.date;
+  const body=found.length?`<details class="stay-candidates"${expanded?' open':''}><summary>${chosen?'想换这一晚的住宿':'这一晚的候选'}（${found.length} 家）</summary><div class="cards stay-cards">${found.map(card).join('')}</div></details>`:'';
+  return `<div class="stay-row${chosen?'':' needs-hotel'}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${body}</div>`;
  }).join('');
  const pending=(stay.unassigned||[]).length;
  return `<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${rows}${pending?`<p class="panel-footnote">还有 ${pending} 晚没有选住宿（${esc((stay.unassigned||[]).join('、'))}）：没选就是还没选，在对应夜晚点候选卡片即可。</p>`:`<p class="panel-footnote">${(stay.rows||[]).length} 晚都已选定。要换某一晚，点那一晚的候选卡片即可，不影响其它夜晚。</p>`}</div>`;
@@ -244,7 +250,7 @@ document.addEventListener('click',async e=>{
  if(b.dataset.dismiss){await action('dismiss_spot',{id:b.dataset.dismiss});return}
  if(b.hasAttribute('data-open-settings')){$('#conditions').click();return}
  if(b.dataset.tab){switchTab(b.dataset.tab);return}
- if(b.dataset.action){await action(b.dataset.action,b.dataset.direction?{direction:b.dataset.direction}:{});return}
+ if(b.dataset.action){const row=b.closest('.stay-row');const stayArgs=row?.dataset.stayDate?{stay_date:row.dataset.stayDate}:{};if(stayArgs.stay_date&&b.dataset.action==='search_hotels')stayOpenDate=stayArgs.stay_date;await action(b.dataset.action,b.dataset.direction?{direction:b.dataset.direction}:stayArgs);return}
  if(b.hasAttribute('data-search-foods')){await action('search_foods',{meal_date:mealDate||workspace.requirements.start_date,meal_period:mealPeriod,anchor_id:document.querySelector('#food-anchor')?.value||undefined});return}
  if(b.dataset.food){await action('meal_choice',{food_id:b.dataset.food,meal_date:mealDate||workspace.requirements.start_date,meal_period:mealPeriod,meal_mode:'chosen'});return}
  if(b.hasAttribute('data-meal-remove')){await action('meal_choice',{meal_date:mealDate||workspace.requirements.start_date,meal_period:mealPeriod,mode:'remove'});return}

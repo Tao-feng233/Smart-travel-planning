@@ -157,3 +157,11 @@ body:has(.workbench-expanded) #toast{z-index:19}
 .stay-cards .card p{font-size:11px;overflow-wrap:anywhere}
 .stay-cards .card-actions{gap:6px}
 .stay-cards .price{font-size:14px}
+
+.stay-candidates{grid-column:1 / -1;margin-top:4px}
+.stay-candidates>summary{cursor:pointer;font-size:11px;color:var(--muted);padding:2px 0;list-style:none}
+.stay-candidates>summary::-webkit-details-marker{display:none}
+.stay-candidates>summary::before{content:"\25B8  ";font-size:10px}
+.stay-candidates[open]>summary::before{content:"\25BE  "}
+.stay-candidates>summary:hover{color:inherit}
+.stay-candidates .cards{margin-top:6px}
