@@ -165,3 +165,4 @@ body:has(.workbench-expanded) #toast{z-index:19}
 .stay-candidates[open]>summary::before{content:"\25BE  "}
 .stay-candidates>summary:hover{color:inherit}
 .stay-candidates .cards{margin-top:6px}
+.stay-unqueried{margin-right:6px;color:#98a2b8}

@@ -45,6 +45,8 @@ dialog:not([open]){display:none!important}dialog[open]{position:fixed;inset:50% 
 
 #candidate-dialog[open]{inset:0;margin:auto;transform:none;height:fit-content}
 button.inline-execute{background:transparent!important;color:#405fae!important}button.timeline-entry{background:transparent!important;color:#8090ac!important}button.timeline-entry.active{background:#eaf0ff!important;color:#405faa!important}button.timeline-entry:hover{background:#f3f6fc!important}
+/* 选择阶段的时段条目同样是时间轴里的普通按钮，不能继承全局蓝色实心按钮样式。 */
+button.timeline-phase{background:#fbfcff!important;color:#4a5568!important}button.timeline-phase:hover{background:#f4f7fd!important}button.timeline-phase .timeline-phase-label{background:#eaf0fb!important;color:#4a6cae!important}
 
 /* Compact map launcher is also a draggable surface. */
 .selection-minimap.collapsed{width:48px;height:48px;border-radius:14px;box-shadow:0 5px 18px #334e7b1c;background:#f8faff}

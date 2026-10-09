@@ -54,12 +54,13 @@ function finishJob(j,name,args){applyQueryControls(j.ui?.controls,false);running
  if(performed==='hotel_detail'||pickedHotel)detailOpenId=pickedHotel||args.id||j.ui?.focus_id;
  // 选择住宿后直接打开该酒店的房型详情：房型已由后端在同一次操作里取回。
  // Room details open only when the user requests them; selecting a hotel stays lightweight.
- // 折叠状态必须在 render() 之前定好：选好某一晚就收起该晚，刚查过某一晚则保持展开。
- // 放到 render() 之后再改，等于改了状态却没重画。选房型（select_room）之后也会重画，
- // 所以按"这次是否真的给某晚定好了酒店"来判断，而不是只看动作名。
- const hotelJustSettled=!!(workspace.stay_plan&&(performed==='select'||performed==='select_room')
-                           &&workspace.catalog[args.id]?.kind==='hotel');
- if(hotelJustSettled)stayOpenDate='';
+ // 折叠状态在 render() 之前定好，且只影响对应那一晚：
+ //   未选的夜晚 → 展开（要挑候选）
+ //   已选的夜晚 → 折叠，除非 stayOpenDate 指向它（用户想看/要换）
+ //   刚刚选定那一晚 → 强制折叠（选完就收起），不会连带折叠别的夜晚
+ // 之前用 stayOpenDate='' 清空，等于把所有夜晚一起折叠，未查过的夜晚也跟着收起来。
+ const settledNight=performed==='select'&&args.stay_date?args.stay_date:'';
+ if(settledNight)stayOpenDate=settledNight;
  else if(performed==='search_hotels'&&args.stay_date)stayOpenDate=args.stay_date;
 const view=j.ui?.view||actionViews[performed];if(sceneNames[view]&&tab!==view)switchTab(view);else render();if(j.status==='completed'&&workspace.feedback?.id===j.id)toast(workspace.feedback.text);else if(j.status==='completed'&&['search_spots','search_hotels','weather','train','flight'].includes(performed))toast('查询结果已更新，可在右侧查看');if(j.status==='completed'&&performed==='select'){const picked=workspace.catalog[args.id];if(picked&&['train','flight'].includes(picked.kind)&&picked.direction!=='return'&&(!workspace.selected_return||workspace.selected_return.selection_status==='recommended'))$('#return-dialog').showModal()}if(j.ui?.suggested_view&&j.status==='completed'){switchTab(j.ui.suggested_view);toast(workspace.next_step?.message||'往返班次已确认。');if(j.ui.suggested_view==='food'){const slot=nextMealSlot();if(slot){mealDate=slot.date;mealPeriod=slot.period;render();const epoch=tripEpoch,wid=workspace.id;setTimeout(()=>{if(epoch===tripEpoch&&workspace.id===wid&&!busy)action('search_foods',{meal_date:slot.date,meal_period:slot.period})},120)}}}else if(['train','flight'].includes(performed)&&j.status==='completed'){scrollToResults()}
  pickedHotelOpen=null;
@@ -99,9 +100,9 @@ function stayPlanHTML(){
    :'尚未选这一晚的住宿'+(row.anchor_is_station?'（次日赶车，建议靠近出发站）':'');
   const onway=(row.dinner_hint||[]).filter(x=>x.on_the_way).map(x=>x.name);
   // 已选好住宿的那一晚折叠候选，避免整页一直是长列表；要换再点开。
-  const expanded=!chosen||stayOpenDate===row.date;
+  const expanded=(!chosen||stayOpenDate===row.date)&&settledNight!==row.date;
   const body=found.length?`<details class="stay-candidates"${expanded?' open':''}><summary>${chosen?'想换这一晚的住宿':'这一晚的候选'}（${found.length} 家）</summary><div class="cards stay-cards">${found.map(card).join('')}</div></details>`:'';
-  return `<div class="stay-row${chosen?'':' needs-hotel'}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${body}</div>`;
+  return `<div class="stay-row${chosen?'':' needs-hotel'}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<small class="stay-unqueried">尚未查询</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${body}</div>`;
  }).join('');
  const pending=(stay.unassigned||[]).length;
  return `<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${rows}${pending?`<p class="panel-footnote">还有 ${pending} 晚没有选住宿（${esc((stay.unassigned||[]).join('、'))}）：没选就是还没选，在对应夜晚点候选卡片即可。</p>`:`<p class="panel-footnote">${(stay.rows||[]).length} 晚都已选定。要换某一晚，点那一晚的候选卡片即可，不影响其它夜晚。</p>`}</div>`;
