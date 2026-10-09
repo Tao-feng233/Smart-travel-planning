@@ -19,6 +19,56 @@ BREAKFAST_SIGNALS=('早餐','早点','包子','馒头','粥','豆浆','油条','
 # 每餐最终给几个候选：用户要求 5~6 个。
 MEAL_LIMIT=6
 
+# 房型报价里的餐食文本形如"含双早""无早餐""含早餐""含单早"。据此判断这一晚
+# 是否已经在房费里带了早餐——带了就不该再推荐早点铺、也不该重复计早餐费用。
+MEAL_INCLUDED_PATTERNS=('含早','含早餐','含双早','含单早','双早','单早','含餐','含双餐','早餐2份','早餐两份','含2早','含二早','自助早')
+MEAL_EXCLUDED_PATTERNS=('无早','不含早','不含餐','无早餐','不含早餐','自行解决','不含餐食','无餐')
+
+
+def parse_room_meal(text):
+    """解析房型餐食文本，返回 (是否含早, 份数, 说明)。
+
+    只按字面判断，不做推断：认不出来就当"未说明"，交给用户决定，
+    不能把"未说明"当成"含早"（那样会漏掉真实需要的早餐推荐）或"不含"。
+    """
+    raw=str(text or '').strip()
+    if not raw:return (None,0,'房型报价未说明是否含早')
+    if any(x in raw for x in MEAL_EXCLUDED_PATTERNS):return (False,0,raw)
+    if any(x in raw for x in MEAL_INCLUDED_PATTERNS):
+        count=2 if any(x in raw for x in ('双早','2份','两份','含2早','含二早','双餐')) else 1
+        return (True,count,raw)
+    return (None,0,raw)
+
+
+def stay_hotel_for(w,dt):
+    """某晚实际入住的酒店：逐晚指定优先，其次最近选定的那一家。"""
+    stays=w.get('stay_hotels') or {}
+    hotel_id=stays.get(dt)
+    if hotel_id:
+        return (w.get('catalog') or {}).get(hotel_id)
+    current=w.get('hotel') or {}
+    # 只有这一晚没有别的指定、且主记录代表这一晚时才用它
+    return current if current.get('id') and not stays else current or None
+
+
+def included_meal(w,dt,period='breakfast'):
+    """这一晚的房型是否已含该餐。返回 {'included':bool,'count':int,'note':str,'hotel':id}。"""
+    room=w.get('selected_room') or {}
+    if period!='breakfast' or not room:
+        return {'included':False,'count':0,'note':'','hotel':None}
+    included,count,note=parse_room_meal(room.get('meal'))
+    if not included:return {'included':False,'count':0,'note':note,'hotel':None}
+    hotel=stay_hotel_for(w,dt)
+    return {'included':True,'count':count,'note':note,'hotel':(hotel or {}).get('id')}
+
+
+def meal_note(w,dt,period):
+    """该餐次给用户的一句话说明（含早时说明无需另选，但仍可出去吃）。"""
+    info=included_meal(w,dt,period)
+    if not info['included']:return ''
+    return ('房型已含'+PERIODS[period]+'（'+str(info['note'])+'），无需另选；'
+            '如想出去吃，可在本页自行选择餐厅。')
+
 
 def is_breakfast_place(p):
     """这家店是不是早餐类：名称／类型／标签里出现早点信号词。"""

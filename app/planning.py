@@ -198,6 +198,17 @@ async def _generate(w, progress):
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
+        # 房型已含早餐：就在酒店吃，不推荐早点铺、不计通行、也不再计一份早餐费用。
+        if period=='breakfast':
+            info=foods.included_meal(w,dt,'breakfast')
+            if info['included']:
+                hotel=(catalog.get(info.get('hotel')) or {}) if info.get('hotel') else (w.get('hotel') or {})
+                events.append({'kind':'meal','name':'早餐 · 酒店含早'+('（'+str(info['note'])+'）' if info.get('note') else ''),
+                               'start':clock(t),'end':clock(t+duration),'meal_period':period,
+                               'included_in_room':True,'cost':'已包含在房费内',
+                               'note':'房型报价含早餐，在酒店用餐；如想出去吃，可在餐饮页自行选择餐厅。',
+                               'source':(hotel or {}).get('source'),'candidate_id':(hotel or {}).get('id')})
+                return events,t+duration,last
         if p:
             from .schedule import meal_window
             earliest,latest=meal_window(w,dt,period)

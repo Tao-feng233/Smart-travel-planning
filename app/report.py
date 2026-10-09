@@ -15,10 +15,19 @@ def markdown(w):
         lines += [f"已选房型：{room['name']}，{room['quantity']}间；参考报价：¥{room.get('price','待核实')}，报价覆盖日期与整段总价需核实。",f"餐食：{room.get('meal') or '待核实'}；退改：{room.get('cancel') or '待核实'}"]
         lines += ['- '+x for x in room.get('review',{}).get('issues',[])]+['']
     lines+=['## 用餐选择（可选）','']
+    from . import foods as _foods
+    from .journey import meal_dates as _meal_dates
+    included_notes=[]
+    for dt in _meal_dates(w.get('requirements') or {}):
+        note=_foods.meal_note(w,dt,'breakfast')
+        if note:included_notes.append(dt+'：'+note)
     for key,value in w.get('meal_choices',{}).items():
         restaurant=w.get('catalog',{}).get(value.get('food_id'),{})
         lines+=['- '+key.replace('|',' · ').replace('breakfast','早餐').replace('lunch','午餐').replace('dinner','晚餐')+ '：'+(restaurant.get('name','餐厅待核实') if value.get('mode')=='chosen' else '自行安排')]
-    if not w.get('meal_choices'):lines+=['用餐自行安排，可临时调整，不影响其他选择。']
+    if included_notes:
+        # 房型含早时说清这一餐已在房费内，不再需要另选；想出去吃仍可自行选择。
+        lines+=['','房型含早（无需另选，想出去吃可自行到餐饮页选择）：']+['- '+x for x in included_notes]
+    if not w.get('meal_choices') and not included_notes:lines+=['用餐自行安排，可临时调整，不影响其他选择。']
     lines+=['','## 往返交通','']
     for label,key in [('去程','selected_transport'),('返程','selected_return')]:
         tr=w.get(key)

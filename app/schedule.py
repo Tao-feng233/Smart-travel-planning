@@ -104,6 +104,16 @@ def provisional(w):
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
    if not choice and (w.get('meal_mode')=='self' or w.get('dining_reviewed')):choice={'mode':'self'}
    p=point(w,choice.get('food_id'))
+   # 房型已含早餐：时间轴直接写"酒店含早"，不再显示"待选择"（但保留出去吃的入口）。
+   from . import foods as _foods
+   included=_foods.included_meal(w,dt,period) if period=='breakfast' else {'included':False}
+   if included.get('included'):
+    stay_hotel=point(w,included.get('hotel')) or hotel
+    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,
+                 'name':label+' · 酒店含早'+('（'+str(included.get('note'))+'）' if included.get('note') else ''),
+                 'candidate_id':(stay_hotel or {}).get('id'),'anchor_id':(stay_hotel or {}).get('id'),
+                 'confirmed':True,'estimated':True,'included_in_room':True})
+    continue
    before=[x for x in arranged if minutes(x['time'])<=at]
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
