@@ -1,3 +1,5 @@
+from .locations import quote_stale
+
 def markdown(w):
     p=w['plan'];r=w['requirements']
     lines=['# '+p['title'],'',f"生成时间：{p['created']}；工作区版本：{w['revision']}",'',
@@ -7,6 +9,7 @@ def markdown(w):
     h=w.get('hotel')
     if h:
         lines += [h['name']+'（选定，尚未预订）',h.get('address',''),f"列表起价：¥{h.get('price','未知')}；房型及住宿总价待核实",f"来源：{h['source']['name']}，查询时间：{h['source']['queried_at']}",'']
+        if quote_stale(h):lines+=['该起价及房型信息来自原查询，已标记待更新；酒店位置保留，不能据此确认本次住宿费用。','']
     else:lines+=['未确定住宿。','']
     room=w.get('selected_room')
     if h and not room:

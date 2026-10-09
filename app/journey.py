@@ -116,23 +116,27 @@ def next_step(w):
     if w.get('plan') and not w['plan'].get('stale'):
         return {'message':'请查看已生成的旅行计划书；如需调整日期、景点、住宿或餐饮，直接在对话中告诉我。','view':'plan','label':'查看计划书'}
     r=w['requirements'];missing=[label for k,label in [('city','目的地'),('start_date','出游日期'),('days','游玩天数'),('adults','成人数')] if not r.get(k)]
-    if not r.get('city'):return {'message':'请先在右侧选定旅游地区，或在对话中告诉我目的地。选定后再比较具体景点，并补充出游日期与人数。','view':'spot','missing':missing}
-    if missing:return {'message':'请补充'+ '、'.join(missing)+'，可直接在对话中提供或手动填写。','view':'hotel' if w.get('spots_confirmed') else 'spot','missing':missing}
-    if not w.get('selected_spots'):return {'message':'请在右侧选择想去的景点。','view':'spot'}
-    if not w.get('spots_confirmed'):return {'message':'请先完成当前景点选择，点击“完成景点选择”；完成后比较住宿位置与房型。','view':'spot','action':'complete_spots','label':'完成景点选择'}
+    if not r.get('city'):return {'message':'可以在右侧比较旅游地区，或在对话中告诉我目的地；确定后再挑选景点。','view':'spot','missing':missing}
+    if not w.get('spots_confirmed'):
+        message='可以继续在右侧比较并选择感兴趣的景点。'
+        if missing:message+='选择完成后，请补充一下'+ '、'.join(missing)+'等相关信息，便于结合人数与时间细化安排；可在对话中提供或手动填写。'
+        else:message+='选择完成后，可以根据景点位置比较住宿；具体房型可稍后选择。'
+        return {'message':message,'view':'spot','missing':missing,**({'action':'complete_spots','label':'完成景点选择'} if w.get('selected_spots') else {})}
+    if missing:return {'message':'景点选择已确认。请补充一下'+ '、'.join(missing)+'等相关信息，便于按实际日期与人数比较住宿和细化安排；可在对话中提供或手动填写。','view':'hotel','missing':missing}
     skip_stay=w.get('stay_skipped') or int(r.get('days') or 0)==1
-    if not skip_stay and (not w.get('hotel') or w['hotel'].get('stale')):return {'message':'请选择有效住宿位置，也可以选择暂不安排住宿。具体房型可选。','view':'hotel'}
+    from .locations import selected_hotel
+    if not skip_stay and not selected_hotel(w):return {'message':'可以按景点位置比较住宿，选定酒店后继续安排交通；也可以暂不安排住宿，具体房型可稍后选择。','view':'hotel'}
     if is_local(r):return dining_step(w)
-    if not r.get('origin'):return {'message':'请补充出发城市，然后查询往返交通。','view':'transport','missing':['出发城市']}
+    if not r.get('origin'):return {'message':'提供出发城市后，可以查询并比较往返交通。','view':'transport','missing':['出发城市']}
     for slot,label in [('selected_transport','去程'),('selected_return','返程')]:
         tr=w.get(slot)
-        if not tr:return {'message':'请选定'+label+'班次。','view':'transport'}
-        if tr.get('selection_status')=='recommended':return {'message':'请核对并确认推荐的'+label+'班次。','view':'transport'}
+        if not tr:return {'message':'可以比较'+label+'班次的出发和到达时间；选定后会据此核对首尾日安排。','view':'transport'}
+        if tr.get('selection_status')=='recommended':return {'message':'当前'+label+'班次为推荐方案，核对并确认后即可用于行程安排。','view':'transport'}
     return dining_step(w)
 
 def dining_step(w):
     if not w.get('dining_reviewed') and w.get('meal_mode')!='self':
-        return {'message':'请先查看餐饮安排，可按日期和餐次选餐厅，也可明确选择自行安排；完成后生成旅行计划书。','view':'food','action':'search_foods','label':'查看周边餐厅'}
+        return {'message':'可以按日期和餐次比较餐厅，也可以选择自行安排；确认餐饮安排后即可生成旅行计划书。','view':'food','action':'search_foods','label':'查看周边餐厅'}
     return {'message':'景点、住宿、交通与餐饮安排已基本完成，可以生成旅行计划书。','view':'plan','action':'plan','label':'生成旅行计划书'}
 
 def selection_assessment(w):

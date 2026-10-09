@@ -20,7 +20,7 @@ def test_complete_hotel_without_room_does_not_fetch_or_select_rates(monkeypatch)
     monkeypatch.setattr(agent,'tuniu',forbidden)
     answer=asyncio.run(agent.handle(w,'complete_hotel',{},lambda _:None))
     assert w['hotel']['id']=='h' and w['selected_room'] is None
-    assert w['ui']['view']=='food' and '下一步' in answer
+    assert w['ui']['view']=='food' and '餐饮安排' in answer and '下一步：' not in answer
 
 
 def test_next_step_and_guidance_accept_hotel_location_without_room():
@@ -51,8 +51,8 @@ def test_auto_hotel_selection_does_not_depend_on_room_provider():
     assert calls==['search_hotels','select'] and w['hotel']['id']=='h' and w['selected_room'] is None
 
 
-def test_stale_hotel_still_requires_refresh():
-    w=trip();w['hotel']['stale']=True
+def test_invalid_hotel_location_still_requires_refresh():
+    w=trip();w['hotel']['location_stale']=True
     with pytest.raises(agent.DataError,match='有效住宿'):
         asyncio.run(agent.handle(w,'complete_hotel',{},lambda _:None))
 

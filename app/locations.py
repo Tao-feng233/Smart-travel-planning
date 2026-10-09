@@ -20,6 +20,26 @@ def endpoint(p,entrance=True):
     return (coordinate(p.get('entrance')) if entrance else None) or coordinate(p.get('location'))
 
 
+def selected_hotel(w):
+    """Hotel identity/location selection is independent of quote freshness."""
+    h=w.get('hotel')
+    if not h or h.get('selection_stale') or h.get('location_stale'):return None
+    city=(h.get('query_conditions') or {}).get('cityName') or h.get('city')
+    key=lambda s:str(s or '').strip().removesuffix('市')
+    if city and w['requirements'].get('city') and key(city)!=key(w['requirements']['city']):return None
+    return h
+
+
+def hotel_anchor(w):
+    h=selected_hotel(w)
+    return h if h and endpoint(h) and h.get('location_status') not in ('ambiguous','not_found') else None
+
+
+def quote_stale(h):
+    # Earlier versions used stale for date/occupancy changes on selected hotels.
+    return bool(h and (h.get('quote_stale') or h.get('stale')))
+
+
 def normal(value,city=''):
     s=unicodedata.normalize('NFKC',str(value or '')).casefold()
     # Remove only geographic prefixes, punctuation and the generic hotel suffix.

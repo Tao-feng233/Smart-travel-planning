@@ -1,0 +1,13 @@
+[
+  {
+    "city": "青岛",
+    "names": ["青岛市博物馆", "青岛博物馆"],
+    "checked_at": "2026-10-09",
+    "note": "官方说明普通参观免费；预约名额、特殊展览及讲解等附加服务需单独核实。",
+    "source": {
+      "name": "青岛市博物馆：免费开放实施办法",
+      "url": "https://www.qingdaomuseum.cn/service/free",
+      "queried_at": "2026-10-09"
+    }
+  }
+]

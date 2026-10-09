@@ -154,6 +154,7 @@ async def run(w, args, progress, model, handle, continuing=False):
     # old selection. Each successful meal is kept if a later meal cannot be filled.
     transport = {k: copy.deepcopy(w.get(k)) for k in ('selected_transport', 'selected_return')}
     notes = state['messages']; cat = w['catalog']; mode = state['mode']
+    from .locations import selected_hotel
     try:
         if not state['started']:
             for category in state['categories']:
@@ -169,7 +170,7 @@ async def run(w, args, progress, model, handle, continuing=False):
                         transport={k:copy.deepcopy(w.get(k)) for k in ('selected_transport','selected_return')}
                         notes.append('已选择目的地：'+place['name']+'。'+reason)
                     elif category=='spots' and (mode=='replace' or not w.get('selected_spots')):
-                        await handle(w, 'search_spots', {}, progress)
+                        await handle(w, 'search_spots', {'preference_mode':'default'}, progress)
                         ids = (w.get('spot_search') or {}).get('ids') or [p['id'] for p in w.get('candidates', []) if p.get('kind')=='spot']
                         pool = [cat[i] for i in ids if i in cat and cat[i].get('kind')=='spot' and not cat[i].get('stale')]
                         chosen, reason = await choose(w, pool, '选择适合本次旅行的一组景点', model, many=True)
@@ -181,7 +182,7 @@ async def run(w, args, progress, model, handle, continuing=False):
                         from .visit_analysis import analyze
                         await analyze(w, model, progress)
                         notes.append('已选择景点：'+'、'.join(cat[i]['name'] for i in chosen)+'。'+reason)
-                    elif category=='hotel' and (mode=='replace' or not w.get('hotel') or w['hotel'].get('stale')):
+                    elif category=='hotel' and (mode=='replace' or not selected_hotel(w)):
                         if int(w['requirements']['days'])==1 or mode=='remaining' and w.get('stay_skipped'):
                             notes.append('保留一日游或自行安排住宿的选择。'); continue
                         await handle(w, 'search_hotels', {}, progress)

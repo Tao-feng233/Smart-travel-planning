@@ -37,10 +37,11 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
         if action=='ticket':return output('门票结果已更新','在景点卡片中核对票种、适用日期与预约要求。','查看门票',view='spot')
         if action in ('select','dismiss_spot'):
             return output(f'已选择 {len(selected)} 个景点','可以继续比较其他景点；确认后点击列表上方“完成景点选择”。','完成景点选择',action='complete_spots') if selected else output('景点选择','请选择景点，或翻页查看更多候选。','查看景点',view='spot')
-        return output('景点推荐','推荐候选优先显示。可使用页码或“下一页”浏览；选择完成后进入住宿步骤。','查看景点',view='spot')
+        from .journey import next_step
+        return output('景点推荐',next_step(w)['message'],'查看景点',view='spot')
     if view=='hotel':
         if action=='complete_spots' and not all(r.get(k) for k in ('start_date','days','adults')):
-            return output('景点选择已确认','比较住宿前需要出游日期、天数和人数。请在对话中补充，或编辑右侧旅行信息。','补充旅行信息',settings=True)
+            return output('景点选择已确认','请补充一下出游日期、天数和人数，便于按实际条件比较住宿；可在对话中提供或编辑旅行信息。','补充旅行信息',settings=True)
         if action in ('select','select_room'):return output('住宿选择已保存','已选住宿位置，可直接点击“完成住宿选择”继续；具体房型可选。','完成住宿选择',action='complete_hotel')
         if action=='hotel_detail':return output('房型详情已更新','具体房型可选；如需选择，请核对人数、餐食与退改。','查看房型',view='hotel')
         if any(p.get('kind')=='hotel' and not p.get('stale') for p in catalog.values()):return output('住宿推荐','比较位置、价格与房型。选定住宿仅用于规划，尚未预订。','查看住宿',view='hotel')

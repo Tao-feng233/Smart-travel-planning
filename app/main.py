@@ -107,8 +107,10 @@ def owned(wid,user):
 
 def present(w):
     from .choices import room_choices
+    from .price_hints import hint
     for p in w.get('catalog',{}).values():
         if p.get('kind')=='hotel' and p.get('detail') and not p.get('stale'):p['room_choices']=room_choices(p,w['requirements'])
+        if p.get('kind') in ('spot','food'):p['price_hint']=hint(w,p)
     active=storage.active_job(w['id'])
     if not active and w.get('ui',{}).get('status')=='loading':guidance.finish(w,'interrupted')
     from .journey import next_step
@@ -275,7 +277,7 @@ async def perform(wid,body,jid,owner_id):
             if assessment['level']=='warning' and key!=w.get('selection_warning_key'):
                 w['messages'].append({'role':'assistant','content':'**行程安排提醒**\n'+ '\n'.join(assessment['messages']),'time':storage.now()});w['selection_warning_key']=key
             if assessment['level']=='normal':w['selection_warning_key']=''
-        if quiet and newly_ready:w['messages'].append({'role':'assistant','content':'**往返班次已确认。**\n**下一步：**'+next_step(w)['message'],'time':storage.now()})
+        if quiet and newly_ready:w['messages'].append({'role':'assistant','content':'**往返班次已确认。**\n'+next_step(w)['message'],'time':storage.now()})
         elif not quiet:w['messages'].append({'role':'assistant','content':readable(answer),'time':storage.now(),'ui':ui,'process_steps':[x['text'] for x in trace]})
         if body.action!='undo':w['revision']+=1
         w['trace']=(w.get('trace',[])+trace)[-30:];storage.save(w)

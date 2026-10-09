@@ -8,7 +8,7 @@ from .providers import DataError
 
 MODES={'consult','query','delegate','edit_plan','explain','act'}
 READ_TOOLS={
-    'search_spots':('查询景点，更新真实候选；不替用户选择',{'keywords':{'type':'array','items':{'type':'string'}}}),
+    'search_spots':('查询景点，更新真实候选；无偏好先询问，用户明确无偏好时preference_mode=default；不替用户选择',{'keywords':{'type':'array','items':{'type':'string'}},'preference_mode':{'type':'string','enum':['default']}}),
     'search_hotels':('按已有目的地、日期、人数查询酒店；条件不足会返回缺项',{'keyword':{'type':'string'}}),
     'search_foods':('按餐次或景点/住宿周边查询餐厅，不保存选择',{'keywords':{'type':'array','items':{'type':'string'}},'meal_date':{'type':'string'},'meal_period':{'type':'string','enum':['breakfast','lunch','dinner']},'anchor_id':{'type':'string'}}),
     'weather':('查询已有地点坐标的天气；不得编造未覆盖日期',{}),
@@ -152,6 +152,8 @@ async def continue_goal(w,first,model,handle,progress):
         try:
             answer=await handle(w,name,args,progress);row=observation(w,name,args,answer,elapsed=time.monotonic()-started)
         except DataError as error:row=observation(w,name,args,'',error,time.monotonic()-started)
+        if name=='search_spots' and (w.get('spot_preference') or {}).get('status')=='awaiting':
+            goal['status']='needs_info';return row['result']
         messages.append({'role':'tool','tool_call_id':call.get('id') or 'step-'+str(step),'content':json.dumps(row,ensure_ascii=False)})
     goal['status']='partial'
     done=[o['tool'] for o in goal['observations'] if o['ok']]
