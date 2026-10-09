@@ -64,39 +64,37 @@ function openRoomView(id){
  else{const d=document.querySelector('#candidate-dialog');if(d&&!d.open)d.showModal()}
 }
 
-// 主住宿候选：以"全部已选景点的中心"为参照。设为主住宿后，未单独指定的夜晚都住这家。
+// 主住宿候选：以"全部已选景点的中心"为参照。适合一次定下全程，但要逐晚点选。
 function centerStayHTML(){
  const w=workspace,hq=w.hotel_query||{};
  const ids=(hq.center_matches||[]).length?hq.center_matches:Object.keys(w.center_hotel_quotes||{});
  const found=ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
  const basis=hq.center_basis||'全部已选景点的中心';
- const head=`<div class="stay-head"><strong>主住宿（住全程）</strong><small>以${esc(basis)}为参照，适合一次定下全程住宿；未单独指定的夜晚都住这家。</small></div>`;
+ const head=`<div class="stay-head"><strong>住宿候选（以全部景点中心为参照）</strong><small>以${esc(basis)}为参照，位置对整天行程都方便。选哪一家就点它上面的“住这一晚”，逐晚指定，没选就是还没选。</small></div>`;
  if(!found.length)return `<div class="stay-plan center-stay">${head}<p class="panel-footnote">还没有以全部景点中心查过主住宿。点上面的“查询住宿”会同时给出这一组候选；也可以直接在住宿编排里逐晚挑。</p></div>`;
  return `<div class="stay-plan center-stay">${head}<div class="cards">${found.map(p=>card(p)).join('')}</div><p class="panel-footnote">想让某一晚单独换一家，在下面“住宿编排”里点那一晚的候选即可，不会影响其它夜晚。</p></div>`;
 }
-// 逐晚住宿编排：每晚一行，显示该晚锚点、已选酒店与候选卡片。
-// 行内卡片点选=只改这一晚（带上 data-stay-date）；不带则作为主住宿。
+// 逐晚住宿编排：每晚一行。住宿只按晚指定，没选就显示"尚未选这一晚的住宿"，
+// 不再有"主住宿覆盖其余夜晚"这种兜底。行内卡片点选只改这一晚。
 function stayPlanHTML(){
  const w=workspace,stay=w.stay_plan;
  if(!stay||!(stay.rows||[]).length)return '';
- const primaryId=stay.primary_hotel_id||w.hotel?.id;
+ const assignedRows=(stay.assignments||{});
  const rows=(stay.rows||[]).map(row=>{
   const found=(row.candidate_ids||[]).map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
-  const assigned=(stay.assignments||{})[row.date];
-  const rowHotelId=assigned?assigned.hotel_id:row.hotel_id;
+  const assigned=assignedRows[row.date];
+  const rowHotelId=assigned?assigned.hotel_id:(row.hotel_source==='explicit'?row.hotel_id:null);
   const picked=rowHotelId?w.catalog[rowHotelId]:null;
-  const source=(assigned&&assigned.source)||row.hotel_source||(rowHotelId?(rowHotelId===primaryId?'primary':'explicit'):'unset');
-  const explicit=source==='explicit',inherited=source==='primary',needs=source==='unset';
+  const chosen=!!rowHotelId;
   const pickedName=(picked||{}).name||'已选住宿';
-  const label=explicit?esc(pickedName)+'（这一晚已选）':esc(row.anchor_name||'待定')+' 周边';
-  const sub=explicit?'这一晚单独指定'
-   :inherited?'沿用主住宿「'+esc(pickedName)+'」（'+esc(row.anchor_basis||'当天收尾地点')+'）；点下面的“住这一晚”可只改这一晚'
-   :'尚未选这一晚的住宿';
+  const label=chosen?esc(pickedName)+'（这一晚已选）':esc(row.anchor_name||'待定')+' 周边';
+  const sub=chosen?'这一晚单独指定'
+   :'尚未选这一晚的住宿'+(row.anchor_is_station?'（次日赶车，建议靠近出发站）':'');
   const onway=(row.dinner_hint||[]).filter(x=>x.on_the_way).map(x=>x.name);
-  return `<div class="stay-row${needs?' needs-hotel':''}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}${row.anchor_is_station?' · 次日赶车':''}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">${needs?'选这晚':'查这晚'}</button>`}</div>${found.length?`<div class="cards stay-cards">${found.map(card).join('')}</div>`:''}</div>`;
+  return `<div class="stay-row${chosen?'':' needs-hotel'}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${found.length?`<div class="cards stay-cards">${found.map(card).join('')}</div>`:''}</div>`;
  }).join('');
- const pending=(stay.needs_own_hotel||[]).length;
- return `<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${rows}${pending?`<p class="panel-footnote">${esc((stay.needs_own_hotel||[]).join('、'))} 还没有选住宿（次日赶车，主住宿不适合）；请点“选这晚”分别挑选。</p>`:'<p class="panel-footnote">住宿行里的“住这一晚/选这晚”只改那一晚；主列表里的卡片会让其余未指定的夜晚都住这家。</p>'}</div>`;
+ const pending=(stay.unassigned||[]).length;
+ return `<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${rows}${pending?`<p class="panel-footnote">还有 ${pending} 晚没有选住宿（${esc((stay.unassigned||[]).join('、'))}）：没选就是还没选，在对应夜晚点候选卡片即可。</p>`:`<p class="panel-footnote">${(stay.rows||[]).length} 晚都已选定。要换某一晚，点那一晚的候选卡片即可，不影响其它夜晚。</p>`}</div>`;
 }
 function empty(n,title,text,button='',actionName=''){return `<div class="empty"><span class="number">${n}</span><h3>${title}</h3><p>${text}</p>${button?`<button data-action="${actionName}">${button}</button>`:''}</div>`}
 function workflowHTML(){return planningNavigation();}

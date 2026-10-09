@@ -11,7 +11,9 @@ def trip():
     h={'id':'h','name':'位置已选酒店','kind':'hotel','location':'120.30,36.05','price':200,'address':'青岛测试地址'}
     return {'id':'optional-room','requirements':{'city':'青岛','origin':'青岛','start_date':'2026-10-12','days':2,'adults':2},
             'catalog':{'h':h,'s':{'id':'s','name':'景点','kind':'spot','location':'120.31,36.05'}},
-            'selected_spots':['s'],'spots_confirmed':True,'hotel':copy.deepcopy(h),'selected_room':None,'messages':[]}
+            'selected_spots':['s'],'spots_confirmed':True,'hotel':copy.deepcopy(h),'selected_room':None,'messages':[],
+            # 住宿按晚指定：两晚都要有各自的指定，否则视为还没选。
+            'stay_hotels':{'2026-10-12':'h','2026-10-13':'h'}}
 
 
 def test_complete_hotel_without_room_does_not_fetch_or_select_rates(monkeypatch):
@@ -52,8 +54,8 @@ def test_auto_hotel_selection_does_not_depend_on_room_provider():
 
 
 def test_stale_hotel_still_requires_refresh():
-    w=trip();w['hotel']['stale']=True
-    with pytest.raises(agent.DataError,match='有效住宿'):
+    w=trip();w['catalog']['h']['stale']=True
+    with pytest.raises(agent.DataError,match='重新查询'):
         asyncio.run(agent.handle(w,'complete_hotel',{},lambda _:None))
 
 

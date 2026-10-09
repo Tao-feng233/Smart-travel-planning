@@ -635,7 +635,13 @@ async def handle(w,action,args,progress):
         result=await handle(w,'search_hotels',{},progress)
         return analysis+f'已确认景点（{len(w["selected_spots"])}个）。现在根据所选景点位置比较住宿。\n'+result
     if action in ('complete_hotel','skip_hotel'):
-        if action=='complete_hotel' and (not w.get('hotel') or w['hotel'].get('stale')):raise DataError('请选择有效住宿，或点击“暂不安排住宿”。')
+        if action=='complete_hotel':
+            # 住宿按晚指定：只要有一晚还没选就不算完成，不能拿"主住宿"糊过去。
+            from . import stay_plan as _stay
+            left=_stay.unassigned(w)
+            if left:raise DataError('还有 '+str(len(left))+' 晚没有选住宿（'+'、'.join(left)+'）。请在住宿编排里逐晚选择，或点“暂不安排住宿”。')
+            stale=[d for d,h in (w.get('stay_hotels') or {}).items() if (w.get('catalog',{}).get(h) or {}).get('stale')]
+            if stale:raise DataError('有 '+str(len(stale))+' 晚的住宿条件已经变化，请重新查询后再确认。')
         if action=='skip_hotel':w['stay_skipped']=True;w['hotel']=None;w['selected_room']=None;mark_stale(w)
         w['stage']='交通'
         if journey.is_local(r):
@@ -674,18 +680,22 @@ async def handle(w,action,args,progress):
         elif p['kind']=='food':return foods.select_meal(w,{**args,'food_id':cid})
         elif p['kind']=='hotel':
             from . import stay_plan
-            # 逐晚选择：带了夜晚就只改那一晚，没带则作为主住宿并覆盖未分配的夜晚。
-            stay_dates=[d for d in (args.get('stay_dates') or ([args['stay_date']] if args.get('stay_date') else []))]
-            if stay_dates:
-                assigned=stay_plan.assign(w,p['id'],stay_dates)
-                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
-                if not w.get('hotel'):w['hotel']=dict(p)
-                answer_extra='已把 '+('、'.join(assigned))+' 的住宿设为 '+p['name']+'。'
-            else:
-                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
-                w['hotel']=dict(p)
-                stay_plan.assign(w,p['id'])
-                answer_extra=''
+            # 住宿只按晚指定：不再有"主住宿覆盖其余夜晚"。没选的夜晚就是还没选，
+            # 界面上如实显示"尚未选这一晚的住宿"，由用户逐晚决定。
+            nights=stay_plan.nights(w)
+            stay_dates=[d for d in (args.get('stay_dates') or ([args['stay_date']] if args.get('stay_date') else [])) if d in nights]
+            if not stay_dates:
+                # 未指定夜晚：优先落到最早还没选的晚；全部已选时按"替换第一晚"处理，
+                # 而不是报错——调用方（如自动补齐）表达的是"换成这家"，
+                # 但逐晚语义下不能因此覆盖其它夜晚。
+                left=stay_plan.unassigned(w)
+                stay_dates=[left[0] if left else nights[0]]
+            assigned=stay_plan.assign(w,p['id'],stay_dates)
+            if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
+            # w['hotel'] 记录"最近选定的这一家"，供房型/计划书锚点等读取；
+            # 它不再代表"其余夜晚都住这里"——那些夜晚由 stay_hotels 逐晚决定。
+            w['hotel']=dict(p)
+            answer_extra='已把 '+('、'.join(assigned))+' 的住宿设为 '+p['name']+'。'
             w['stay_hotels']=w.get('stay_hotels') or {}
             w['stay_skipped']=False
             # 选中即取房型：同一次操作里把房型与报价取回，界面直接打开房型详情，
@@ -699,12 +709,11 @@ async def handle(w,action,args,progress):
         elif p['kind']=='hotel':
             from . import stay_plan as _stay
             rooms=len(p.get('room_choices') or [])
-            leaves=_stay.unassigned(w);spread=_stay.multi_stay_note(w)
+            left=_stay.unassigned(w)
             if rooms:answer=answer_extra+f'已选择住宿：{p["name"]}，房型已展开（{str(rooms)} 个报价）——请选择具体房型后点“完成住宿选择”。具体房型可选，也可稍后再定。'
             elif detail_error:answer=answer_extra+f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。'
             else:answer=answer_extra+f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
-            if leaves:answer+='\n还有'+str(len(leaves))+' 晚沿用主住宿（'+'、'.join(leaves)+'）；想每晚分开住可以在住宿编排里点对应夜晚的“住这一晚”。'
-            if spread:answer+='\n'+spread
+            if left:answer+='\n还有 '+str(len(left))+' 晚没有选住宿（'+'、'.join(left)+'）：在住宿编排里逐晚挑，没选就是还没选。'
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer

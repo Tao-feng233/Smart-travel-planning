@@ -4,6 +4,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
+node_modules/
 data/runtime/
 .展示检查/*-真实*
 *.log

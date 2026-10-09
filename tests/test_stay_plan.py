@@ -215,39 +215,46 @@ def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
 
 
 def test_timeline_shows_each_nights_own_hotel(monkeypatch):
-    """时间轴的住宿条目必须逐晚取分配结果，不能一律写主住宿。
-
-    用户看到的问题：只给某一晚选了酒店，时间轴却把主住宿标到每一晚。
-    """
+    """时间轴的住宿条目必须逐晚取分配结果；没选的夜晚不显示任何酒店。"""
     from app import schedule
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
     w['catalog'].update({
-        'main': {'id': 'main', 'kind': 'hotel', 'name': '主酒店', 'location': '120.30,36.00'},
+        'main': {'id': 'main', 'kind': 'hotel', 'name': '第一晚酒店', 'location': '120.30,36.00'},
         'only2': {'id': 'only2', 'kind': 'hotel', 'name': '第二晚酒店', 'location': '120.40,36.10'}})
-    w['hotel'] = dict(w['catalog']['main'])
-    stay_plan.assign(w, 'main')
+    stay_plan.assign(w, 'main', [D1])
     stay_plan.assign(w, 'only2', [D2])
     entries = [e for e in schedule.build(w)['entries'] if e['kind'] == 'hotel']
     names = {e['date']: e['name'] for e in entries}
     assert len(entries) == len(names), ('同一晚不能出现多条住宿', entries)
-    assert set(names) == {D1, D2, D3}, names
-    assert names[D1] == '主酒店', names
+    assert names[D1] == '第一晚酒店', names
     assert names[D2] == '第二晚酒店', names
-    assert names[D3] == '主酒店', names
+    # D3 没选住宿：时间轴不显示酒店条目，而不是显示别人的
+    assert D3 not in names, names
+
+
+def test_unpicked_nights_show_as_unpicked(monkeypatch):
+    """没选的夜晚就是还没选：不沿用任何主住宿，界面据此显示"尚未选这一晚"。"""
+    w = workspace()
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    w['catalog']['h1'] = {'id': 'h1', 'kind': 'hotel', 'name': '第一晚酒店', 'location': '120.30,36.00'}
+    w['hotel'] = dict(w['catalog']['h1'])          # 最近选定的这一家
+    stay_plan.assign(w, 'h1', [D1])                # 但只指定了第一晚
+    view = stay_plan.assignment_view(w)
+    assert view[D1]['hotel_id'] == 'h1' and view[D1]['source'] == 'explicit'
+    assert view[D2]['hotel_id'] is None and view[D2]['source'] == 'unset', view
+    assert view[D3]['hotel_id'] is None and view[D3]['source'] == 'unset', view
+    assert stay_plan.unassigned(w) == [D2, D3]
+    # 还有未选夜晚时不能算完成住宿
+    with pytest.raises(agent.DataError, match='没有选住宿'):
+        asyncio.run(agent.handle(w, 'complete_hotel', {}, lambda _: None))
 
 
 def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatch):
-
-
-
-    """逐晚选择：给某一晚单独选酒店，不得把其它晚一起改成这家。
-
-    这是用户反复遇到的问题：点一个酒店，剩下几晚全被覆盖。
-    """
+    """逐晚选择：选某一晚的酒店不得改动其它晚；没选的晚仍然没选。"""
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
-    for hid, name in (('h1', '主酒店'), ('h2', '第二晚酒店')):
+    for hid, name in (('h1', '第一晚酒店'), ('h2', '第二晚酒店')):
         w['catalog'][hid] = {'id': hid, 'kind': 'hotel', 'name': name, 'provider_id': 900000,
                              'location': '120.30,36.00',
                              'query_conditions': {'checkIn': D1, 'checkOut': D3, 'adultNum': 2, 'roomNum': 1}}
@@ -258,18 +265,19 @@ def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatc
     monkeypatch.setattr(agent, 'tuniu', vendor)
     monkeypatch.setattr(agent, 'local_tool', tool)
 
-    # 先把 h1 设为主住宿：未指定的夜晚都沿用主住宿
-    asyncio.run(agent.handle(w, 'select', {'id': 'h1'}, lambda _: None))
-    assert stay_plan.assignment_view(w)[D2]['hotel_id'] == 'h1'
-    assert stay_plan.assignment_view(w)[D2]['source'] == 'primary'
+    # 只给第一晚选 h1：其它晚不得被一起定成 h1
+    asyncio.run(agent.handle(w, 'select', {'id': 'h1', 'stay_date': D1}, lambda _: None))
+    view = stay_plan.assignment_view(w)
+    assert view[D1]['hotel_id'] == 'h1' and view[D1]['source'] == 'explicit', view
+    assert view[D2]['hotel_id'] is None and view[D2]['source'] == 'unset', view
+    assert list(w['stay_hotels']) == [D1], w['stay_hotels']
 
-    # 再只改第二晚：第一晚必须保持主住宿，不能被一起改成 h2
+    # 再给第二晚选 h2：第一晚必须保持 h1
     asyncio.run(agent.handle(w, 'select', {'id': 'h2', 'stay_date': D2}, lambda _: None))
     view = stay_plan.assignment_view(w)
-    assert view[D1]['hotel_id'] == 'h1' and view[D1]['source'] == 'primary', view
-    assert view[D2]['hotel_id'] == 'h2' and view[D2]['source'] == 'explicit', view
-    # 显式指定的只有第二晚
-    assert list(w['stay_hotels']) == [D2], w['stay_hotels']
+    assert view[D1]['hotel_id'] == 'h1', view
+    assert view[D2]['hotel_id'] == 'h2', view
+    assert view[D3]['hotel_id'] is None, view
 
 
 def test_stay_rows_carry_anchor_and_assignment_for_the_ui(monkeypatch):

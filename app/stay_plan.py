@@ -264,11 +264,9 @@ def plan(w):
     """住宿编排总览：每晚一行，含锚点、依据、逐晚分配到哪家酒店、晚餐顺路建议。
 
     分配在这里一次算清，避免 plan 与 assignment_map 互相调用形成循环：
-    显式指定优先；未指定的夜晚用主住宿兜底，但"次日要赶早班车"的最后一晚不兜底
-    （主住宿在市区，第二天清早赶车不合适），该晚留给用户按车站附近另外选。
+    每晚只有"用户明确指定"才算有酒店，没选就是没选，不由任何主住宿兜底。
     """
     stays = w.get('stay_hotels') or {}
-    primary_id = (w.get('hotel') or {}).get('id')
     rows = []
     for day in nights(w):
         anchor, basis = day_closure(w, day)
@@ -283,13 +281,12 @@ def plan(w):
                 anchor = dict(station)
                 anchor['_closure'] = 'station'
                 basis = '次日 ' + back_day.isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
-        # 赶车前一晚不沿用市区主住宿，否则用户会看到"系统替我选了个离车站很远的酒店"。
+        # 住宿只按晚指定：没有显式指定就是"还没选"，不再由任何主住宿兜底。
+        # 赶车前一晚同样如此，界面上如实显示未选，由用户决定住哪。
         unsuitable = bool(station and station.get('name') and not stays.get(day))
         explicit = stays.get(day)
         if explicit:
             hotel_id, source = explicit, 'explicit'
-        elif primary_id and not unsuitable:
-            hotel_id, source = primary_id, 'primary'
         else:
             hotel_id, source = None, 'unset'
         rows.append({'date': day, 'checkin': day,
@@ -301,7 +298,7 @@ def plan(w):
                      'hotel_fallback_unsuitable': unsuitable,
                      'query_index': None, 'queried_at': None, 'candidate_ids': [],
                      'hotel_id': hotel_id, 'hotel_source': source,
-                     'is_primary': bool(hotel_id and hotel_id == primary_id),
+                     'is_primary': False,
                      'dinner_hint': dinner_options(w, day, None) if anchor else []})
     last_date, last_basis = return_date_bounds(w)
     for row in rows:
@@ -309,9 +306,9 @@ def plan(w):
     return {'nights': [x['date'] for x in rows], 'rows': rows,
             'return_departure': last_date.isoformat() if last_date else None,
             'return_basis': last_basis,
-            'primary_hotel_id': primary_id,
+            'primary_hotel_id': None,
             'unassigned': [x['date'] for x in rows if x['hotel_source'] != 'explicit'],
-            'needs_own_hotel': [x['date'] for x in rows if x['hotel_source'] == 'unset'],
+            'needs_own_hotel': [x['date'] for x in rows if x['hotel_source'] != 'explicit'],
             'note': ('返程当天不安排住宿；最后一晚只到返程前一天（依据：'+last_basis+'）。'
                      if last_date else '尚未选定返程班次，暂按游玩日最后一天作为最后一晚。')}
 
@@ -343,10 +340,9 @@ def _plan_rows(w):
 
 
 def hotel_assignments(w):
-    """逐晚住宿分配，并标明是"用户明确指定"还是"沿用主住宿"兜底。
+    """逐晚住宿分配：只有用户明确指定的夜晚才有酒店，其余为 None。
 
-    用户只选一家酒店时，它覆盖未指定的夜晚是合理的，但界面不能把兜底显示成"已选"，
-    否则看起来像系统替他选了每一天。
+    住宿按晚指定，不再有"主住宿覆盖其余夜晚"的兜底，因此没选就是没选。
     """
     return {row['date']: {'hotel_id': row.get('hotel_id'), 'source': row.get('hotel_source') or 'unset'}
             for row in _plan_rows(w)}
@@ -360,24 +356,15 @@ def assignment_view(w):
     "第一天选了酒店，却显示尚未选这一晚的住宿"。
     """
     stays = w.get('stay_hotels') or {}
-    primary_id = (w.get('hotel') or {}).get('id')
-    rows = {row['date']: row for row in _plan_rows(w)}
     view = {}
     for day in nights(w):
-        row = rows.get(day) or {}
-        if stays.get(day):
-            view[day] = {'hotel_id': stays[day], 'source': 'explicit'}
-        elif row.get('hotel_fallback_unsuitable'):
-            view[day] = {'hotel_id': None, 'source': 'unset'}
-        elif primary_id:
-            view[day] = {'hotel_id': primary_id, 'source': 'primary'}
-        else:
-            view[day] = {'hotel_id': None, 'source': 'unset'}
+        # 只认这一晚自己的指定：没选就是 unset，界面显示"尚未选这一晚的住宿"。
+        view[day] = {'hotel_id': stays[day], 'source': 'explicit'} if stays.get(day) else {'hotel_id': None, 'source': 'unset'}
     return view
 
 
 def assignment_map(w):
-    """逐晚最终酒店 ID（内部使用）：显式分配优先，未指定的夜晚用主住宿补齐。"""
+    """逐晚最终酒店 ID（内部使用）：只有显式指定，未指定的夜晚为 None。"""
     return {day: item['hotel_id'] for day, item in hotel_assignments(w).items()}
 
 
@@ -407,7 +394,7 @@ def assign(w, hotel_id, days=None):
 
 
 def unassigned(w):
-    """还没有专属酒店（只能靠主住宿兜底）的夜晚。"""
+    """还没有指定酒店的夜晚：没选就是还没选，不再由"主住宿"兜底。"""
     stays = w.get('stay_hotels') or {}
     return [d for d in nights(w) if not stays.get(d)]
 
