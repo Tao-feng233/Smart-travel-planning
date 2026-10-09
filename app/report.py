@@ -3,7 +3,7 @@ from .spot_hierarchy import duplicate_plan
 
 
 def route_lines(rt,self_drive=False):
-    """Provider facts only: unknown prices/lines remain explicit in the exported book."""
+    """Export reference costs without turn-by-turn navigation instructions."""
     if rt.get('mode')=='driving':
         if self_drive:
             lines=['  自驾道路收费：'+('预估 ¥'+str(rt['tolls']) if rt.get('tolls') is not None else '待核实')+'；油费与停车费待核实。']
@@ -12,11 +12,6 @@ def route_lines(rt,self_drive=False):
     elif rt.get('mode')=='transit':
         lines=['  公交／地铁票价：'+('参考 ¥'+str(rt['fare']) if rt.get('fare') is not None else '待核实')+'。']
     else:lines=['  步行无需车费。']
-    for step in rt.get('steps') or []:
-        text=step.get('instruction') or step.get('road_name') or '通行路段'
-        if step.get('from'):text+='：'+step['from']+' 上车 → '+str(step.get('to') or '下车站待核实')+' 下车'
-        lines.append('  - '+text)
-    if rt.get('mode')=='transit' and not rt.get('steps'):lines.append('  具体线路、换乘与上下车站未返回，出行前请使用实时导航核对。')
     return lines
 
 def markdown(w):

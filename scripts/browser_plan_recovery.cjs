@@ -6,7 +6,7 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
  const browser=await chromium.launch({headless:true,executablePath:process.env.BROWSER_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe'});
  const page=await browser.newPage({viewport:{width:1500,height:1000}}),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
- const route={mode:'driving',minutes:25,distance:5000,taxi_cost:18.5,steps:[]};
+ const route={mode:'driving',minutes:25,distance:5000,taxi_cost:18.5,steps:[{instruction:'向南步行1米右转'}]};
  const w={id:'plan-recovery-fixture',title:'页面回归',revision:1,requirements:{city:'青岛',start_date:'2026-10-12',days:1},catalog:{},selected_spots:[],messages:[],tickets:{},meal_choices:{},trace:[],ui:{view:'weather'},weather:{days:[],alerts:[],attributions:[]},
   plan:{title:'计划书',created:'2026-10-09T09:00:00',days:[{date:'2026-10-12',theme:'海滨',events:[{kind:'route',name:'从酒店前往景点',start:'09:00',end:'09:40',route,buffer:15}]}],budget:{hotel_reference:null,unknown:[]},todos:[],warnings:[],packing:[],guides:[]}};
  let disconnected=false,lastRequest;let current=w;
@@ -28,6 +28,8 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
    assert.equal(await page.locator('.book').count(),1,view+' → plan');
   }
   assert.match(await page.locator('.book').innerText(),/打车预估.*18.5/);
+  assert.match(await page.locator('.book').innerText(),/25 分钟/);
+  assert.doesNotMatch(await page.locator('.book').innerText(),/通行步骤与换乘|向南步行1米右转/);
   await page.reload();await page.waitForSelector('#application:not([hidden])');
   assert.equal(await page.locator('#auth-gate').isVisible(),false);
   disconnected=true;await page.reload();await page.waitForSelector('#connection-recovery:not([hidden])');

@@ -63,9 +63,10 @@ def test_unknown_route_price_is_not_zero(monkeypatch):
     assert asyncio.run(providers.route('120.3,36.05','120.35,36.06','driving'))['taxi_cost'] is None
 
 
-def test_export_has_prices_and_transfer_instructions():
+def test_export_keeps_prices_without_navigation_instructions():
     from app.report import route_lines
     lines=route_lines({'mode':'transit','fare':4,'steps':[{'instruction':'乘坐 地铁3号线','from':'青岛站','to':'五四广场'},{'instruction':'乘坐 地铁2号线','from':'五四广场','to':'浮山所'}]})
-    assert '参考 ¥4' in '\n'.join(lines) and '五四广场 上车' in '\n'.join(lines)
+    assert '参考 ¥4' in '\n'.join(lines)
+    assert all(word not in '\n'.join(lines) for word in ('上车', '下车', '地铁3号线', '五四广场'))
     assert '预估 ¥25' in '\n'.join(route_lines({'mode':'driving','taxi_cost':25}))
     assert '停车费待核实' in '\n'.join(route_lines({'mode':'driving','taxi_cost':25,'tolls':0},True))
