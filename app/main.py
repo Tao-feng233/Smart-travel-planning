@@ -114,7 +114,15 @@ def present(w):
     from .journey import next_step
     from .journey import selection_assessment,is_local
     from .schedule import build
-    return {**w,'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
+    from . import stay_plan
+    # 逐晚住宿下发：行的候选（candidate_ids 等）来自已发布的那一份，不能重算——重算会把
+    # 已查到的候选丢掉。分配与未选夜晚则按当前选择重新推导，避免旧行内 hotel_source 过时
+    # 让"已选好的一晚"显示成尚未选（折叠也随之失效）。
+    stored=w.get('stay_plan') or {}
+    stay={**stay_plan.plan(w),**stored,
+          'assignments':stay_plan.assignment_view(w),
+          'unassigned':stay_plan.unassigned(w)}
+    return {**w,'stay_plan':stay,'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
 
 @app.get('/api/workspaces/{wid}/map-image')
 async def workspace_map(wid:str,day:str='',focus:str='',zoom:int|None=Query(None,ge=1,le=17),lng:float|None=Query(None,ge=-180,le=180),lat:float|None=Query(None,ge=-85,le=85),base:bool=False,user=Depends(auth.current_user)):
