@@ -23,8 +23,49 @@ def workspace(arrival='2026-10-09 12:00', departure=D_OUT + ' 06:00',
             'stay_hotels': {}, 'messages': []}
 
 
+def test_only_the_meal_closest_to_the_return_is_shifted():
+    """返程日只优化"最靠近返程"的那一餐，其余餐次保持默认时刻。
+
+    用户要求：不是把返程日所有餐次都往后推，只把紧挨着返程的那一餐排到"吃完就上车"。
+    """
+    def return_workspace(departure):
+        return {'requirements': {'city': '洛阳', 'start_date': D_TOUR, 'days': 1, 'adults': 2,
+                                 'day_start': '09:00', 'day_end': '18:30'},
+                'selected_return': {'id': 'b', 'kind': 'train', 'name': 'G1',
+                                    'departure': D_TOUR + ' ' + departure,
+                                    'arrival': D_TOUR + ' 23:30', 'selection_status': 'confirmed'},
+                'catalog': {}, 'selected_spots': [], 'meal_choices': {}, 'visit_requests': {}}
+
+    def starts(departure):
+        w = return_workspace(departure)
+        last = schedule.last_meal_before_return(w, D_TOUR)
+        return {p: schedule.meal_start(w, D_TOUR, p, as_late=(p == last)) for p in ('breakfast', 'lunch', 'dinner')}, last
+
+    # 11:00 发车：只有早餐被优化，午晚餐都赶不上
+    got, last = starts('11:00')
+    assert last == 'breakfast', last
+    assert got['breakfast'] == 8 * 60 + 15
+    assert got['lunch'] is None and got['dinner'] is None
+
+    # 20:00 发车：只有晚餐被优化，早餐与午餐保持默认
+    got, last = starts('20:00')
+    assert last == 'dinner', last
+    assert got['breakfast'] == 8 * 60, got
+    assert got['lunch'] == 12 * 60, got
+    assert got['dinner'] >= 17 * 60, got
+
+    # 中午前就返程：不应还安排晚餐
+    for departure in ('08:00', '10:00', '12:00', '13:00', '14:00', '15:00',
+                      '16:00', '17:00', '18:00'):
+        got, _ = starts(departure)
+        assert got['dinner'] is None, (departure, got)
+    # 12:00 发车时只有早餐能安排（午餐 12:00 开始已来不及）
+    got, last = starts('12:00')
+    assert last == 'breakfast' and got['lunch'] is None and got['dinner'] is None, got
+
+
 def test_return_day_meals_move_as_late_as_the_window_allows():
-    """返程日餐次尽量往后排（吃完就上车），但不超过餐次窗口、不早于默认时刻。
+    """返程日那一餐尽量往后排（吃完就上车），但不超过餐次窗口、不早于默认时刻。
 
     用户举例：11:00 发车，准备时刻 09:00 落进早餐窗口，早餐应推到窗口内最晚。
     """
