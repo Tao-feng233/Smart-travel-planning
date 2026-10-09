@@ -265,12 +265,17 @@ async def perform(wid,body,jid,owner_id):
                 if tuple(w.get('selected_spots',[]))!=before_spots or performed in ('adjust_timeline','select_room','review_timeline','complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
                     from .travel_preview import refresh
                     from .agent import llm as schedule_model
-                    await refresh(w,progress,model=schedule_model,optimize=performed not in ('refresh_routes','review_timeline','adjust_timeline'))
+                    # 预演只在用户主动要求时调用排程模型。
+                    # 选酒店/班次/餐饮这类日常选择不再自动跑模型优化——那样每选一步都要等模型，
+                    # 而且会不断给出"优化时间安排"。完整排定放在生成计划书时做。
+                    await refresh(w,progress,model=schedule_model if performed in ('adjust_timeline','review_timeline','refresh_routes') else None,
+                                  optimize=performed=='adjust_timeline')
                 after_audit=json.dumps({'requirements':w['requirements'],'selected':w.get('selected_spots'),'stays':w.get('stay_hotels'),'rooms':w.get('selected_rooms'),'pins':w.get('visit_requests'),'hotel':(w.get('hotel') or {}).get('id'),'outbound':w.get('selected_transport'),'return':w.get('selected_return'),'meals':w.get('meal_choices')},sort_keys=True)
                 if before_audit!=after_audit or performed in ('complete_spots','analyze_visits','visit_schedule','review_timeline'):
                     from .timeline_review import refresh as audit
                     from .agent import llm as audit_model
-                    audit_result=await audit(w,audit_model,progress,model_review=performed in ('complete_spots','analyze_visits','visit_schedule','review_timeline') or selected_kind in ('hotel','train','flight') or choices!=before_choices)
+                    # 审核模型只在明确请求时跑；日常选择只做程序检查（纯计算，不等待）。
+                    audit_result=await audit(w,audit_model,progress,model_review=performed in ('review_timeline','adjust_timeline'))
         except asyncio.CancelledError:
             w.pop('auto_selection_run',None)
             status='interrupted' if SHUTTING_DOWN else 'cancelled'
