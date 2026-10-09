@@ -36,9 +36,10 @@ def test_nearby_default_keyword_empty_falls_back_to_usable_keyword(monkeypatch):
 
     monkeypatch.setattr(foods, 'local_tool', tool)
     answer = asyncio.run(foods.search(w, {'meal_date': '2026-10-08', 'meal_period': 'lunch'}, lambda _: None, no_rank))
-    assert len(w['food_query']['ids']) == 2, '换关键词后必须真的拿到候选'
+    assert len(w['food_query']['ids']) == 2, '必须真的拿到候选'
+    # 泛指词「当地餐厅」命中率低，已不再作为首选词：直接用「美食」，少一次无效查询。
     assert w['food_query']['keyword'] != '当地餐厅', '记录的关键词应是真正查到结果的那个'
-    assert len(calls) > 1, '必须在同一个参照点重试过其他关键词'
+    assert calls and calls[0][0] == '美食', calls
     assert '龙门石窟' in w['food_query']['anchor']
     assert w['food_query']['scope'] == '周边5公里'
     assert '候选' in answer

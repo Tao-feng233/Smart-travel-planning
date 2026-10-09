@@ -51,7 +51,7 @@ def test_food_preferences_survive_known_scenic_refinement_and_types_stay_separat
   for i,p in enumerate(items):p['recommendation_rank']=i
  monkeypatch.setattr(foods,'local_tool',tool)
  asyncio.run(foods.search(w,{'keywords':['海鲜']},lambda _:None,rank))
- assert len(w['food_query']['ids'])==5 and calls[0]['location']=='120,36' and calls[0]['category']=='food'
+ assert len(w['food_query']['ids']) in (5,6) and calls[0]['location']=='120,36' and calls[0]['category']=='food'
  assert 'f0' not in w['selected_spots']
  from app.journey import refine_intent
  i=refine_intent(w,'感觉这几个地方好像不太出名啊，都没太听过',{'action':'spots_page','patch':{'preferences':['知名度高']}})

@@ -11,17 +11,59 @@ PERIODS={'breakfast':'早餐','lunch':'午餐','dinner':'晚餐'}
 GENERIC_KEYWORDS={'当地餐厅','餐厅','本地餐厅','特色餐厅','当地美食'}
 FALLBACK_KEYWORDS=('美食','中餐厅','小吃','面馆','火锅')
 
+# 早餐要的是早点铺子，不是正餐馆子：高德按名称检索时用"美食"会返回一堆
+# 中午才开门的餐厅，所以早餐单独用早点类关键词。
+BREAKFAST_KEYWORDS=('早餐','小吃','包子','粥','面馆')
+# 判断一家店是不是"早餐类"。命中名称、类型或标签任一即算。
+BREAKFAST_SIGNALS=('早餐','早点','包子','馒头','粥','豆浆','油条','烧饼','煎饼','肠粉','米粉','小笼','蒸饺','饼','面馆','面店','馄饨','饺子','豆腐脑','胡辣汤','汤包')
+# 每餐最终给几个候选：用户要求 5~6 个。
+MEAL_LIMIT=6
+
+
+def is_breakfast_place(p):
+    """这家店是不是早餐类：名称／类型／标签里出现早点信号词。"""
+    text=' '.join(str(p.get(k) or '') for k in ('name','poi_type','address'))
+    text+=' '+' '.join(str(x) for x in (p.get('tags') or []))
+    return any(w in text for w in BREAKFAST_SIGNALS)
+
+
+def rating_value(p):
+    """评分数值；没有评分返回 None（不能拿"没评分"当高分）。"""
+    try:
+        return float(p.get('rating'))
+    except (TypeError, ValueError):
+        return None
+
+
+def rank_food(p,period,budget=False):
+    """候选排序键：早餐类占主要、评分高的优先，其余按评分与来源补充。
+
+    早餐场景（period=='breakfast'）先按"是否早餐类"分组，让早点铺排在正餐馆前面；
+    评分缺失排在有评分之后（不猜分数）。budget 为真时把人均价格也纳入参考。
+    """
+    breakfast_first=0 if (period!='breakfast' or is_breakfast_place(p)) else 1
+    rating=rating_value(p)
+    rating_slot=0 if rating is not None else 1
+    cost=p.get('cost')
+    try:
+        cost=float(cost)
+    except (TypeError, ValueError):
+        cost=float('inf')
+    return (breakfast_first,rating_slot,-(rating or 0),cost if budget else 0)
+
 def query_keywords(r,args):
+    """首选检索词与兜底顺序。早餐走早点类关键词，午晚餐走正餐类。"""
     words=args.get('keywords') or args.get('food_keywords') or r.get('food_preferences') or ['当地餐厅']
     if isinstance(words,str):words=[words]
     text=[str(x)[:40] for x in words if str(x).strip()]
-    preferred='海鲜' if any('海鲜' in x for x in text) else (text[0] if text else '当地餐厅')
-    if text and preferred not in GENERIC_KEYWORDS:
-        # 用户自己说了吃什么（或偏好来自需求），首选词优先；只有它查不到才兜底。
-        return preferred,list(dict.fromkeys([preferred,*FALLBACK_KEYWORDS]))
-    # 没给具体口味时用的是默认泛指词，先换更贴近高德名称检索的词，而不是直接报 0 候选。
-    extra=['海鲜'] if any('海鲜' in x for x in text) else []
-    return preferred,list(dict.fromkeys([preferred,*extra,*FALLBACK_KEYWORDS]))
+    period=args.get('meal_period') or 'lunch'
+    fallback=list(BREAKFAST_KEYWORDS) if period=='breakfast' else list(FALLBACK_KEYWORDS)
+    if any('海鲜' in x for x in text):return '海鲜',list(dict.fromkeys(['海鲜',*fallback]))
+    # 没给具体口味时：早餐直接用早点类词，不要拿泛指的正餐词打头（否则第一轮必然偏正餐）。
+    if not text or text[0] in GENERIC_KEYWORDS:
+        return fallback[0],list(dict.fromkeys(fallback))
+    preferred=text[0]
+    return preferred,list(dict.fromkeys([preferred,*fallback]))
 
 def infeasible(w,dt,period):
     """Reject meals outside the same buffered window used by the timeline."""
@@ -36,10 +78,67 @@ def infeasible(w,dt,period):
     else:detail='当前每日结束时刻不足以容纳完整用餐时长'
     return dt+' '+name+'来不及安排：'+detail+'。请调整餐次、日期或班次；也可自行安排。'
 
+def hotel_reference(w):
+    """酒店参照点：优先用酒店自己的坐标；定位失败时退回当晚锚点并如实标注。
+
+    酒店可能因为地址无法匹配地图而没有坐标（location_status=not_found）。这时
+    不能直接不给"酒店周边"这一路，否则用户会以为系统不支持；但也不能假装是精确
+    的酒店位置——所以用当晚收尾地点兜底，并在标注里写明是"住宿所在区域"。
+    """
+    hotel=w.get('hotel') or {}
+    if hotel.get('location'):
+        return {**hotel,'_anchor_kind':'hotel','_anchor_label':'酒店周边'}, None
+    if not hotel:
+        return None, None
+    anchor=(w.get('catalog') or {}).get(hotel.get('stay_anchor_id')) or {}
+    if not anchor.get('location'):
+        return None, None
+    return ({**anchor,'_anchor_kind':'hotel','_anchor_label':'住宿所在区域（酒店未定位）',
+             '_hotel_unlocated':True},
+            '酒店「'+str(hotel.get('name'))+'」暂时无法在地图上定位，这一路按当晚活动区域（'
+            +str(anchor.get('name'))+'）查询。')
+
+
+def _with_hotel(w,refs):
+    """早餐参照点：把"酒店周边"和"当天首站周边"都给上，并标注各自来源。
+
+    用户要的是"景区周围或酒店周围都行，最好给个标注"，所以两边都查、
+    候选上带 anchor_label 让界面能写明"酒店周边"还是"景区周边"。
+    """
+    out=[]
+    for p in refs:
+        if not (p and p.get('location')):
+            continue
+        # 参照点本身就是酒店（例如早餐锚在酒店）时不能标成"景区周边"。
+        is_hotel=p.get('kind')=='hotel' or p.get('id')==(w.get('hotel') or {}).get('id')
+        out.append({**p,'_anchor_kind':'hotel' if is_hotel else 'spot',
+                    '_anchor_label':'酒店周边' if is_hotel else '景区周边'})
+    hotel,note=hotel_reference(w)
+    if hotel and hotel.get('id') not in [p.get('id') for p in out] and hotel.get('location'):
+        out.append(hotel)
+    return out
+
+
 def anchors(w,args):
     catalog=w['catalog'];explicit=catalog.get(args.get('anchor_id'))
     if explicit and explicit.get('location'):return [explicit]
     dt=args.get('meal_date');period=args.get('meal_period','lunch')
+
+    def labelled(rows,extra_hotel=False):
+        """给参照点标注来源，并可按需补上住宿参照（晚餐回酒店顺路）。"""
+        out=[]
+        for p in rows:
+            if not (p and p.get('location')):
+                continue
+            is_hotel=p.get('kind')=='hotel' or p.get('id')==(w.get('hotel') or {}).get('id')
+            out.append({**p,'_anchor_kind':'hotel' if is_hotel else 'spot',
+                        '_anchor_label':'酒店周边' if is_hotel else '景区周边'})
+        if extra_hotel:
+            hotel,note=hotel_reference(w)
+            if hotel and hotel.get('location') and hotel.get('id') not in [p['id'] for p in out]:
+                out.append(hotel)
+        return out
+
     day=next((d for d in (w.get('plan') or {}).get('days',[]) if d['date']==dt),None)
     if day and not (w.get('plan') or {}).get('stale'):
         entries=[e for e in day.get('events',[]) if e.get('kind')=='spot' and e.get('candidate_id') in catalog]
@@ -47,16 +146,27 @@ def anchors(w,args):
             if period=='dinner':entries=entries[-1:]
             elif period=='lunch':entries=sorted(entries,key=lambda e:abs(int(e['end'].split(':')[0])*60+int(e['end'].split(':')[1])-12*60))[:2]
             else:entries=entries[:1]
-            return [catalog[e['candidate_id']] for e in entries if catalog[e['candidate_id']].get('location')]
-    if period=='breakfast' and (w.get('hotel') or {}).get('location'):return [w['hotel']]
+            found=[catalog[e['candidate_id']] for e in entries]
+            # 早餐：酒店和当天第一个景区都可以参照，两个都给，用户按方便选。
+            if period=='breakfast':return _with_hotel(w,found)
+            # 晚餐：回酒店顺路——把住宿参照点一并给出，通行核对时会比较绕行距离。
+            return labelled(found,extra_hotel=(period=='dinner'))
+    if period=='breakfast':
+        # 早餐优先"酒店周边 + 当天首站周边"：住哪儿附近吃、或出门顺路吃都合理。
+        from .schedule import provisional
+        slot=next((x for x in provisional(w) if x['kind']=='meal' and x['date']==dt and x['period']==period),None)
+        found=[]
+        if slot and slot.get('anchor_id') and catalog.get(slot['anchor_id'],{}).get('location'):
+            found=[catalog[slot['anchor_id']]]
+        return _with_hotel(w,found)
+    if period=='breakfast' and (w.get('hotel') or {}).get('location'):return labelled([w['hotel']])
     from .schedule import provisional
     slot=next((x for x in provisional(w) if x['kind']=='meal' and x['date']==dt and x['period']==period),None)
     if slot and slot.get('anchor_id') and catalog.get(slot['anchor_id'],{}).get('location'):
-        ref=catalog[slot['anchor_id']]
-        return [ref]+([w['hotel']] if period=='dinner' and (w.get('hotel') or {}).get('location') and w['hotel']['id']!=ref['id'] else [])
+        return labelled([catalog[slot['anchor_id']]],extra_hotel=(period=='dinner'))
     from .visits import meal_refs
     intended=[p for p in meal_refs(w,dt,period) if p.get('location')]
-    if intended:return intended[:2]+([w['hotel']] if period=='dinner' and w.get('hotel',{} ) and w['hotel'].get('location') and w['hotel']['id'] not in [p['id'] for p in intended] else [])
+    if intended:return labelled(intended[:2],extra_hotel=(period=='dinner'))
     points=[catalog[i] for i in w.get('selected_spots',[]) if catalog.get(i,{}).get('location')]
     if not points:
         from .discovery import page_info
@@ -68,7 +178,7 @@ def anchors(w,args):
     for p in ordered[1:]:
         if all(coordinate_distance(p,q)>=5 for q in result):result.append(p)
         if len(result)>=3:break
-    return result
+    return labelled(result,extra_hotel=(period=='dinner'))
 
 async def attempt(refs,city,word,radius,progress,warnings=None):
     """一轮查询：有参照点时逐个按周边查并各自记录来源；无参照点时查城市范围。
@@ -85,7 +195,7 @@ async def attempt(refs,city,word,radius,progress,warnings=None):
             if isinstance(result,Exception):failures.append(result);continue
             for p in result.get('items',[]):
                 if p.get('kind')!='food':continue
-                rows.append({**p,'search_anchor':ref['name'],'search_anchor_id':ref['id'],'_radius':radius,'_keyword':word,
+                rows.append({**p,'search_anchor':ref['name'],'search_anchor_id':ref['id'],'anchor_kind':ref.get('_anchor_kind'),'anchor_label':ref.get('_anchor_label'),'_radius':radius,'_keyword':word,
                              **({'anchor_distance_km':round(coordinate_distance(p,ref),1)} if p.get('location') else {})})
         if failures and not rows:
             error=failures[0]
@@ -124,26 +234,30 @@ async def search(w,args,progress,recommend):
         if any(x in p['name'] for x in ('售票','停车','厕所')):continue
         seen.add(p['id']);items.append(p)
     if items:
-        w['catalog'].update({p['id']:p for p in items[:8]})
-        w['food_query']={'ids':[p['id'] for p in items[:8]],'keyword':keyword,'scope':scope,'meal_date':args.get('meal_date'),'meal_period':args.get('meal_period'),'anchor':anchor['name'] if anchor else r['city']}
+        w['catalog'].update({p['id']:p for p in items[:12]})
+        w['food_query']={'ids':[p['id'] for p in items[:12]],'keyword':keyword,'scope':scope,'meal_date':args.get('meal_date'),'meal_period':args.get('meal_period'),'anchor':anchor['name'] if anchor else r['city']}
         progress('基础餐厅资料已到达，正在比较特色与核对通行')
-        await recommend(w,items,'单独筛选4至5家餐厅，按餐饮偏好与查询位置比较。只根据返回资料描述，不猜招牌菜、人均、景观或本地人比例。')
-        items.sort(key=lambda p:p.get('recommendation_rank',99))
-    items=items[:8]
+        await recommend(w,items,'单独筛选5至6家餐厅，评分高的优先，按餐饮偏好与查询位置比较。只根据返回资料描述，不猜招牌菜、人均、景观或本地人比例。')
+    # 早餐让早点铺占主要，其余按评分；午晚餐按评分。评分缺失的排在有评分之后。
+    items.sort(key=lambda p:rank_food(p,args.get('meal_period'),bool(r.get('budget'))))
+    items=items[:max(MEAL_LIMIT,6)]
     from .planning import route_options,choose_route
     from .access import screen
     progress('正在提前核对餐厅通行与当前餐次可用时段')
     meal=(args['meal_date'],args['meal_period']) if args.get('meal_date') and args.get('meal_period') in PERIODS else None
     by_id={p['id']:p for p in refs}
     items,excluded=await screen(w,items,lambda p:by_id.get(p.get('search_anchor_id')) or anchor,route_options,choose_route,meal)
-    items=items[:5]
+    items=items[:MEAL_LIMIT]
     for p in items:
         period=PERIODS.get(args.get('meal_period'),'用餐')
         if p.get('search_anchor_id') is None:
             basis=period+'可结合'+r['city']+'当日行程安排（本次为城市范围候选，不是景点周边）'
         else:
-            basis=period+'可结合'+p['search_anchor']+'周边活动安排'
+            where=p.get('anchor_label') or '景区周边'
+            basis=period+'可结合'+p['search_anchor']+'（'+where+'）安排'
             if p.get('anchor_distance_km') is not None:basis+=f'，距参照点直线约{p["anchor_distance_km"]}公里'
+        if args.get('meal_period')=='breakfast' and is_breakfast_place(p):
+            basis='早餐类店铺；'+basis
         p['recommendation_basis']=basis+'；实际通行与营业时段请核对。'
     # Each result retains the actual reference used for its query.
     markets=[]
