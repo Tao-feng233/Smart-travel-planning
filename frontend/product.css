@@ -45,8 +45,6 @@ dialog:not([open]){display:none!important}dialog[open]{position:fixed;inset:50% 
 
 #candidate-dialog[open]{inset:0;margin:auto;transform:none;height:fit-content}
 button.inline-execute{background:transparent!important;color:#405fae!important}button.timeline-entry{background:transparent!important;color:#8090ac!important}button.timeline-entry.active{background:#eaf0ff!important;color:#405faa!important}button.timeline-entry:hover{background:#f3f6fc!important}
-/* 选择阶段的时段条目同样是时间轴里的普通按钮，不能继承全局蓝色实心按钮样式。 */
-button.timeline-phase{background:#fbfcff!important;color:#4a5568!important}button.timeline-phase:hover{background:#f4f7fd!important}button.timeline-phase .timeline-phase-label{background:#eaf0fb!important;color:#4a6cae!important}
 
 /* Compact map launcher is also a draggable surface. */
 .selection-minimap.collapsed{width:48px;height:48px;border-radius:14px;box-shadow:0 5px 18px #334e7b1c;background:#f8faff}
@@ -78,3 +76,8 @@ button.timeline-phase{background:#fbfcff!important;color:#4a5568!important}butto
 .connection-recovery{max-width:600px;margin:15vh auto;padding:40px;background:white;border:1px solid #dce3f1;border-radius:24px}.route-cost{font-weight:600;color:#334a76}
 
 .data-coverage-notice{padding:12px 16px;background:#fff2e8;border-left:4px solid #d7682c;border-radius:8px;color:#973912}.covered-destinations{margin-top:16px;padding:16px;border:1px solid #dde4f2;border-radius:12px}#error{font-weight:600}
+/* 选择阶段的时间轴：日期分组标签。 */
+.timeline-day{display:flex;flex-direction:column;gap:4px;padding:6px 0;border-top:1px dashed #e3e9f4}
+.timeline-day:first-child{border-top:0;padding-top:0}
+.timeline-day-label{color:#8a97ae;font-weight:600;font-size:11px}
+.stay-unqueried{margin-right:6px;color:#98a2b8}
