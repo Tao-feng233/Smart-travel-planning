@@ -90,6 +90,10 @@ def test_complete_selection_queries_hotel_when_information_is_ready(monkeypatch)
     async def road(*_):return [{'mode':'driving','available':True,'minutes':10}]
     async def recommend(*args):return '已比较住宿候选'
     monkeypatch.setattr(agent,'tuniu',tuniu);monkeypatch.setattr(agent,'local_tool',local_tool);monkeypatch.setattr(agent,'recommend',recommend);monkeypatch.setattr(agent,'route_options',road)
+    # 住宿查询受途牛账号池的剩余额度约束，那是本机运行状态；这里固定为可用，
+    # 让用例只验证"信息齐备时应自动查询住宿"这件事本身。
+    async def budget():return 10
+    monkeypatch.setattr(agent,'hotel_query_budget',budget)
     answer=asyncio.run(agent.handle(w,'complete_spots',{},lambda x:None))
     assert w['spots_confirmed'] and calls[0]['poiName']=='景点1'
     assert '已确认景点' in answer and guidance.finish(w)['view']=='hotel'
