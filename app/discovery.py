@@ -9,13 +9,8 @@ PAGE_SIZE=4
 MAX_RECOMMENDATIONS=24
 
 def destinations():
-    items={}
-    for filename in ('destinations.json','shandong-destinations.json'):
-        path=ROOT/'data/catalog'/filename
-        if not path.exists():continue
-        for item in json.loads(path.read_text(encoding='utf-8')):
-            items.setdefault(item['id'],item)
-    return list(items.values())
+    from .data_coverage import snapshot
+    return list(snapshot()['cities'].values())
 
 def classic_names(city):
     return next((d['highlights'] for d in destinations() if d['name'] in city),[])
@@ -76,9 +71,13 @@ async def fetch(w,keywords,page_num):
         successful=True;items=result.get('items',[]);rows.extend(items);has_more|=len(items)>=12
     if not successful:raise DataError('景点查询暂时不可用，请稍后重试。')
     rejected=set(w.get('rejected_spots',[]));names=set(w.get('rejected_spot_names',[]))
-    return [p for p in main_pois(rows) if p['id'] not in rejected and clean_name(p['name']) not in names],has_more
+    from .data_coverage import place_known
+    return [p for p in main_pois(rows) if place_known(w['requirements']['city'],p['name']) and p['id'] not in rejected and clean_name(p['name']) not in names],has_more
 
 async def search(w,args,progress,recommend):
+    from .data_coverage import require_city,require_place
+    require_city(w['requirements']['city'])
+    if args.get('requested_place'):require_place(w['requirements']['city'],args['requested_place'])
     city=w['requirements']['city'];classic=classic_names(city)
     expanding=args.get('expand_spots') is True;previous=w.get('spot_search') or {}
     history=list(dict.fromkeys(previous.get('history_ids',[])+previous.get('ids',[]))) if previous.get('city')==city else []
@@ -97,6 +96,9 @@ async def search(w,args,progress,recommend):
             items=[p for p in items if p['id'] not in history and p['id'] not in w['selected_spots'] and clean_name(p['name']) not in seen_names]
         if not items:return '本轮暂未找到新的相关景点，已有推荐与选择已保留。可以补充感兴趣的主题或希望扩展的区域，再继续推荐。'
     if not items:raise DataError('未找到新的景点候选，请调整兴趣或搜索名称。')
+    from .locations import ready_candidates
+    items,location_excluded=await ready_candidates(w,items,local_tool)
+    if not items:return '本次景点候选尚未核对到有效坐标，暂不列入推荐。可以更换搜索条件或稍后重试；已有选择保留。'
     items=items[:MAX_RECOMMENDATIONS]
     w['catalog'].update({p['id']:p for p in items});w['candidates']=items
     from .spot_hierarchy import candidates
@@ -128,7 +130,7 @@ async def search(w,args,progress,recommend):
             parents=await local_tool('get_place_details',{'ids':missing})
             w['catalog'].update({p['id']:p for p in parents.get('items',[]) if p.get('kind')=='spot'})
         except DataError:pass
-    w['spot_search']={'city':city,'keywords':keywords,'provider_page':page,'page':1,'ids':[p['id'] for p in items],'history_ids':history,'excluded':excluded,'exhausted':True}
+    w['spot_search']={'city':city,'keywords':keywords,'provider_page':page,'page':1,'ids':[p['id'] for p in items],'history_ids':history,'excluded':location_excluded+excluded,'exhausted':True}
     w['discovery_mode']=False
     if not expanding:w['spots_confirmed']=False
     w['stage']='景点'

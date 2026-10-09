@@ -15,8 +15,8 @@ def describe(w,action='chat',args=None,view=None,status='ready',error=None):
     if action=='place_detail':view=args.get('view') if args.get('view') in VALID_VIEWS else view or {'food':'food','spot':'spot','market':'spot'}.get(catalog.get(args.get('id'),{}).get('kind'))
     if action=='complete_spots':view='transport' if int(r.get('days') or 0)==1 else 'hotel'
     if action in ('complete_hotel','skip_hotel'):
-        from .journey import is_local
-        if is_local(r):view='food'
+        from .journey import is_local,transport_optional
+        if is_local(r) or transport_optional(r):view='food'
     if action=='select':view={'spot':'spot','hotel':'hotel','train':'transport','flight':'transport','food':'food'}.get(catalog.get(args.get('id'),{}).get('kind'),view)
     ui={'action':action,'view':view,'status':status,'focus_id':args.get('id'),'cta':None}
     def output(title,message,label=None,**target):

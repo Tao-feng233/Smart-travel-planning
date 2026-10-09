@@ -236,7 +236,7 @@ async def run(w, args, progress, model, handle, continuing=False):
             complete = all(x['date']+'|'+x['period'] in w.get('meal_choices', {}) or w.get('meal_mode')=='self' for x in slots)
             w['dining_reviewed'] = complete
         if state['generate_plan']:
-            local = journey.is_local(w['requirements'])
+            local = journey.is_local(w['requirements']) or journey.transport_optional(w['requirements'])
             confirmed = all((w.get(k) or {}).get('selection_status')=='confirmed' for k in transport)
             if local or confirmed or state.get('allow_draft'):
                 try: notes.append(await handle(w,'plan',{},progress))

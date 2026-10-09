@@ -29,7 +29,9 @@ def install(monkeypatch):
                                      'lowestPrice': prices.get(params.get('checkIn'), 200)}]},
                 'source': {'name': '途牛'}}
     async def tool(name, args):
-        return {'items': []}
+        return {'items':[{'id':'map-h','provider_id':'map-h','kind':'hotel','name':'候选酒店','location':'120.3,36.05'}]}
+    async def road(*_):return [{'mode':'driving','available':True,'minutes':10}]
+    monkeypatch.setattr(agent,'route_options',road)
     monkeypatch.setattr(agent, 'tuniu', vendor)
     monkeypatch.setattr(agent, 'local_tool', tool)
     monkeypatch.setattr(agent, 'recommend', lambda *a, **k: asyncio.sleep(0, result='已比较'))

@@ -26,13 +26,14 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
  try{
   await p.goto(base);await p.waitForSelector('#application:not([hidden])');
   await p.locator('.workspace').hover();await p.waitForSelector('#selection-timeline.visible');
-  assert.match(await p.locator('[data-timeline-key=pending]').innerText(),/出发时间待查询[\s\S]*交通方式待查询[\s\S]*交通耗时待查询/);
+  assert.match(await p.locator('[data-timeline-key=pending]').innerText(),/出发时间待查询[\s\S]*交通待核对/);
   assert.match(await p.locator('[data-timeline-key=spot]').innerText(),/建议游玩 150 分钟/);
   await p.evaluate(()=>selectTimelineSlot(timelineEntries()[0]));assert.match(await p.locator('#info-content').innerText(),/出发、抵达时间待路线查询/);
   await p.locator('#info-dialog [data-close=info-dialog]').click();
   await p.locator('.workspace').hover();await p.waitForSelector('#selection-timeline.visible');await p.locator('#timeline-optimize').click();
   await p.waitForFunction(()=>!busy&&workspace.timeline.route_status==='checked');
-  assert.match(await p.locator('[data-timeline-key=road]').innerText(),/09:00 出发[\s\S]*09:50 预计抵达[\s\S]*驾车／打车参考[\s\S]*路程预计 40 分钟/);
+  assert.match(await p.locator('[data-timeline-key=road]').innerText(),/09:00 出发[\s\S]*09:50 预计抵达[\s\S]*打车约 40 分钟/);
+  assert.doesNotMatch(await p.locator('[data-timeline-key=road]').innerText(),/酒店|五四广场/);
   assert.match(await p.locator('[data-timeline-key=spot]').innerText(),/10:15[\s\S]*建议游玩 60 分钟/);
   assert.deepEqual(w.selected_spots,['a']);assert.deepEqual(requests.map(x=>x.action),['adjust_timeline']);assert.deepEqual(errors,[]);
   console.log('TIMELINE TOOL AND TRAVEL DISPLAY BROWSER PASSED');

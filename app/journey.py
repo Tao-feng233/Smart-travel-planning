@@ -17,6 +17,10 @@ def is_local(r):
     clean=lambda s:re.sub(r'[市县区\s]+$','',str(s or ''))
     return bool(r.get('local_trip') or r.get('city') and r.get('origin') and clean(r['city'])==clean(r['origin']))
 
+def transport_optional(r):
+    return r.get('intercity_mode') in ('self_drive','self_arranged')
+
+
 def date_interval(text,r):
     """Only explicit date intervals; never reinterpret a departure time window."""
     if re.search('返程|回程|车票|班次',text) and not re.search('游玩|行程|旅游',text):return {}
@@ -127,7 +131,7 @@ def next_step(w):
     skip_stay=w.get('stay_skipped') or int(r.get('days') or 0)==1
     from .locations import selected_hotel
     if not skip_stay and not selected_hotel(w):return {'message':'可以按景点位置比较住宿，选定酒店后继续安排交通；也可以暂不安排住宿，具体房型可稍后选择。','view':'hotel'}
-    if is_local(r):return dining_step(w)
+    if is_local(r) or transport_optional(r):return dining_step(w)
     if not r.get('origin'):return {'message':'提供出发城市后，可以查询并比较往返交通。','view':'transport','missing':['出发城市']}
     for slot,label in [('selected_transport','去程'),('selected_return','返程')]:
         tr=w.get(slot)

@@ -88,10 +88,10 @@ def events(w,direction,moment):
         begin=moment;start=begin+30;finish=start+allocation
         if finish>=1439:return []
         return [{'kind':'arrival','candidate_id':h['id'],'name':'抵达后出站，准备前往'+h['name'],'start':clock(begin),'end':clock(start),'note':'出站暂预留30分钟，具体出口及行李耗时待核实。'},
-                {'kind':'route','route_scope':'arrival_transfer','candidate_id':h['id'],'name':'从'+link['point']['name']+'前往'+h['name'],'start':clock(start),'end':clock(finish),'route':route,'buffer':allocation-route['minutes'],'note':link['note']}]
+                {'kind':'route','route_scope':'arrival_transfer','candidate_id':h['id'],'name':'从'+link['point']['name']+'前往'+h['name'],'start':clock(start),'end':clock(finish),'route':route,'options':[route],'buffer':allocation-route['minutes'],'note':link['note']}]
     if moment<offset(w,'return'):return []
     begin=max(0,moment-offset(w,'return'));start=begin+15;finish=start+allocation
     if finish>=moment:return []
     return [{'kind':'arrival','candidate_id':h['id'],'name':'退房与出发准备','start':clock(begin),'end':clock(start),'note':'暂预留15分钟，退房及行李条件待核实。'},
-            {'kind':'route','route_scope':'return_transfer','name':'从'+h['name']+'前往'+link['point']['name'],'start':clock(start),'end':clock(finish),'route':route,'buffer':allocation-route['minutes'],'note':link['note']},
+            {'kind':'route','route_scope':'return_transfer','name':'从'+h['name']+'前往'+link['point']['name'],'start':clock(start),'end':clock(finish),'route':route,'options':[route],'buffer':allocation-route['minutes'],'note':link['note']},
             {'kind':'transfer_plan','transfer_scope':'waiting','name':'候车或值机、安检准备','start':clock(finish),'end':clock(moment),'note':'具体出入口、航站楼与安检等待时间仍需确认。'}]

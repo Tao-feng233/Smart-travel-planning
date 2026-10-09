@@ -6,12 +6,25 @@ function formError(id,text=''){const el=aq('#'+id);el.textContent=text;el.hidden
 function closeHistory(){aq('#trips-dialog').hidden=true;aq('#application').classList.remove('history-open');aq('#history-toggle').setAttribute('aria-expanded','false')}
 function closeDialogs(){closeHistory();document.querySelectorAll('dialog[open]').forEach(d=>d.close())}
 function showGate(message=''){
- tripEpoch++;pendingRecovery='';aq('#recovery-code').value='';aq('#recovery-reminder').hidden=true;currentUser=null;csrfToken='';runningJobId=null;jobUI=null;workspace=null;setBusy(false);closeDialogs();aq('#messages').replaceChildren();aq('#content').replaceChildren();aq('#message').value='';aq('#application').hidden=true;aq('#auth-gate').hidden=false;
+ aq('#connection-recovery').hidden=true;tripEpoch++;pendingRecovery='';aq('#recovery-code').value='';aq('#recovery-reminder').hidden=true;currentUser=null;csrfToken='';runningJobId=null;jobUI=null;workspace=null;setBusy(false);closeDialogs();aq('#messages').replaceChildren();aq('#content').replaceChildren();aq('#message').value='';aq('#application').hidden=true;aq('#auth-gate').hidden=false;
  for(const id of ['trips-button','new','account-button'])aq('#'+id).hidden=true;
  aq('#connection').textContent='旅游规划助手';formError('auth-error',message);
 }
-function acceptSession(data){clearTimeout(toastTimer);aq('#toast').replaceChildren();aq('#toast').hidden=true;currentUser=data.user;csrfToken=data.csrf_token;aq('#application').hidden=false;aq('#auth-gate').hidden=true;for(const id of ['trips-button','new','account-button'])aq('#'+id).hidden=false;aq('#account-button').textContent=currentUser.nickname;aq('#connection').textContent='自动保存 · 个人旅行空间';}
-async function bootAccount(){try{const data=await api('/api/auth/me');acceptSession(data);await loadWorkspace()}catch(e){showGate(e.code===401?'':e.message);if(e.code!==401)formError('auth-error','暂时无法连接服务，请确认项目已经启动，再刷新页面。')}}
+function acceptSession(data){aq('#connection-recovery').hidden=true;clearTimeout(toastTimer);aq('#toast').replaceChildren();aq('#toast').hidden=true;currentUser=data.user;csrfToken=data.csrf_token;aq('#application').hidden=false;aq('#auth-gate').hidden=true;for(const id of ['trips-button','new','account-button'])aq('#'+id).hidden=false;aq('#account-button').textContent=currentUser.nickname;aq('#connection').textContent='自动保存 · 个人旅行空间';}
+function connectionRecovery(message='服务暂时无法连接，登录凭据仍保留。恢复连接后可继续旅行。'){
+ aq('#auth-gate').hidden=true;aq('#application').hidden=true;aq('#connection-recovery').hidden=false;aq('#connection-recovery-message').textContent=message;
+}
+async function bootAccount(){
+ let data;
+ try{data=await api('/api/auth/me')}catch(e){if(e.code===401)showGate();else connectionRecovery();return}
+ acceptSession(data);
+ try{await loadWorkspace()}catch(e){
+  if(e.code===401)return;
+  if(workspace){error('旅行已恢复，但页面加载未完成。请点击恢复任务进度重试。');aq('#reconnect-task').hidden=false}
+  else connectionRecovery('登录状态已恢复，旅行暂时未能加载。请重试连接，无需重新登录。');
+ }
+}
+
 function draftKey(wid){return 'shitu-draft:'+currentUser.id+':'+wid}
 async function loadWorkspace(wid=null,provided=null){
  if(!currentUser)return;const uid=currentUser.id;if(workspace)sessionStorage.setItem(draftKey(workspace.id),aq('#message').value);const epoch=++tripEpoch;runningJobId=null;jobUI=null;setBusy(false);error('');aq('#reconnect-task').hidden=true;
@@ -22,6 +35,7 @@ async function loadWorkspace(wid=null,provided=null){
 }
 async function newTrip(){try{const w=await api('/api/workspaces',{method:'POST'});closeDialogs();await loadWorkspace(w.id,w);toast('已开始一段新旅行，旧旅行保留在“我的旅行”中。');aq('#message').focus()}catch(e){toast(e.message)}}
 function setAuthMode(mode){authMode=mode;formError('auth-error');aq('#auth-title').textContent=mode==='register'?'开始你的旅行空间':mode==='recover'?'恢复你的账户':'欢迎回来';aq('#auth-intro').textContent=mode==='register'?'不同旅行独立保存，回来就能继续。':mode==='recover'?'使用已保存的恢复码，设置新密码。':'登录后，继续安排你的旅行。';aq('#nickname-label').hidden=mode!=='register';aq('#recovery-label').hidden=mode!=='recover';aq('#auth-recovery').required=mode==='recover';aq('#auth-password').autocomplete=mode==='login'?'current-password':'new-password';aq('#auth-submit').textContent=mode==='register'?'注册并开始':mode==='recover'?'重置密码并登录':'登录并继续';aq('#auth-login-tab').classList.toggle('active',mode==='login');aq('#auth-register-tab').classList.toggle('active',mode==='register');}
+aq('#retry-connection').onclick=()=>bootAccount();
 aq('#auth-login-tab').onclick=()=>setAuthMode('login');aq('#auth-register-tab').onclick=()=>setAuthMode('register');aq('#forgot-password').onclick=()=>setAuthMode('recover');
 aq('#auth-form').onsubmit=async e=>{
  e.preventDefault();formError('auth-error');aq('#auth-submit').disabled=true;

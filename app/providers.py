@@ -146,23 +146,38 @@ async def route(origin, destination, mode, citycode='',destination_citycode=''):
     p=paths[0]; cost=p.get('cost') or {}
     duration=cost.get('duration') if cost.get('duration') is not None else p.get('duration')
     if duration in (None,'',[]): return {'mode':mode,'available':False,'status':'incomplete','reason':'接口未提供耗时','source':r['source']}
-    details=[];steps=[];polylines=[]
+    details=[];steps=[];polylines=[];segment_fares=[]
+    def amount(value):
+        try:
+            number=float(value)
+            return number if math.isfinite(number) and number>=0 else None
+        except (TypeError,ValueError):return None
     def add_step(s):
-        steps.append({k:s[k] for k in ('instruction','road_name','distance','duration') if s.get(k) is not None})
+        step={k:s[k] for k in ('instruction','road_name','distance','duration') if s.get(k) is not None}
+        if 'duration' not in step and isinstance(s.get('cost'),dict):step['duration']=s['cost'].get('duration')
+        steps.append(step)
         if s.get('polyline'):polylines.append(s['polyline'])
     for step in p.get('steps',[]):add_step(step)
     if mode=='transit':
         for seg in p.get('segments',[]):
             for step in (seg.get('walking') or {}).get('steps',[]):add_step(step)
-            for bus in (seg.get('bus') or {}).get('buslines',[]):
+            buslines=(seg.get('bus') or {}).get('buslines') or (seg.get('bus') or {}).get('steps') or []
+            # Multiple buslines within one segment are alternatives, not transfers.
+            for bus in buslines[:1]:
                 details.append(bus.get('name',''))
                 steps.append({'instruction':'乘坐 '+bus.get('name','公交'),
                               'from':(bus.get('departure_stop') or {}).get('name'),
-                              'to':(bus.get('arrival_stop') or {}).get('name')})
+                              'to':(bus.get('arrival_stop') or {}).get('name'),
+                              'stops':bus.get('via_num'),'type':bus.get('type')})
                 if bus.get('polyline'):polylines.append(bus['polyline'])
+            if buslines:segment_fares.append(amount((seg.get('cost') or {}).get('transit_fee')))
+    fare=amount(cost.get('transit_fee')) if mode=='transit' else None
+    if fare is None and segment_fares and all(x is not None for x in segment_fares):fare=sum(segment_fares)
     r['source']['url']='https://developer.amap.com/api/webservice/guide/api/newroute'
     return dict(mode=mode,available=True,status='available',minutes=math.ceil(float(duration)/60),distance=int(float(p.get('distance') or 0)),
-                walking_distance=p.get('walking_distance'),fare=cost.get('transit_fee') if mode=='transit' else None,
+                walking_distance=p.get('walking_distance'),fare=fare,
+                taxi_cost=amount(routes.get('taxi_cost')) if mode=='driving' else None,
+                tolls=amount(cost.get('tolls')) if mode=='driving' else None,
                 details=details,steps=steps,polylines=polylines,source=r['source'],note='查询时路线预计耗时；驾车不含叫车等待，公交按接口整段耗时，不重复加等车时间')
 
 async def weather(location):

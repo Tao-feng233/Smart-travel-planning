@@ -4,7 +4,7 @@ from app import discovery,agent,providers,guidance
 from app.text import readable
 
 def trip():return {'requirements':{'city':'青岛'},'catalog':{},'selected_spots':[],'messages':[],'tickets':{}}
-def poi(i,name=None):return {'id':f's{i}','name':name or f'景点{i}','kind':'spot','rating':4.5}
+def poi(i,name=None):return {'id':f's{i}','name':name or f'景点{i}','kind':'spot','rating':4.5,'location':f'120.{300+i},36.05'}
 
 def test_literal_linebreaks_are_normalized_without_unicode_decoding():
     assert readable('第一行\\n\\n第二行')=='第一行\n\n第二行'
@@ -30,6 +30,8 @@ def test_source_backed_destinations_cover_distinct_directions():
     assert all(p['highlights'] and p['tags'] and p['source']['url'].startswith('https://') for p in items)
 
 def test_recommendation_order_changes_displayed_page(monkeypatch):
+    # Synthetic names isolate ordering; coverage has separate end-to-end guards.
+    monkeypatch.setattr('app.data_coverage.place_known',lambda *_:True)
     w=trip();calls=[]
     async def tool(name,args):
         if name=='retrieve_guides':return {'items':[]}
@@ -84,9 +86,10 @@ def test_complete_selection_queries_hotel_when_information_is_ready(monkeypatch)
     calls=[]
     async def tuniu(service,tool,args):
         calls.append(args);return {'data':{'hotels':[{'hotelId':1,'hotelName':'候选酒店'}]},'source':{}}
-    async def local_tool(name,args):return {'items':[]}
+    async def local_tool(name,args):return {'items':[{'id':'map-h','provider_id':'map-h','name':'候选酒店','kind':'hotel','location':'120.3,36.05'}]} if name=='search_places' else {'items':[]}
+    async def road(*_):return [{'mode':'driving','available':True,'minutes':10}]
     async def recommend(*args):return '已比较住宿候选'
-    monkeypatch.setattr(agent,'tuniu',tuniu);monkeypatch.setattr(agent,'local_tool',local_tool);monkeypatch.setattr(agent,'recommend',recommend)
+    monkeypatch.setattr(agent,'tuniu',tuniu);monkeypatch.setattr(agent,'local_tool',local_tool);monkeypatch.setattr(agent,'recommend',recommend);monkeypatch.setattr(agent,'route_options',road)
     answer=asyncio.run(agent.handle(w,'complete_spots',{},lambda x:None))
     assert w['spots_confirmed'] and calls[0]['poiName']=='景点1'
     assert '已确认景点' in answer and guidance.finish(w)['view']=='hotel'

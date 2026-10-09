@@ -55,5 +55,6 @@ def transport_select(w,p,replace=False,recommended=False):
     if other:
         outbound=p if slot=='selected_transport' else other;back=p if slot=='selected_return' else other
         if outbound.get('arrival') and back.get('departure') and outbound['arrival']>=back['departure']:raise DataError('返程出发时间早于或等于去程到达时间，请调整班次。')
+    w['requirements']['intercity_mode']='tickets'
     w[slot]={**p,'selection_status':'recommended' if recommended else 'confirmed'}
     return slot

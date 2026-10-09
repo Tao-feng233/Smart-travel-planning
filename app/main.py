@@ -182,7 +182,7 @@ class Action(BaseModel):
 async def action(wid:str,body:Action,user=Depends(auth.current_user)):
     w=owned(wid,user)
     if w['archived']:raise HTTPException(409,'这次旅行已归档，请恢复后再继续规划')
-    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','adjust_timeline','refresh_routes','review_timeline','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
+    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','transport_arrangement','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','adjust_timeline','refresh_routes','review_timeline','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
         raise HTTPException(400,'不支持的操作')
     if body.action=='chat' and not body.text.strip():raise HTTPException(400,'请先输入旅行想法')
     jid=uuid.uuid4().hex

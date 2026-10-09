@@ -15,7 +15,7 @@ def test_more_candidates_excludes_shown_and_preserves_selection(monkeypatch):
     async def tool(name,args):
         if name=='retrieve_guides':return {'items':[]}
         calls.append(args)
-        return {'items':[w['catalog']['old'],{'id':'new','kind':'spot','name':'新的人文景点'}]}
+        return {'items':[w['catalog']['old'],{'id':'new','kind':'spot','name':'八大关','location':'120.35,36.06'}]}
     async def rank(*args):return '新增备选'
     monkeypatch.setattr(discovery,'local_tool',tool)
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,rank))

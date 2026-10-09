@@ -83,7 +83,7 @@ function hideTimeline(){clearTimeout(timelineHideTimer);timelineHideTimer=setTim
 function timelineMode(e){
  if(e.transport_kind==='flight')return '飞机';
  if(e.transport_kind==='train')return /[GDC]\d/.test(e.name||'')?'高铁／动车':'火车';
- return ({walking:'步行',transit:'公交／地铁',driving:'驾车／打车参考'})[e.mode]||'交通方式待查询';
+ return ({walking:'步行',transit:'公交／地铁',driving:workspace?.requirements.intercity_mode==='self_drive'?'自驾':'打车'})[e.mode]||'交通方式待查询';
 }
 function timelineEntryHTML(e){
  const road=['route','unknown_route'].includes(e.kind),waiting=e.kind==='transfer_plan',train=e.kind==='transport';
@@ -91,7 +91,7 @@ function timelineEntryHTML(e){
  const knownRoad=road&&e.route_minutes!=null;const timing=road||train?`<time>${(knownRoad||train)&&e.time?esc(e.time)+' 出发':'出发时间待查询'}</time>${(knownRoad||train)&&e.end?`<small class="timeline-arrival">${e.end_date&&e.end_date!==e.date?esc(e.end_date.slice(5))+' ':''}${esc(e.end)} ${train?'班次抵达':'预计抵达'}${!train&&e.buffer_minutes?'（含缓冲）':''}</small>`:''}`:`<time>${esc(e.time)}</time>`;
  const travel=road||train?`<small class="timeline-transport-mode">${esc(timelineMode(e))}</small>${e.route_minutes!=null?`<small>路程预计 ${esc(e.route_minutes)} 分钟${e.buffer_minutes!=null?' · 另留 '+esc(e.buffer_minutes)+' 分钟缓冲':''}</small>`:road?'<small>交通耗时待查询</small>':''}`:'';
  const visit=['spot','spot_continue'].includes(e.kind)&&e.duration?`<small>建议游玩 ${esc(e.duration)} 分钟${e.includes_meal_break?' · 含用餐休息':''}${e.over_capacity?' · 待优化':''}</small>`:'';
- return `<button class="timeline-entry ${e.rest_type==='midday'?'midday-rest':''} ${road||waiting||train?'travel-leg':''} ${e.key===activeMealKey()&&tab==='food'?'active':''} ${e.confirmed?'confirmed':''}" title="${esc(e.reason||e.name)}" data-timeline-key="${esc(e.key)}"><small>${esc(e.date.slice(5))} · ${status}</small>${timing}<span>${esc(e.name)}</span>${travel}${waiting?'<small>候车／安检或接驳准备 · 建议预留</small>':''}${e.rest_type==='midday'?`<small>休息至 ${esc(e.end||'')} · 建议安排</small>`:''}${visit}</button>`;
+ return `<button class="timeline-entry ${e.rest_type==='midday'?'midday-rest':''} ${road||waiting||train?'travel-leg':''} ${e.key===activeMealKey()&&tab==='food'?'active':''} ${e.confirmed?'confirmed':''}" title="${esc(e.reason||e.name)}" data-timeline-key="${esc(e.key)}"><small>${esc(e.date.slice(5))} · ${status}</small>${timing}<span>${road?(e.route_minutes!=null?esc(timelineMode(e))+'约 '+esc(e.route_minutes)+' 分钟':'交通待核对'):esc(e.name)}</span>${road?(e.buffer_minutes?`<small>另留 ${esc(e.buffer_minutes)} 分钟缓冲</small>`:''):travel}${waiting?'<small>候车／安检或接驳准备 · 建议预留</small>':''}${e.rest_type==='midday'?`<small>休息至 ${esc(e.end||'')} · 建议安排</small>`:''}${visit}</button>`;
 }
 function syncTimeline(){
  ensureExperienceUI();const entries=timelineEntries(),root=$('#selection-timeline');

@@ -278,6 +278,9 @@ async def search(w,args,progress,recommend):
     rows=[];hit=None;query_warnings=[]
     for group,radius,word in steps:
         rows=await attempt(group,r['city'],word,radius,progress,query_warnings)
+        from .locations import ready_candidates
+        rows,unlocated=await ready_candidates(w,rows,local_tool)
+        if unlocated:query_warnings.append('本轮有 '+str(len(unlocated))+' 家餐厅未核对到有效坐标，已暂时排除。')
         if rows:hit=(group,radius,word);break
     if hit and not hit[0]:
         progress('参照点周边未查到候选，已按城市范围补充')

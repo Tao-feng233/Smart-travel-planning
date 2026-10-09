@@ -2,6 +2,7 @@
 import math
 import re
 import unicodedata
+import asyncio
 from .storage import now
 from .providers import DataError
 
@@ -114,3 +115,30 @@ async def locate_hotel(w,p,tool):
                        'map_address','map_source','location_status','match_status','location_checked_at') if k in p})
         if w.get('plan'):w['plan']['stale']=True
     return p
+
+
+def usable(p):
+    return bool(coordinate(p.get('location')) and p.get('location_status') not in ('ambiguous','not_found','query_failed'))
+
+
+async def ready_candidates(w,items,tool,*,locate_hotels=False):
+    """Verify new recommendation geometry before publishing it; never invent coordinates."""
+    sem=asyncio.Semaphore(3)
+    async def repair(p):
+        async with sem:
+            try:
+                if locate_hotels and p.get('kind')=='hotel':
+                    await asyncio.wait_for(locate_hotel(w,p,tool),15)
+                elif not coordinate(p.get('location')) and p.get('id','').startswith('amap:'):
+                    result=await asyncio.wait_for(tool('get_place_details',{'ids':[p['id']]}),10)
+                    found=next((x for x in result.get('items',[]) if x.get('id')==p['id'] and coordinate(x.get('location'))),None)
+                    if found:
+                        for key in ('location','entrance','citycode','city','district','address','source'):
+                            if found.get(key):p[key]=found[key]
+                        p['location_status']='verified'
+            except (DataError,TimeoutError):
+                if not coordinate(p.get('location')):p['location_status']='query_failed'
+    await asyncio.gather(*(repair(p) for p in items))
+    ready=[p for p in items if usable(p)]
+    excluded=[{'id':p['id'],'name':p['name'],'status':'missing_location','message':p.get('match_status') or '未核对到有效地图坐标，暂不列入推荐'} for p in items if not usable(p)]
+    return ready,excluded

@@ -237,7 +237,7 @@ async def _generate(w, progress, *, preview=False):
     if quote_stale(hotel):warnings.append('已保留'+hotel['name']+'作为住宿位置；原房型或列表报价已过期，本次住宿实际总价需重新核实。')
     transport=w.get('selected_transport'); arrival=None
     if not transport and r.get('origin'):
-        warnings.append('尚未选择往返班次：每天开始时间是规划假设，不能保证到达日和返程日有完整游玩时间；确定班次后请重排。')
+        warnings.append(('自驾或往返自行安排：' if journey.transport_optional(r) else '尚未选择往返班次：')+'每天开始时间是规划假设；请确认实际抵达与离开时间，首尾日保留调整空间。')
     if transport:
         try:
             from datetime import datetime
