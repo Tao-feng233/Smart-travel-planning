@@ -344,6 +344,18 @@ async def search(w,args,progress,recommend):
         return '已单独查询到'+str(len(items))+'家餐饮候选'+note+'，可在右侧“餐饮”按日期和餐次选择，也可以自行安排。'+(' '+query_warnings[0] if query_warnings else '')
     return '本次在'+('景点周边和城市范围' if refs else '城市范围')+'都没有查到餐厅候选。可在右侧选择“本餐自行安排”，或换一个日期/餐次、也可以告诉我具体想吃的菜系或店名，我再查一次。'
 
+def meal_slots(w):
+    """时间轴给出的可安排餐次（含抵达日、不含赶不上的返程餐）。
+
+    只做读取，不触发排程：失败时返回空，调用方回退到游玩日口径。
+    """
+    try:
+        from .schedule import build
+        return [str(x.get('key') or '') for x in (build(w).get('meal_slots') or [])]
+    except Exception:
+        return []
+
+
 def select_meal(w,args):
     dates=meal_dates(w['requirements']);dt=args.get('meal_date');period=args.get('meal_period')
     mode=args.get('mode') or args.get('meal_mode') or 'chosen';cid=args.get('food_id') or args.get('id')
@@ -352,7 +364,12 @@ def select_meal(w,args):
     if not dt or not period:
         if not dates:raise DataError('餐厅候选已找到。请先确定日期，再指定哪天的早餐、午餐或晚餐；也可以自行安排。')
         raise DataError('请说明要安排哪天的早餐、午餐或晚餐，避免将同一餐厅强行安排到每一餐。')
-    if dt not in dates or period not in PERIODS:raise DataError('请在游玩日期内选择有效餐次。')
+    if period not in PERIODS:raise DataError('请选择早餐、午餐或晚餐。')
+    # 可接受的日期 = 时间轴槽位日期（含抵达日与返程日）∪ 游玩日。
+    # 只放宽范围，不新增拒绝：时间轴排不下的餐次仍允许选择，由排程在生成/修订时
+    # 处理并标记计划需重生成（tests/test_review_integration.py 锁定了这一行为）。
+    allowed=set(dates)|{k.split('|')[0] for k in meal_slots(w) if '|' in k}
+    if dt not in allowed:raise DataError('请在游玩日期内选择有效餐次。')
     if mode=='remove':
         # 只清掉这一餐的选择，其他餐次不受影响（景区周边 0 候选时也要能退出）。
         removed=(w.get('meal_choices') or {}).pop(dt+'|'+period,None)
