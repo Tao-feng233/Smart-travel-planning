@@ -72,3 +72,13 @@ button.inline-execute{background:transparent!important;color:#405fae!important}b
 .timeline-entry.travel-leg{background:#f1f6fb;border-color:#d8e3ee}.timeline-entry.travel-leg span{font-size:12px}.timeline-entry.travel-leg small{line-height:1.6}
 
 .timeline-entry .timeline-transport-mode{color:#45618a;font-weight:600}.timeline-entry .timeline-arrival{color:#637b9d}.timeline-entry.travel-leg time{font-size:12px}
+
+/* 选择阶段的时间轴：只显示日期 + 上午/下午/晚上 + 顺序，不显示具体时刻。 */
+.timeline-day{display:flex;flex-direction:column;gap:4px;padding:6px 0;border-top:1px dashed #e3e9f4}
+.timeline-day:first-child{border-top:0;padding-top:0}
+.timeline-day-label{color:#8a97ae;font-weight:600;font-size:11px}
+.timeline-phase{display:flex;flex-direction:column;gap:2px;align-items:flex-start;width:100%;padding:7px 9px;border:1px solid #e0e7f3;border-radius:9px;background:#fbfcff;text-align:left;cursor:pointer}
+.timeline-phase:hover{background:#f4f7fd}
+.timeline-phase-label{align-self:flex-start;padding:1px 6px;border-radius:6px;background:#eaf0fb;color:#4a6cae;font-size:10px;font-weight:600}
+.timeline-phase span{font-size:12px;line-height:1.55;color:#4a5568;overflow-wrap:anywhere}
+.timeline-phase-notice{margin:6px 0 0;padding:7px 9px;border-radius:8px;background:#fdf6ec;color:#8a6636;font-size:11px;line-height:1.6}

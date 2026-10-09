@@ -85,6 +85,53 @@ function timelineMode(e){
  if(e.transport_kind==='train')return /[GDC]\d/.test(e.name||'')?'高铁／动车':'火车';
  return ({walking:'步行',transit:'公交／地铁',driving:'驾车／打车参考'})[e.mode]||'交通方式待查询';
 }
+// 选择阶段（还没生成计划书）只显示"上午/下午/晚上 + 顺序"，不显示具体时刻：
+// 此时排期尚未统一规划，给出 10:00、13:15 这类时刻会误导。
+function timelinePhaseMode(){return !workspace?.plan}
+function phaseOf(e){
+ const m=String(e.time||'').match(/^(\d{1,2}):/);
+ if(!m)return '待定';
+ const hour=Number(m[1]);
+ if(hour<11)return '上午';
+ if(hour<17)return '下午';
+ return '晚上';
+}
+function phaseRank(p){return {'上午':0,'下午':1,'晚上':2,'待定':3}[p]??3}
+function groupedTimelineHTML(entries){
+ const byDate=new Map();
+ entries.forEach(e=>{
+  if(!byDate.has(e.date))byDate.set(e.date,[]);
+  byDate.get(e.date).push(e);
+ });
+ let out='';
+ for(const [date,rows] of byDate){
+  rows.sort((a,b)=>phaseRank(phaseOf(a))-phaseRank(phaseOf(b)));
+  const byPhase=new Map();
+  rows.forEach(e=>{
+   const p=phaseOf(e);
+   if(!byPhase.has(p))byPhase.set(p,[]);
+   byPhase.get(p).push(e);
+  });
+  out+=`<div class="timeline-day"><small class="timeline-day-label">${esc(date.slice(5))}</small>`;
+  for(const [phase,group] of byPhase){
+   // 交通段在选择阶段不显示分钟数，只提示"需车程 · 待核对"。
+   const names=group.map(e=>{
+    const leg=['route','unknown_route','transport','transfer_plan'].includes(e.kind);
+    return esc(leg?e.name+'（需车程 · 待核对）':e.name);
+   }).join(' · ');
+   out+=`<button class="timeline-phase" data-timeline-key="${esc(group[0].key)}" title="${esc(group.map(e=>e.reason||e.name).join(' / '))}"><small class="timeline-phase-label">${esc(phase)}</small><span>${names}</span></button>`;
+  }
+  out+='</div>';
+ }
+ return out;
+}
+function phaseTightNotice(){
+ const issues=(workspace?.timeline_review?.issues||[]).filter(i=>!i.optimize||i.code==='timeline_load');
+ if(!issues.length)return '';
+ const days=[...new Set(issues.map(i=>i.date).filter(Boolean))];
+ const label=days.length?days.map(d=>d.slice(5)).join('、'):'部分日子';
+ return `<p class="timeline-phase-notice">${esc(label)} 安排可能偏紧，生成计划书时会统一调整。</p>`;
+}
 function timelineEntryHTML(e){
  const road=['route','unknown_route'].includes(e.kind),waiting=e.kind==='transfer_plan',train=e.kind==='transport';
  const status=road?(e.route_minutes!=null?'交通预计':'交通待核对'):waiting?'准备预留':e.confirmed?'已确认':'建议';
@@ -95,9 +142,12 @@ function timelineEntryHTML(e){
 }
 function syncTimeline(){
  ensureExperienceUI();const entries=timelineEntries(),root=$('#selection-timeline');
- root.querySelector('.timeline-note').textContent=workspace.timeline?.provisional?(workspace.timeline?.route_status==='checked'?'动态建议 · 已核对道路':workspace.timeline?.route_status==='partial'?'动态建议 · 部分交通待核对':'初步建议 · 交通待查询，核对后自动更新时间'):'计划安排 · 游玩与交通分开展示';
+ root.querySelector('.timeline-note').textContent=timelinePhaseMode()?'选择阶段 · 只显示时段与顺序；生成计划书后给出具体时刻':(workspace.timeline?.provisional?(workspace.timeline?.route_status==='checked'?'动态建议 · 已核对道路':workspace.timeline?.route_status==='partial'?'动态建议 · 部分交通待核对':'初步建议 · 交通待查询，核对后自动更新时间'):'计划安排 · 游玩与交通分开展示');
  root.querySelector('.timeline-note').title=workspace.timeline?.route_message||'';root.querySelector('[data-preview-route-issues]').hidden=!workspace.timeline?.route_message;
- root.querySelector('.timeline-entries').innerHTML=entries.map(timelineEntryHTML).join('');positionTimeline();if(!entries.length)root.classList.remove('visible');else if($('.workspace').matches(':hover'))showTimeline();
+ // 选择阶段只给"日期 + 上午/下午/晚上 + 顺序"，具体时刻留到生成计划书后。
+ const phaseMode=timelinePhaseMode();
+ root.querySelector('.timeline-entries').innerHTML=phaseMode?groupedTimelineHTML(entries)+phaseTightNotice():entries.map(timelineEntryHTML).join('');
+ positionTimeline();if(!entries.length)root.classList.remove('visible');else if($('.workspace').matches(':hover'))showTimeline();
 }
 const experienceRender=render;render=function(){experienceRender();if(workspace){syncTimeline();syncMiniMap()}};
 const experienceFoodHTML=foodHTML;foodHTML=function(){const html=experienceFoodHTML(),slots=mealSlots(),index=slots.findIndex(x=>x.key===activeMealKey());const done=slots.filter(x=>workspace.meal_choices?.[x.key]||x.included_in_room).length;return `<div class="meal-sequence"><strong>${mealDate||workspace.requirements.start_date||'日期待定'} · ${mealNames[mealPeriod]}</strong><span>${index>=0?'第 '+(index+1)+' / '+slots.length+' 个可安排餐次 · ':''}已安排 ${done} 餐</span><small>按饭点选择周边餐厅，选定或自行安排后自动进入下一餐。可点时间轴返回修改，也可完成餐饮并保留其余餐次自行安排。</small></div>`+html};
