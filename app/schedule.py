@@ -40,11 +40,26 @@ def day_end(w,dt):
  evening=evening or any(x.get('date')==dt and x.get('period')=='evening' for x in (analysis or {}).get('items',[]))
  return max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
 
+def meal_latest_end(w,dt,period):
+    """某餐次的窗口上界。
+
+    晚餐是当天最后一件事，吃完才算结束，因此**不该被当天活动结束时刻(day_end)卡住**：
+    用户设 day_end=18:30 意思是"18:30 结束游览"，不是"18:30 必须吃完饭"。
+    晚餐上界取「活动结束时刻 + 90 分钟」与 21:00 的较大者，再受返程准备时刻限制；
+    这样 day_end=18:30 时晚餐可排到 20:00，有晚间活动时也不会被人为压到 21:00 之前。
+    早餐/午餐仍在活动时段内，继续受 day_end 约束。
+    """
+    low,high=windows(w,dt)
+    begin,end=MEAL_WINDOWS[period]
+    if period!='dinner':return min(end,high,day_end(w,dt))
+    return min(end,high,max(day_end(w,dt)+90,21*60))
+
+
 def meal_window(w,dt,period):
  from . import pacing
  low,high=windows(w,dt);begin,end=MEAL_WINDOWS[period]
  begin=min(begin,pacing.meal_time(w,dt,period))
- return max(begin,low),min(end,high,day_end(w,dt))
+ return max(begin,low),meal_latest_end(w,dt,period)
 
 def meal_start(w,dt,period,preferred=None):
  from . import pacing

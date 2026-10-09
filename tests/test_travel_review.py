@@ -1,7 +1,7 @@
 """抵达日与返程日审查回归；并锁住房型餐食文本按真实承运方写法解析。"""
 import pytest
 
-from app import foods, stay_plan, travel_review as tr
+from app import foods, schedule, stay_plan, travel_review as tr
 
 D_OUT, D_TOUR, D_RET = '2026-10-09', '2026-10-10', '2026-10-12'
 
@@ -21,6 +21,43 @@ def workspace(arrival='2026-10-09 12:00', departure=D_OUT + ' 06:00',
                                'location': '112.47,34.55'}},
             'selected_spots': ['s1'], 'meal_choices': {}, 'visit_requests': {},
             'stay_hotels': {}, 'messages': []}
+
+
+def test_dinner_window_is_not_capped_by_the_activity_day_end():
+    """晚餐是当天最后一件事，不该被"活动结束时刻"卡住。
+
+    用户设 day_end=18:30 表示 18:30 结束游览，不是 18:30 必须吃完饭；
+    否则晚餐永远只能排在 17:00 附近。
+    """
+    def meal_workspace(day_end='18:30', extra=None):
+        w = {'requirements': {'city': '洛阳', 'start_date': D_TOUR, 'days': 1, 'adults': 2,
+                              'day_start': '09:00', 'day_end': day_end},
+             'catalog': {}, 'selected_spots': [], 'meal_choices': {}, 'visit_requests': {}}
+        if extra:
+            w.update(extra)
+        return w
+
+    for day_end in ('18:00', '18:30', '21:00'):
+        _, end = schedule.meal_window(meal_workspace(day_end), D_TOUR, 'dinner')
+        assert end == 21 * 60, (day_end, end)
+    # 早餐与午餐仍在活动时段内，继续受 day_end 约束
+    lunch_end = schedule.meal_window(meal_workspace('18:30'), D_TOUR, 'lunch')[1]
+    assert lunch_end == 15 * 60, lunch_end
+    breakfast_end = schedule.meal_window(meal_workspace('18:30'), D_TOUR, 'breakfast')[1]
+    assert breakfast_end == 10 * 60, breakfast_end
+    # 有晚间活动时也不该被人为压到 21:00 之前
+    evening = meal_workspace('18:30', {
+        'catalog': {'s1': {'id': 's1', 'kind': 'spot', 'name': '洛邑古城',
+                           'visit_suggestion': {'date': D_TOUR, 'period': 'evening'}}},
+        'selected_spots': ['s1']})
+    assert schedule.meal_window(evening, D_TOUR, 'dinner')[1] == 21 * 60
+    # 返程准备仍是硬约束：返程日不能因为放宽晚餐而排到赶车之后
+    returning = meal_workspace('18:30', {
+        'selected_return': {'id': 'b', 'kind': 'train', 'name': 'G1',
+                            'departure': D_TOUR + ' 19:00', 'arrival': D_TOUR + ' 23:00',
+                            'selection_status': 'confirmed'}})
+    _, end = schedule.meal_window(returning, D_TOUR, 'dinner')
+    assert end < 19 * 60, end
 
 
 def test_room_meal_text_matches_what_the_carrier_actually_returns():
