@@ -317,10 +317,22 @@ async def perform(wid,body,jid,owner_id):
                 from .visit_analysis import summary as visit_summary
                 answer=visit_summary(w,w['visit_analysis'])+'\n'+next_step(w)['message']
         if audit_result:
-            from .timeline_review import message as audit_message,fresh_issues
+            from .timeline_review import message as audit_message,fresh_issues,issue_key
             fresh=fresh_issues(w,audit_result)
-            text=audit_message({**audit_result,'issues':fresh})
-            if text:w['messages'].append({'role':'assistant','content':text,'time':storage.now(),'ui':{'conflict':{'issues':fresh,'view':'spot'}}})
+            # 还没生成计划书时，聊天里不再堆"时间轴偏紧 + 优化时间安排"这类诊断块：
+            # 这段时间用户还在挑景点/酒店/餐厅，每一步都弹一次很吵，而且此时也不该
+            # 就开始改排期。同样的提醒已经在左侧时间轴以一句话给出，等生成计划书时统一处理。
+            # 一旦有了计划书（或用户主动要求审核），诊断仍照常显示。
+            if not fresh or w.get('plan'):
+                # 同一批问题不重复刷屏：与最近一条诊断消息内容相同就不再追加。
+                keys=sorted(issue_key(row) for row in fresh)
+                if keys and keys==list(w.get('last_audit_message_keys') or []):
+                    pass
+                else:
+                    text=audit_message({**audit_result,'issues':fresh})
+                    if text:
+                        w['last_audit_message_keys']=keys
+                        w['messages'].append({'role':'assistant','content':text,'time':storage.now(),'ui':{'conflict':{'issues':fresh,'view':'spot'}}})
         if quiet and newly_ready:w['messages'].append({'role':'assistant','content':'**往返班次已确认。**\n'+next_step(w)['message'],'time':storage.now()})
         elif not quiet:w['messages'].append({'role':'assistant','content':readable(answer),'time':storage.now(),'ui':ui,'process_steps':[x['text'] for x in trace]})
         if body.action!='undo':w['revision']+=1
