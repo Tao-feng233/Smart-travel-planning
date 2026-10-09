@@ -196,7 +196,7 @@ async def action(wid:str,body:Action,user=Depends(auth.current_user)):
         if c.execute("SELECT COUNT(*) FROM jobs WHERE owner_id=? AND status='running'",(user['id'],)).fetchone()[0]>=2:raise HTTPException(429,'最多同时处理两次旅行，请稍后再试')
         if c.execute("SELECT COUNT(*) FROM jobs WHERE status='running'").fetchone()[0]>=4:raise HTTPException(503,'服务当前繁忙，请稍后再试')
         if w['revision']!=body.revision:raise HTTPException(409,'旅行已更新，请刷新后重试')
-        if c.execute('SELECT COUNT(*) FROM jobs WHERE owner_id=? AND created>?',(user['id'],storage.now()[:10])).fetchone()[0]>=120:raise HTTPException(429,'今日处理次数较多，请明天再试')
+        if c.execute('SELECT COUNT(*) FROM jobs WHERE owner_id=? AND created>?',(user['id'],storage.now()[:10])).fetchone()[0]>=500:raise HTTPException(429,'今日处理次数已达500次上限，请明天再试')
         c.execute('INSERT INTO jobs(id,owner_id,workspace_id,request_id,status,progress,error,created,updated,action) VALUES(?,?,?,?,?,?,?,?,?,?)',(jid,user['id'],wid,str(body.request_id),'running','正在准备任务',None,storage.now(),storage.now(),body.action))
     def finished(t):
         TASKS.pop(jid,None)
