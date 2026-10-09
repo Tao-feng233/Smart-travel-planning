@@ -4,7 +4,7 @@ const mealNames={breakfast:'早餐',lunch:'午餐',dinner:'晚餐'};
 function timelineEntries(){return workspace?.timeline?.entries||[]}
 function activeMealKey(){return (mealDate||workspace?.requirements.start_date||'')+'|'+mealPeriod}
 function mealSlots(){return workspace?.timeline?.meal_slots||[]}
-function nextMealSlot(after=''){const slots=mealSlots(),choices=workspace.meal_choices||{};const start=after?slots.findIndex(x=>x.key===after)+1:0;return slots.slice(Math.max(0,start)).find(x=>!choices[x.key]&&!x.included_in_room)||(!after?slots.find(x=>!choices[x.key]&&!x.included_in_room):null)}
+function nextMealSlot(after=''){const slots=mealSlots(),choices=workspace.meal_choices||{};const free=x=>!choices[x.key]&&!x.included_in_room;if(!after)return slots.find(free)||null;const i=slots.findIndex(x=>x.key===after);if(i<0)return null;return slots.slice(i+1).find(free)||null}
 function travelTimeText(entry){
  if(['route','unknown_route'].includes(entry.kind)&&entry.route_minutes==null)return '出发、抵达时间待路线查询';
  if(entry.kind==='transfer_plan')return (entry.time||'待定')+'–'+(entry.end||'待定')+' · 建议准备区间';
