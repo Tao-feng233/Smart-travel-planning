@@ -7,7 +7,7 @@ from .enrichment import model_facts
 from .providers import DataError
 
 PROTECTED = ('requirements', 'selected_spots', 'visit_requests', 'visit_order',
-             'hotel', 'selected_room', 'meal_choices', 'meal_mode',
+             'hotel', 'stay_hotels','selected_rooms','selected_room', 'meal_choices', 'meal_mode',
              'selected_transport', 'selected_return', 'tickets')
 
 
@@ -37,7 +37,7 @@ def context(w, instruction, conflict=None):
         'requirements': w['requirements'],
         'selected_places': [w.get('catalog', {}).get(i) for i in w.get('selected_spots', [])],
         'visit_requests': w.get('visit_requests', {}), 'visit_order': w.get('visit_order', []),
-        'hotel': w.get('hotel'), 'selected_room': w.get('selected_room'),
+        'hotel': w.get('hotel'),'stay_hotels':w.get('stay_hotels'),'selected_rooms':w.get('selected_rooms'), 'selected_room': w.get('selected_room'),
         'meals': {k: {**v, 'food': w.get('catalog', {}).get(v.get('food_id'))}
                   for k, v in w.get('meal_choices', {}).items()},
         'meal_mode': w.get('meal_mode'), 'selected_transport': w.get('selected_transport'),

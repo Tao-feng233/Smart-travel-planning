@@ -27,7 +27,8 @@ def signature(w):
     from .spot_hierarchy import state,ancestors,parent_facts
     hierarchy=state(w)
     from .transport_links import offset
-    value = {'hierarchy_version':1,'parent_coverage':hierarchy['parent_coverage'],'parent_context':parent_facts(w),'chosen':w.get('selected_spots',[]),
+    from .stay_plan import facts
+    value = {'nightly_stays':facts(w),'hierarchy_version':1,'parent_coverage':hierarchy['parent_coverage'],'parent_context':parent_facts(w),'chosen':w.get('selected_spots',[]),
         'chains':{cid:ancestors(w.get('catalog',{}),cid) for cid in hierarchy['active_ids']},
         'transfer_offsets':[offset(w,'outbound'),offset(w,'return')],
         'pacing_version':2,'recommendation_context':context(w),'requirements': w['requirements'], 'spots': [
@@ -202,10 +203,11 @@ async def analyze(w, model, progress, force=False):
     prompt+='parent_coverage说明已选父景区由具体子地点覆盖，父项保留为范围说明，不再输出其独立时长。只安排spots给出的实际游玩ID，用户原选择保留；继承的父项日期和时段同样必须遵守。'
     prompt+='结合parent_context保留该范围内的街区慢行等体验，把父项范围与已选子地点重点合并估时，不能只按子地点短暂打卡忽略区域体验；不默认游览父景区内所有未选地点。'
     from .recommendation_context import context
+    from .stay_plan import facts
     from . import pacing
     content = {'requirements': w['requirements'], 'spots': [{k: p.get(k) for k in FACT_KEYS} for p in ps],
         'tour_dates': visits.dates(w), 'day_budgets': budgets(w), 'visit_requests': w.get('visit_requests', {}),
-        'visit_order': w.get('visit_order', []), 'hotel': w.get('hotel'),
+        'visit_order': w.get('visit_order', []), 'hotel': w.get('hotel'),'nightly_stays':facts(w),
         'selected_transport': w.get('selected_transport'), 'selected_return': w.get('selected_return'),
         'parent_coverage':hierarchy['parent_coverage'],'parent_context':parent_facts(w),'recommendation_context':context(w),'initial_day_pacing':[{'date':dt,**pacing.for_day(w,dt)} for dt in visits.dates(w)],
         'official_guides': w.get('rag_results', []), 'initial_balanced_estimate': allocate(w)}

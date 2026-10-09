@@ -24,8 +24,10 @@ async def check(w,p,anchor,route_options,choose_route,meal=None):
             low,high=meal_window(w,*meal)
             if low+chosen['minutes']+15+PERIODS[meal[1]][2]>high:
                 result.update(status='time_conflict',message='该餐次可用时段不足以容纳已查询通行、15分钟缓冲与完整用餐')
-        if p.get('kind')=='food' and meal and meal[1]=='dinner' and coordinate((w.get('hotel') or {}).get('location')):
-            back=await route_options(p,w['hotel']);result['return_options']=back
+        from .stay_plan import anchor as stay_anchor
+        hotel=stay_anchor(w,meal[0]) if meal else None
+        if p.get('kind')=='food' and meal and meal[1]=='dinner' and hotel:
+            back=await route_options(p,hotel);result['return_options']=back
             back_route=choose_route(back,r)
             if back_route:
                 result['return_route']=back_route

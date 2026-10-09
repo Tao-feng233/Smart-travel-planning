@@ -3,7 +3,7 @@
 Estimates are labelled; only the generated plan contains queried road timings.
 """
 from datetime import date,datetime,timedelta
-from . import visits
+from . import visits,stay_plan,foods
 from .journey import coordinate_distance
 
 PERIODS={'breakfast':('早餐',480,45),'lunch':('午餐',720,75),'dinner':('晚餐',1020,60)}
@@ -61,6 +61,7 @@ def provisional(w):
   if estimates.get(p['id'],{}).get('date') in buckets:buckets[estimates[p['id']]['date']].append(p)
  rows=[];order={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
  for dt,places in buckets.items():
+  hotel=stay_plan.hotel_for(w,dt,morning=True)
   floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
   lunch_at=meal_start(w,dt,'lunch');rest_start=lunch_at+PERIODS['lunch'][2] if lunch_at is not None else None
   rest_minutes=pacing.rest_length(w,dt,rest_start) if rest_start is not None else 0
@@ -94,11 +95,13 @@ def provisional(w):
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
    if not choice and (w.get('meal_mode')=='self' or w.get('dining_reviewed')):choice={'mode':'self'}
-   p=point(w,choice.get('food_id'))
+   p=point(w,choice.get('food_id'));included=foods.included_meal(w,dt,period)
+   if included['included']:choice={'mode':'included'}
    before=[x for x in arranged if minutes(x['time'])<=at]
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
-   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
+   rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'included_in_room':included['included'],'name':label+' · '+('酒店含早（'+included['note']+'）' if included['included'] else p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
+  hotel=stay_plan.hotel_for(w,dt)
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
@@ -127,6 +130,9 @@ def plan_rows(w,plan,provisional=False):
                 'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
                 'route_status':route.get('status') or ('waiting_estimate' if e.get('transfer_scope')=='waiting' else 'unknown' if kind in ('unknown_route','transfer_plan') else None),
                 'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
+ for dt,cid in stay_plan.assignment_map(w).items():
+  h=w.get('catalog',{}).get(cid) or (w.get('hotel') if (w.get('hotel') or {}).get('id')==cid else None)
+  if h:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':cid,'name':h['name'],'confirmed':True,'estimated':True})
  return rows
 
 

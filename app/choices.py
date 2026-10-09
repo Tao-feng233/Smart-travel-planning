@@ -3,6 +3,10 @@ import hashlib,json
 from .providers import DataError
 
 def room_choices(h,r):
+    quote=h.get('query_conditions') or {}
+    if quote.get('checkIn') and quote.get('checkOut'):
+        from datetime import date
+        r={**r,'start_date':quote['checkIn'],'days':max(1,(date.fromisoformat(quote['checkOut'])-date.fromisoformat(quote['checkIn'])).days)}
     result=[]
     for i,room in enumerate((h.get('detail') or {}).get('roomTypes',[])):
         for j,rate in enumerate(room.get('ratePlans',[])):
@@ -28,6 +32,7 @@ def select_room(w,cid):
     if p.get('price') in (None,''):issues.append('具体报价未提供。')
     p['review']={'issues':issues,'status':'needs_confirmation' if issues else 'checked'}
     w['hotel']=dict(h);w['selected_room']=p;w['stay_skipped']=False
+    w.setdefault('selected_rooms',{})[h['id']]=p
     return f'已选房型：{p["name"]}，{p["quantity"]}间'+(f'，参考报价¥{p["price"]}' if p.get('price') is not None else '')+'。'+('；'.join(issues) if issues else '人数与房间数量已检查。')+'\n请点击“完成住宿选择”，查看推荐往返交通。'
 
 # Field names verified against actual Tuniu cached search responses.

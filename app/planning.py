@@ -5,7 +5,7 @@ from .data_contracts import guide_conditions
 from .providers import llm, DataError
 from .tools import local_tool
 from .storage import now,RUNTIME
-from . import foods,journey
+from . import foods,journey,stay_plan
 
 def minute(value):
     h,m=map(int,value.split(':')); return h*60+m
@@ -172,7 +172,9 @@ async def _generate(w, progress, *, preview=False):
             return_time=datetime.fromisoformat(w['selected_return']['departure'].replace(' ','T'))
         except (KeyError,ValueError):warnings.append('所选返程班次的出发时刻需核实。')
     for d in groups:
-        seq=([base] if base else [])+[catalog[x['candidate_id']] for x in d['items']]+([base] if base else [])
+        origin=stay_plan.anchor(w,d['date'],morning=True);target=stay_plan.anchor(w,d['date'])
+        if return_time and d['date']==return_time.date().isoformat():target=origin
+        seq=([origin] if origin else [])+[catalog[x['candidate_id']] for x in d['items']]+([target] if target else [])
         for a,b in zip(seq,seq[1:]):all_pairs[(a['id'],b['id'])]=(a,b)
     sem=asyncio.Semaphore(3)
     async def pair(k,ab):
@@ -182,8 +184,16 @@ async def _generate(w, progress, *, preview=False):
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
+        included=foods.included_meal(w,dt,period)
+        if included['included']:
+            h=stay_plan.hotel_for(w,dt,morning=True)
+            events.append({'kind':'meal','name':'早餐 · 酒店含早（'+included['note']+'）','start':clock(t),'end':clock(t+duration),
+                'meal_period':period,'included_in_room':True,'candidate_id':h['id'],'source':h.get('source'),'cost':'房型报价所含权益，适用日期与人数已核对；未预订',
+                'note':'按已选房型记录在酒店用餐；如改选外部餐厅，以用户选择为准。'})
+            scheduled_meals.add(dt+'|'+period)
+            return events,t+duration,h
         if p:
-            from .schedule import meal_window
+            from .schedule import meal_window,windows
             earliest,latest=meal_window(w,dt,period)
             t=max(t,earliest)
         if p and last:
@@ -202,8 +212,9 @@ async def _generate(w, progress, *, preview=False):
             message+='请查看住宿并更新位置'+('。' if h else '，也可确认本餐的实际出发地点。')+'已选餐厅和班次保留。'
             raise DataError(message,{'date':dt,'meal_period':period,'candidate_ids':([h['id']] if h else [])+[p['id']],
                                     'view':'hotel','phase':'route'})
-        if p and t+duration>latest:
+        if p and t+duration>latest and t+duration>windows(w,dt)[1]:
             raise DataError(dt+' '+foods.PERIODS[period]+'（'+p['name']+'）含通行后的用餐时间超出当前可用时段，请调整顺序、餐厅或班次后重排。',{'date':dt,'meal_period':period,'candidate_ids':[p['id']],'view':'food','direction':'return' if return_time and dt>=return_time.date().isoformat() else 'outbound'})
+        if p and t+duration>latest:warnings.append(dt+' '+foods.PERIODS[period]+'预计结束于'+clock(t+duration)+'，超过默认餐次或每日建议窗口；可调整安排，也可确认后保留这一提醒。')
         name=foods.PERIODS[period]+' · '+(p['name'] if p else '自行安排')
         events.append({'kind':'meal','name':name,'start':clock(t),'end':clock(t+duration),'note':'餐厅为规划意向，营业时段、菜单和价格请出发前确认，可随时更换。' if p else '弹性用餐建议，可自行选择餐厅或调整时间；未预订，费用未核实。',**({'food':p,'source':p.get('source')} if p else {})})
         scheduled_meals.add(dt+'|'+period)
@@ -229,7 +240,12 @@ async def _generate(w, progress, *, preview=False):
         except (KeyError,ValueError): warnings.append('所选交通的到达时间格式需核实。')
     for d in groups:
         d['items'].sort(key=lambda item:{'morning':0,'any':1,'afternoon':2,'evening':3}.get(item.get('period','any'),1))
-        t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=base; lunch=False
+        origin=stay_plan.anchor(w,d['date'],morning=True);base=stay_plan.anchor(w,d['date'])
+        if return_time and d['date']==return_time.date().isoformat():base=origin
+        t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=origin; lunch=False
+        if 'stay_hotels' in w and not base and d['date'] in stay_plan.nights(w):warnings.append(d['date']+'当晚尚未指定可用于算路的住宿，未假设沿用最近选定酒店。')
+        changing_hotel=bool(origin and base and not stay_plan.same_hotel(origin,base))
+        if changing_hotel:warnings.append(d['date']+'更换住宿，需要携带行李转场；退房暂预留15分钟，寄存与入住条件待核实。')
         if transport and transport.get('departure','')[:10]==d['date'] and transport.get('arrival','')[:10]==d['date']:
             events.append({'kind':'transport','name':'乘坐'+transport['name']+'前往'+r['city'],'start':transport['departure'][-5:],'end':transport['arrival'][-5:],'note':'请注意核实出发时刻、车站或机场及席别；请携带并保管好身份证件。','source':transport.get('source')})
         if arrival:
@@ -238,6 +254,7 @@ async def _generate(w, progress, *, preview=False):
                 computed.append({'date':d['date'],'theme':'在途，尚未抵达目的地','events':events, 'end':clock(t),'note':'当天在途，尚未抵达目的地，不安排游览。'})
                 continue
             elif d['date']==arrival.date().isoformat():
+                last=base
                 arrival_buffer=transport_links.offset(w,'outbound')
                 t=round_up(max(t,arrival.hour*60+arrival.minute+arrival_buffer))
                 arrival_links=transport_links.events(w,'outbound',arrival.hour*60+arrival.minute)
@@ -275,8 +292,15 @@ async def _generate(w, progress, *, preview=False):
             computed.append({'date':d['date'],'theme':'退房与返程','events':events,'end':clock(preparation)})
             continue
         if (not arrival or d['date']>arrival.date().isoformat()) and (not events or minute(events[0]['start'])>=9*60):
-            breakfast,bt,last=await meal(d['date'],'breakfast',7*60+30 if foods.choice(w,d['date'],'breakfast') else 8*60,last,45)
-            events+=breakfast;t=max(t,round_up(bt))
+            breakfast_at=7*60+30 if foods.choice(w,d['date'],'breakfast') else 8*60
+            checkout_first=changing_hotel and bool(foods.choice(w,d['date'],'breakfast'))
+            if checkout_first:events.append({'kind':'arrival','name':'换酒店前退房与行李准备','start':clock(breakfast_at-15),'end':clock(breakfast_at),'candidate_id':origin['id'],'note':'建议预留，随后携带行李前往早餐店；寄存条件需确认。'})
+            breakfast,bt,last=await meal(d['date'],'breakfast',breakfast_at,last,45)
+            events+=breakfast
+            if changing_hotel and not checkout_first:
+                events.append({'kind':'arrival','name':'换酒店前退房与行李准备','start':clock(bt),'end':clock(bt+15),'candidate_id':origin['id'],'note':'建议预留，寄存和入住条件需确认。'})
+                bt+=15
+            t=max(t,round_up(bt))
         for i,item in enumerate(d['items']):
             p=catalog[item['candidate_id']]
             if item.get('period') in ('afternoon','evening') and t<12*60 and not lunch:
@@ -346,16 +370,6 @@ async def _generate(w, progress, *, preview=False):
                 events.append({'kind':'rest','name':'休息与机动时间','start':clock(t),'end':clock(t+leisure),'note':pacing.for_day(w,d['date'])['reason']})
                 t+=leisure
             last=p
-        if base and last and last['id']!=base['id']:
-            opts=routes.get((last['id'],base['id']),[])
-            if not opts and (preview or last.get('kind')=='food'):opts=await route_options(last,base)
-            chosen=choose_route(opts,r)
-            if chosen:
-                events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+round_up(chosen['minutes']+15)),
-                               'route':chosen,'options':opts,'buffer':round_up(chosen['minutes']+15)-chosen['minutes'],'note':'返回住宿，包含向上取整后的机动时间' })
-                t+=round_up(chosen['minutes']+15)
-                last=base
-            else:warnings.append(d['date']+'返回酒店路线未查询到')
         # Do not force an extra attraction to fill the day. Show unallocated time
         # and meal/rest suggestions so the book remains usable and transparent.
         if d['items'] and not lunch and t<14*60:
@@ -373,14 +387,14 @@ async def _generate(w, progress, *, preview=False):
             dinner_start=max(t,17*60)
             if t<dinner_start:events.append({'kind':'free','name':'自由活动与机动时间','start':clock(t),'end':clock(dinner_start),'note':'可休息或自行安排活动。'})
             dinner_events,t,last=await meal(d['date'],'dinner',dinner_start,last,60);events+=dinner_events
-            if t>end_limit:raise DataError('已选晚餐与当日结束或返程时间冲突，请换餐厅或改为自行安排。')
-        if base and last and last.get('kind')=='food':
+            if return_time and d['date']==return_time.date().isoformat() and t>end_limit:raise DataError('已选晚餐与返程接驳冲突，请调整餐厅或班次。')
+        if base and last and last['id']!=base['id']:
             opts=await route_options(last,base);chosen=choose_route(opts,r)
             if not chosen:raise DataError('从'+last['name']+'返回'+base['name']+'的路线尚未核实，请更新位置或重试，也可调整用餐安排。',
                                          {'date':d['date'],'candidate_ids':[last['id'],base['id']],'view':'food','phase':'route','route_options':opts})
             allocation=round_up(chosen['minutes']+15)
-            if t+allocation>end_limit:raise DataError('用餐后返回住宿与当日结束或返程冲突，请调整餐厅或时间后重排。')
-            events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':opts,'buffer':allocation-chosen['minutes'],'note':'用餐后返回住宿，含规划缓冲。'})
+            if return_time and d['date']==return_time.date().isoformat() and t+allocation>end_limit:raise DataError('活动后返回住宿与返程接驳冲突，请调整这一天的安排。',{'date':d['date'],'view':'spot','direction':'return','candidate_ids':[last['id'],base['id']]})
+            events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':opts,'buffer':allocation-chosen['minutes'],'note':'活动后前往当晚住宿或返程前的行李寄存地点，含规划缓冲；寄存及入住条件待核实。'})
             t+=allocation;last=base
         if t+30<end_limit:
             events.append({'kind':'free','name':'自由活动与机动时间','start':clock(t),'end':clock(end_limit),
@@ -428,6 +442,18 @@ async def _generate(w, progress, *, preview=False):
                         'basis':'列表起价 × 晚数 × 房间数，仅参考，不是已确认住宿总价',
                         'unknown':['往返交通','门票实际日期及适用票种','餐饮','市内交通','额外项目']}
     else:plan['budget']={'hotel_reference':None,'unknown':['住宿','往返交通','门票','餐饮','市内交通']}
+    plan['nightly_stays']=stay_plan.assignment_map(w)
+    if 'stay_hotels' in w:
+        refs=[];unknown=[];rooms=int(r.get('rooms') or 1)
+        for night,cid in plan['nightly_stays'].items():
+            h=catalog.get(cid) or {};q=h.get('query_conditions') or {}
+            try:value=float(h['price']) if not quote_stale(h) and q.get('checkIn','9999')<=night<q.get('checkOut','0000') else None
+            except (KeyError,TypeError,ValueError):value=None
+            if value is None:unknown.append(night+'住宿价格')
+            refs.append({'date':night,'hotel_id':cid,'reference':value*rooms if value is not None else None})
+        plan['budget']={'hotel_reference':sum(x['reference'] for x in refs) if refs and not unknown else None,
+            'nightly_reference':refs,'nights':len(refs),'rooms':rooms,'basis':'各晚有效列表起价参考分别汇总，非已确认房费；未知项未按零计算',
+            'unknown':unknown+['往返交通','门票实际日期及适用票种','餐饮','市内交通','房型与实际住宿总价']}
     plan['selected_room']=w.get('selected_room')
     if hotel and not w.get('selected_room'):
         plan['budget']['unknown'].append('具体房型及住宿实际总价（可选，预订前核实）')

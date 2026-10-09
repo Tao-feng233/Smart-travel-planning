@@ -3,7 +3,7 @@ VIEWS={'discover_destinations':'spot','choose_destination':'spot','search_spots'
        'search_foods':'food','meal_choice':'food','complete_food':'plan','visit_schedule':'spot','analyze_visits':'spot','search_hotels':'hotel','hotel_detail':'hotel','select_room':'hotel','complete_hotel':'transport','skip_hotel':'transport',
        'weather':'weather','train':'transport','flight':'transport','ticket':'spot','plan':'plan','optimize_plan':'plan'}
 VALID_VIEWS={'spot','hotel','weather','transport','plan','knowledge','food','map'}
-LOADING={'refresh_routes':'正在核对交通时间','discover_destinations':'正在比较目的地','choose_destination':'正在确认目的地并查询景点','search_spots':'正在查询景点',
+LOADING={'review_timeline':'正在审核时间安排', 'refresh_routes':'正在核对交通时间','discover_destinations':'正在比较目的地','choose_destination':'正在确认目的地并查询景点','search_spots':'正在查询景点',
          'spots_page':'正在更新景点列表','dismiss_spot':'正在更新推荐偏好','complete_spots':'正在确认景点选择',
          'search_foods':'正在查询餐饮','meal_choice':'正在保存用餐安排','search_hotels':'正在比较住宿','hotel_detail':'正在查询房型','complete_hotel':'正在确认住宿','skip_hotel':'正在更新住宿安排',
          'place_detail':'正在补充地点详情','weather':'正在查询天气','train':'正在查询列车','flight':'正在查询航班','ticket':'正在查询门票',

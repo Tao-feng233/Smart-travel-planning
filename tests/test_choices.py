@@ -10,6 +10,10 @@ def hotel(w):
  h={'id':'h1','kind':'hotel','name':'示例酒店','detail':{'roomTypes':[{'roomTypeId':1,'roomTypeName':'悦享大床房','maxOccupancy':2,'ratePlans':[{'vendorRatePlanId':'rate1','ratePlanName':'标准价','rmbPrices':'289','mealText':'无早餐','cancelText':'入住前取消'}]}]}}
  w['catalog']['h1']=h;w['hotel']=copy.deepcopy(h);return h
 
+# 住宿按晚指定：fixture 里把三晚都指定给同一家，代表用户逐晚选好。
+def assign_nights(w,hid='h1'):
+ w['stay_hotels']={d:hid for d in ('2026-10-12','2026-10-13','2026-10-14')};return w
+
 def test_room_click_saves_actual_rate_and_replaces_without_extra_rooms():
  from app.choices import room_choices
  w=work();h=hotel(w);rooms=room_choices(h,w['requirements']);run(w,'select_room',{'id':rooms[0]['id']})
@@ -65,7 +69,7 @@ def test_no_result_query_clears_only_current_transport_batch(monkeypatch):
 def test_completion_prefills_both_directions_and_keeps_existing_confirmation(monkeypatch):
  import app.agent as a
  from app.choices import room_choices
- w=work();h=hotel(w);w['selected_room']=room_choices(h,w['requirements'])[0]
+ w=assign_nights(work());h=hotel(w);w['selected_room']=room_choices(h,w['requirements'])[0]
  seen=[]
  async def provider(s,t,p):
   seen.append(p);day=p['departureDate']

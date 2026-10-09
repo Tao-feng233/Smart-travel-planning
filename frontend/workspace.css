@@ -137,3 +137,31 @@ body:has(.workbench-expanded) #toast{z-index:19}
 
 /* Contextual prerequisites and optional dining. */
 .missing-banner,.next-banner{padding:11px 12px;margin-bottom:13px;border:1px solid #eecda0;border-radius:9px;background:#fff5e8;display:flex;align-items:center;gap:10px;font-size:12px;line-height:1.7}.missing-banner>div{flex:1}.missing-banner p{margin:3px 0;color:#8a602e}.missing-banner button,.next-banner button{font-size:11px;white-space:nowrap;padding:7px 9px}.next-banner{background:#ecf5ef;border-color:#d3e5d8;flex-wrap:wrap}.next-banner strong{flex:1}.transport-date{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:11px}.transport-date label{font-size:12px;display:flex;gap:8px;align-items:center}.transport-date input{padding:7px;font-size:12px;max-width:170px}.transport-date small{font-size:10px;color:var(--muted)}.meal-picker{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:12px;background:#f3f7f5;border-radius:10px;margin-bottom:12px}.meal-picker label{font-size:12px;display:flex;flex-direction:column;gap:6px}.meal-picker select{padding:7px;font-size:12px}.meal-picker button{font-size:11px}.meal-status{padding:10px;border-left:3px solid var(--green);font-size:12px;background:#f3f8f5}.inline-requirements{display:none}
+
+/* 逐晚住宿编排 */
+.stay-plan{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.stay-head{display:flex;flex-direction:column;gap:3px}
+.stay-head strong{font-size:13px}
+.stay-head small{font-size:10px;color:var(--muted);line-height:1.6}
+.stay-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;align-items:start;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2,#f7f8fa)}
+.stay-row.needs-hotel{border-color:#e6c9a8;background:#fdf6ec}
+.stay-date{display:flex;flex-direction:row;align-items:baseline;gap:6px;grid-column:1 / -1}
+.stay-date strong{font-size:12px}
+.stay-date small,.stay-anchor small,.stay-actions small{font-size:10px;color:var(--muted);line-height:1.5;display:block}
+.stay-anchor{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stay-anchor span{font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.stay-actions{display:flex;align-items:center}
+.stay-cards{grid-column:1 / -1;display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.stay-cards .card{padding:11px}
+.stay-cards .card h3{font-size:13px}
+.stay-cards .card p{font-size:11px;overflow-wrap:anywhere}
+.stay-cards .card-actions{gap:6px}
+.stay-cards .price{font-size:14px}
+
+.stay-candidates{grid-column:1 / -1;margin-top:4px}
+.stay-candidates>summary{cursor:pointer;font-size:11px;color:var(--muted);padding:2px 0;list-style:none}
+.stay-candidates>summary::-webkit-details-marker{display:none}
+.stay-candidates>summary::before{content:"\25B8  ";font-size:10px}
+.stay-candidates[open]>summary::before{content:"\25BE  "}
+.stay-candidates>summary:hover{color:inherit}
+.stay-candidates .cards{margin-top:6px}

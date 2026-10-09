@@ -5,7 +5,8 @@ from app.providers import DataError
 import pytest,httpx
 
 def test_completion_only_asks_missing_origin():
- w={'requirements':{'city':'青岛','start_date':'2026-10-12','days':3,'adults':1},'catalog':{},'selected_spots':[],'hotel':{'id':'h1'},'selected_room':{'id':'r1'}}
+ w={'requirements':{'city':'青岛','start_date':'2026-10-12','days':3,'adults':1},'catalog':{},'selected_spots':[],'hotel':{'id':'h1'},'selected_room':{'id':'r1'},
+ 'stay_hotels':{'2026-10-12':'h1','2026-10-13':'h1','2026-10-14':'h1'}}
  answer=asyncio.run(agent.handle(w,'complete_hotel',{},lambda _:None))
  assert '出发城市' in answer and '日期' not in answer and '天数' not in answer
 

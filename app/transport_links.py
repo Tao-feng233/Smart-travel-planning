@@ -7,12 +7,19 @@ import time
 import unicodedata
 
 from .locations import endpoint,hotel_anchor
+from . import stay_plan,time_policy
 from .providers import DataError
 
 
+def hotel_for_link(w,direction):
+    ticket=w.get('selected_transport' if direction=='outbound' else 'selected_return') or {}
+    dt=str(ticket.get('arrival' if direction=='outbound' else 'departure') or '')[:10]
+    return stay_plan.anchor(w,dt,morning=direction=='return') if dt else hotel_anchor(w)
+
+
 def signature(w):
-    h=hotel_anchor(w) or {}
-    data={'city':w['requirements'].get('city'),'mode':w['requirements'].get('transport_mode'),
+    h=hotel_for_link(w,'outbound') or {}
+    data={'version':2,'stays':stay_plan.facts(w),'city':w['requirements'].get('city'),'mode':w['requirements'].get('transport_mode'),
           'hotel':{k:h.get(k) for k in ('id','location','entrance','citycode')},
           'tickets':[{k:(w.get(slot) or {}).get(k) for k in ('id','kind','departure','arrival','arrival_station','departure_station')}
                      for slot in ('selected_transport','selected_return')]}
@@ -27,7 +34,7 @@ def current(w):
 def offset(w,direction):
     fallback=90 if direction=='outbound' else 120
     link=(current(w) or {}).get('links',{}).get(direction,{})
-    return max(fallback,link.get('required_minutes',fallback)) if link.get('status')=='available' else fallback
+    return link.get('required_minutes',fallback) if link.get('status')=='available' else fallback
 
 
 def name_key(value,kind):
@@ -41,8 +48,9 @@ def name_key(value,kind):
 async def resolve(w,progress,tool,roads,choose):
     existing=current(w)
     if existing:return existing
-    hotel=hotel_anchor(w);links={}
+    hotel=hotel_for_link(w,'outbound');links={}
     async def one(direction,slot,field):
+        hotel=hotel_for_link(w,direction)
         ticket=w.get(slot) or {};wanted=ticket.get(field)
         if not hotel or not wanted:return direction,{'status':'unknown','reason':'缺少已核对酒店位置或班次站点名称'}
         kind='airport' if ticket.get('kind')=='flight' else 'station'
@@ -57,8 +65,9 @@ async def resolve(w,progress,tool,roads,choose):
                 if not chosen:return direction,{'status':'unknown','reason':'站点至住宿的道路方案尚未核实'}
                 route_minutes=chosen.get('minutes')
                 if not isinstance(route_minutes,(int,float)) or not math.isfinite(route_minutes) or route_minutes<0:return direction,{'status':'unknown','reason':'道路耗时未提供有效数值'}
-                required=math.ceil((route_minutes+45 if direction=='outbound' else route_minutes+30+(120 if kind=='airport' else 60))/5)*5
-                return direction,{'status':'available','point':station,'route':chosen,'required_minutes':required,'kind':kind,
+                policy=time_policy.arrival_ready(ticket,route_minutes,buffer_minutes=15) if direction=='outbound' else time_policy.return_preparation(ticket,route_minutes,buffer_minutes=15)
+                required=math.ceil((policy['minutes']+(15 if direction=='return' else 0))/5)*5
+                return direction,{'status':'available','point':station,'hotel':hotel,'preparation':policy,'route':chosen,'required_minutes':required,'kind':kind,
                     'note':'以地图车站/机场主地点核算；具体出入口、航站楼、出站及候车安检仍需核实。'}
         except (DataError,TimeoutError):return direction,{'status':'unknown','reason':'接驳位置或道路查询暂未完成，不代表不可通行'}
     if hotel and any((w.get(slot) or {}).get(field) for slot,field in [('selected_transport','arrival_station'),('selected_return','departure_station')]):progress('正在核对班次站点与酒店之间的接驳路线')
@@ -73,7 +82,7 @@ def events(w,direction,moment):
     """Return timed links within a calendar day; cross-midnight stays explicit."""
     link=(current(w) or {}).get('links',{}).get(direction,{})
     if link.get('status')!='available':return []
-    h=hotel_anchor(w);route=link['route'];allocation=math.ceil((route['minutes']+15)/5)*5
+    h=hotel_for_link(w,direction);route=link['route'];allocation=math.ceil((route['minutes']+15)/5)*5
     clock=lambda n:f'{int(n)//60:02d}:{int(n)%60:02d}'
     if direction=='outbound':
         begin=moment;start=begin+30;finish=start+allocation

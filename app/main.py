@@ -118,7 +118,14 @@ def present(w):
     from .journey import next_step
     from .journey import selection_assessment,is_local
     from .schedule import build
-    return {**w,'spot_coverage':state(w),'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
+    from . import stay_plan
+    # 逐晚住宿下发：行的候选（candidate_ids 等）来自已发布的那一份，不能重算——重算会把
+    # 已查到的候选丢掉。分配与未选夜晚则按当前选择重新推导，避免旧行内 hotel_source 过时
+    # 让"已选好的一晚"显示成尚未选（折叠也随之失效）。
+    stay=stay_plan.merge_plan(w,stay_plan.plan(w),w.get('stay_plan'))
+    stay.update(assignments=stay_plan.assignment_view(w),unassigned=stay_plan.unassigned(w))
+    from .timeline_review import current as current_review
+    return {**w,'timeline_review':current_review(w),'stay_plan':stay,'spot_coverage':state(w),'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
 
 @app.get('/api/workspaces/{wid}/map-image')
 async def workspace_map(wid:str,day:str='',focus:str='',zoom:int|None=Query(None,ge=1,le=17),lng:float|None=Query(None,ge=-180,le=180),lat:float|None=Query(None,ge=-85,le=85),base:bool=False,user=Depends(auth.current_user)):
@@ -175,7 +182,7 @@ class Action(BaseModel):
 async def action(wid:str,body:Action,user=Depends(auth.current_user)):
     w=owned(wid,user)
     if w['archived']:raise HTTPException(409,'这次旅行已归档，请恢复后再继续规划')
-    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','refresh_routes','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
+    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','refresh_routes','review_timeline','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
         raise HTTPException(400,'不支持的操作')
     if body.action=='chat' and not body.text.strip():raise HTTPException(400,'请先输入旅行想法')
     jid=uuid.uuid4().hex
@@ -232,6 +239,8 @@ async def perform(wid,body,jid,owner_id):
         if body.action=='chat':
             w['messages'].append({'role':'user','content':body.text.strip(),'time':storage.now()})
             w['revision']+=1;storage.save(w)
+        audit_result=None
+        before_audit=json.dumps({'requirements':w['requirements'],'selected':w.get('selected_spots'),'stays':w.get('stay_hotels'),'rooms':w.get('selected_rooms'),'pins':w.get('visit_requests'),'hotel':(w.get('hotel') or {}).get('id'),'outbound':w.get('selected_transport'),'return':w.get('selected_return'),'meals':w.get('meal_choices')},sort_keys=True)
         before_choices=json.dumps({'hotel':(w.get('hotel') or {}).get('id'),'outbound':(w.get('selected_transport') or {}).get('id'),'return':(w.get('selected_return') or {}).get('id'),'meals':w.get('meal_choices',{})},sort_keys=True)
         try:
             async with asyncio.timeout(600):
@@ -246,14 +255,19 @@ async def perform(wid,body,jid,owner_id):
                     if body.action=='requirements':
                         from .agent import ensure_weather
                         await ensure_weather(w,progress)
-                    if body.action not in ('refresh_routes','select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots','cancel_auto_selection','approve_plan_warning','cancel_plan_warning'):
+                    if body.action not in ('refresh_routes','review_timeline','select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots','cancel_auto_selection','approve_plan_warning','cancel_plan_warning'):
                         answer=await replies.compose(w,answer)
                 performed=w.get('turn_action') if body.action=='chat' else body.action
                 selected_kind=w.get('catalog',{}).get(body.args.get('id'),{}).get('kind') if body.action=='select' else None
                 choices=json.dumps({'hotel':(w.get('hotel') or {}).get('id'),'outbound':(w.get('selected_transport') or {}).get('id'),'return':(w.get('selected_return') or {}).get('id'),'meals':w.get('meal_choices',{})},sort_keys=True)
-                if performed in ('complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
+                if performed in ('select_room','review_timeline','complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
                     from .travel_preview import refresh
                     await refresh(w,progress)
+                after_audit=json.dumps({'requirements':w['requirements'],'selected':w.get('selected_spots'),'stays':w.get('stay_hotels'),'rooms':w.get('selected_rooms'),'pins':w.get('visit_requests'),'hotel':(w.get('hotel') or {}).get('id'),'outbound':w.get('selected_transport'),'return':w.get('selected_return'),'meals':w.get('meal_choices')},sort_keys=True)
+                if before_audit!=after_audit or performed in ('complete_spots','analyze_visits','visit_schedule','review_timeline'):
+                    from .timeline_review import refresh as audit
+                    from .agent import llm as audit_model
+                    audit_result=await audit(w,audit_model,progress,model_review=performed in ('complete_spots','analyze_visits','visit_schedule','review_timeline') or selected_kind in ('hotel','train','flight') or choices!=before_choices)
         except asyncio.CancelledError:
             w.pop('auto_selection_run',None)
             status='interrupted' if SHUTTING_DOWN else 'cancelled'
@@ -286,6 +300,11 @@ async def perform(wid,body,jid,owner_id):
             if assessment['level']=='warning' and key!=w.get('selection_warning_key'):
                 w['messages'].append({'role':'assistant','content':'**行程安排提醒**\n'+ '\n'.join(assessment['messages']),'time':storage.now()});w['selection_warning_key']=key
             if assessment['level']=='normal':w['selection_warning_key']=''
+        if audit_result:
+            from .timeline_review import message as audit_message,fresh_issues
+            fresh=fresh_issues(w,audit_result)
+            text=audit_message({**audit_result,'issues':fresh})
+            if text:w['messages'].append({'role':'assistant','content':text,'time':storage.now(),'ui':{'conflict':{'issues':fresh,'view':'spot'}}})
         if quiet and newly_ready:w['messages'].append({'role':'assistant','content':'**往返班次已确认。**\n'+next_step(w)['message'],'time':storage.now()})
         elif not quiet:w['messages'].append({'role':'assistant','content':readable(answer),'time':storage.now(),'ui':ui,'process_steps':[x['text'] for x in trace]})
         if body.action!='undo':w['revision']+=1

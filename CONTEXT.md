@@ -1,3 +1,9 @@
+## Nightly stays and proactive timeline audit (2026-10-09)
+
+Integrated member time-and-stay source118dfe1 onto94e21c0 with existing room-optional, warning-consent, pacing, scenic-scope and route-preview behavior retained. `stay_plan.assignment_view` is authoritative; persisted rows retain only compatible query snapshots. Explicit nightly maps have no fallback to the last hotel; hotel-only legacy records remain readable. Morning road origins use the previous night, evening destinations the assigned night, with actual arrival/return dates considered. Stable provider identity distinguishes hotel moves from dated quotes. Room details are explicit; confirmed breakfast requires previous-night hotel, covered dates, literal breakfast terms and sufficient entitlement; explicit external meal choices win. All relevant cache and warning-approval signatures include nightly assignments/geometry and room selections. Unknown nightly prices remain unknown.
+
+`timeline_review` is a read-only role, triggered after consequential choices and available via `review_timeline`. Program checks identify definite temporal conflicts and workload warnings; the bounded15s model receives queried roads, fixed requests, transport and party/weather facts, suggests only. Model issues cannot acquire hard-error severity or executable actions. Invalid JSON falls back without failing successful selections. Input-bound results cache15min; semantic issue keys avoid repeated identical messages. Suggested day-end overruns remain confirmable planning warnings; real transport/fixed-period conflicts still require adjustment. Presentation/GET performs no supplier or model calls. See docs/collaboration/逐晚住宿整合与时间轴审核-20261009.md.
+
 # 识途旅游规划
 
 ## Containment and visible transport legs (2026-10-09)

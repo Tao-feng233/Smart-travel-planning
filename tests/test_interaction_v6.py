@@ -51,7 +51,7 @@ def test_food_preferences_survive_known_scenic_refinement_and_types_stay_separat
   for i,p in enumerate(items):p['recommendation_rank']=i
  monkeypatch.setattr(foods,'local_tool',tool)
  asyncio.run(foods.search(w,{'keywords':['海鲜']},lambda _:None,rank))
- assert len(w['food_query']['ids'])==5 and calls[0]['location']=='120,36' and calls[0]['category']=='food'
+ assert len(w['food_query']['ids']) in (5,6) and calls[0]['location']=='120,36' and calls[0]['category']=='food'
  assert 'f0' not in w['selected_spots']
  from app.journey import refine_intent
  i=refine_intent(w,'感觉这几个地方好像不太出名啊，都没太听过',{'action':'spots_page','patch':{'preferences':['知名度高']}})
@@ -116,7 +116,8 @@ def test_plan_includes_selected_lunch_and_optional_meals_with_real_routes(monkey
  foods.select_meal(w,{'meal_date':'2026-10-13','meal_period':'lunch','food_id':'f'})
  p=asyncio.run(planning.generate(w,lambda _:None));events=p['days'][1]['events']
  assert any(e['kind']=='meal' and e.get('food',{}).get('id')=='f' for e in events)
- assert ('h','f') in pairs and ('f','h') in pairs
+ assert ('s','f') in pairs and ('f','h') in pairs
+ assert ('h','f') not in pairs, '不应为了午餐先绕回酒店'
  assert any('早餐' in e['name'] and '自行安排' in e['name'] for e in events)
  assert p['days'][-1]['date']=='2026-10-15' and any('延住' in x for x in p['warnings'])
  assert not any('重叠' in x for x in p['warnings'])

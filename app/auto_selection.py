@@ -7,10 +7,10 @@ import time
 import uuid
 
 from .providers import DataError
-from . import schedule, journey
+from . import schedule, journey,stay_plan
 
 LABELS = {'destination':'目的地','spots': '景点', 'hotel': '住宿位置', 'food': '餐饮'}
-STATE_KEYS = ('id', 'requirements', 'selected_spots', 'hotel', 'selected_room',
+STATE_KEYS = ('id', 'requirements', 'selected_spots', 'hotel', 'stay_hotels','selected_rooms','selected_room',
               'meal_choices', 'meal_mode', 'visit_requests', 'visit_order',
               'selected_transport', 'selected_return', 'catalog')
 
@@ -182,21 +182,30 @@ async def run(w, args, progress, model, handle, continuing=False):
                         from .visit_analysis import analyze
                         await analyze(w, model, progress)
                         notes.append('已选择景点：'+'、'.join(cat[i]['name'] for i in chosen)+'。'+reason)
-                    elif category=='hotel' and (mode=='replace' or not selected_hotel(w)):
+                    elif category=='hotel' and (mode=='replace' or not selected_hotel(w) or stay_plan.unassigned(w)):
                         if int(w['requirements']['days'])==1 or mode=='remaining' and w.get('stay_skipped'):
                             notes.append('保留一日游或自行安排住宿的选择。'); continue
                         await handle(w, 'search_hotels', {}, progress)
-                        pool = [cat[i] for i in (w.get('hotel_query') or {}).get('ids', []) if i in cat and not cat[i].get('stale')]
-                        chosen, reason = await choose(w, pool, '按游览区域和参考预算选择住宿位置；房型可选，不要求具体房型报价', model)
-                        hotel_id = chosen[0]
-                        await handle(w, 'select', {'id': hotel_id}, progress)
-                        notes.append('已选择住宿：'+cat[hotel_id]['name']+'。'+reason+' 具体房型可稍后选择。')
+                        rows=(w.get('stay_plan') or {}).get('rows',[])
+                        targets=stay_plan.nights(w) if mode=='replace' else stay_plan.unassigned(w)
+                        if rows:
+                            for night in targets:
+                                row=next((x for x in rows if x['date']==night),{})
+                                pool=[cat[cid] for cid in row.get('candidate_ids',[]) if cid in cat and not cat[cid].get('stale')]
+                                chosen,reason=await choose(w,pool,'为'+night+'当晚选择住宿位置，房型可选；其他晚已有选择保留',model)
+                                await handle(w,'select',{'id':chosen[0],'stay_date':night},progress)
+                                notes.append(night+'已选择住宿：'+cat[chosen[0]]['name']+'。'+reason)
+                        else:
+                            pool=[cat[i] for i in (w.get('hotel_query') or {}).get('ids',[]) if i in cat and not cat[i].get('stale')]
+                            chosen,reason=await choose(w,pool,'按游览区域选择住宿位置；房型可选，不要求具体房型报价',model)
+                            await handle(w,'select',{'id':chosen[0],'stay_dates':targets},progress)
+                            notes.append('已选择住宿：'+cat[chosen[0]]['name']+'。'+reason+' 具体房型可稍后选择。')
                 except DataError as e:
                     w.clear(); w.update(backup); cat = w['catalog']
                     notes.append(LABELS[category]+'暂未完成：'+str(e))
                     state['errors'].append({'scope':category,'message':str(e)})
             state['started'] = True
-            state['slots'] = [dict(x) for x in schedule.build(w)['meal_slots']] if 'food' in state['categories'] else []
+            state['slots'] = [dict(x) for x in schedule.build(w)['meal_slots'] if not x.get('included_in_room')] if 'food' in state['categories'] else []
         slots = state['slots']; end = min(len(slots), state['meal_cursor']+8)
         while state['meal_cursor'] < end:
             slot = slots[state['meal_cursor']]; state['meal_cursor'] += 1
