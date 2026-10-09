@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅策 TravelPlan Agent · 全能规划助手</title>
+<style>
+  :root{
+    --bg:#eef2f7; --card:#fff; --line:#e2e8f0; --line-soft:#f1f5f9;
+    --text:#0f172a; --text-2:#334155; --muted:#64748b; --muted-2:#94a3b8;
+    --brand:#0284c7; --brand-2:#06b6d4;
+    --a:#059669; --a-bg:#ecfdf5;
+    --b:#2563eb; --b-bg:#eff6ff;
+    --c:#d97706; --c-bg:#fffbeb;
+    --r:#dc2626; --r-bg:#fef2f2;
+    --d:#64748b; --d-bg:#f1f5f9;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px -8px rgba(15,23,42,.10);
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.65;font-size:14px;-webkit-font-smoothing:antialiased}
+
+  /* 顶部 */
+  .topbar{position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:18px;padding:0 22px;height:60px;background:rgba(255,255,255,.9);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:-.01em;flex:none}
+  .brand .dot{width:26px;height:26px;border-radius:8px;flex:none;background:linear-gradient(135deg,var(--brand),var(--brand-2));display:grid;place-items:center;color:#fff;font-size:13px}
+  .brand small{font-weight:400;color:var(--muted-2);font-size:11px;letter-spacing:0}
+  .sources{display:flex;gap:6px;flex-wrap:wrap}
+  .src-chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--text-2);background:var(--line-soft);border:1px solid var(--line);padding:3px 9px;border-radius:99px;white-space:nowrap}
+  .src-chip i{width:6px;height:6px;border-radius:50%;background:var(--a);font-style:normal;flex:none;box-shadow:0 0 0 2px rgba(5,150,105,.15)}
+  .src-chip.warn i{background:var(--c);box-shadow:0 0 0 2px rgba(217,119,6,.15)}
+  .src-chip.err i{background:var(--r);box-shadow:0 0 0 2px rgba(220,38,38,.15)}
+  .reset-btn{margin-left:auto;font-family:inherit;font-size:11.5px;font-weight:600;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer;transition:all .16s;flex:none}
+  .reset-btn:hover{color:var(--text);border-color:var(--muted-2)}
+
+  /* 布局 */
+  .shell{max-width:1560px;margin:0 auto;padding:20px}
+  .layout{display:grid;grid-template-columns:390px 1fr;gap:18px;align-items:start}
+  @media(max-width:1180px){.layout{grid-template-columns:1fr}.left-col{position:static!important;height:auto!important}.chat{max-height:380px}}
+
+  /* 左栏 */
+  .left-col{position:sticky;top:80px;height:calc(100vh - 100px);display:flex;flex-direction:column;gap:14px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .chat-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+  .panel-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;color:var(--text-2);letter-spacing:.02em;flex:none}
+  .panel-head .badge{margin-left:auto;font-size:10px;font-weight:600;padding:2px 7px;border-radius:99px;background:var(--line-soft);color:var(--muted);transition:all .3s}
+  .panel-head .badge.on{background:var(--a-bg);color:var(--a)}
+  .panel-head .badge.live{background:var(--r-bg);color:var(--r)}
+  .panel-head .badge.live::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--r);margin-right:4px;vertical-align:1px;animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth}
+  .chat::-webkit-scrollbar{width:6px}
+  .chat::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+
+  .msg{display:flex;gap:9px;font-size:12.5px;line-height:1.7;animation:msgIn .38s cubic-bezier(.16,1,.3,1) both}
+  @keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .msg .avatar{width:24px;height:24px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:11px}
+  .msg.user .avatar{background:#e0f2fe;color:var(--brand)}
+  .msg.bot .avatar{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff}
+  .msg .bubble{background:var(--line-soft);border-radius:10px;padding:8px 12px;color:var(--text-2);max-width:calc(100% - 34px)}
+  .msg.user .bubble{background:#f0f9ff;border:1px solid #e0f2fe;font-weight:600;color:var(--brand)}
+  .msg.bot .bubble{background:#fff;border:1px solid var(--line)}
+  .msg.bot .bubble b{color:var(--text);font-weight:700}
+  .msg.bot .bubble .mini{font-size:11px;color:var(--muted);margin-top:5px;font-family:var(--mono);line-height:1.55}
+
+  .typing{display:inline-flex;gap:3px;align-items:center;height:16px}
+  .typing i{width:5px;height:5px;border-radius:50%;background:var(--muted-2);animation:bounce 1.4s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}
+  .typing i:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+
+  .composer{flex:none;border-top:1px solid var(--line);padding:12px 14px;background:linear-gradient(180deg,#fbfdff,#fff)}
+  .composer-hint{font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .composer-hint::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 3px rgba(2,132,199,.14);flex:none;animation:pulse 1.8s ease-in-out infinite}
+  .opts{display:flex;flex-direction:column;gap:7px}
+  .opt{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:1px solid var(--line);background:#fff;border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:inherit;transition:all .16s cubic-bezier(.16,1,.3,1);animation:optIn .4s both}
+  @keyframes optIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .opt:hover{border-color:var(--brand);background:#f0f9ff;transform:translateX(3px)}
+  .opt .oicon{font-size:14px;flex:none;width:18px;text-align:center}
+  .opt .olabel{flex:1;font-weight:600}
+  .opt .otag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--line-soft);color:var(--muted);flex:none}
+  .opt:hover .otag{background:rgba(2,132,199,.12);color:var(--brand)}
+
+  .start-btn{width:100%;border:none;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;font-family:inherit;font-size:13px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 8px 20px -8px rgba(2,132,199,.6);transition:all .18s}
+  .start-btn:hover{transform:translateY(-2px);box-shadow:0 12px 26px -8px rgba(2,132,199,.7)}
+
+  /* 需求档案 */
+  .needs-panel{flex:none;max-height:270px;display:flex;flex-direction:column}
+  .needs-list{overflow-y:auto;padding:6px 0}
+  .need-item{display:flex;align-items:center;gap:9px;padding:8px 14px;transition:background .5s}
+  .need-item .ni{width:26px;height:26px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:13px;background:var(--line-soft);color:var(--muted-2);transition:all .4s}
+  .need-item.filled .ni{background:#e0f2fe;color:var(--brand)}
+  .need-item .nb{flex:1;min-width:0}
+  .need-item .nl{font-size:10px;color:var(--muted-2)}
+  .need-item.filled .nl{color:var(--muted)}
+  .need-item .nv{font-size:12px;font-weight:700;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .4s}
+  .need-item.filled .nv{color:var(--text)}
+  .need-item .nc{width:14px;height:14px;border-radius:50%;flex:none;background:var(--a-bg);color:var(--a);display:grid;place-items:center;font-size:8px;font-weight:900;opacity:0;transform:scale(.5);transition:all .4s cubic-bezier(.16,1,.3,1)}
+  .need-item.filled .nc{opacity:1;transform:scale(1)}
+  .need-item.flash{animation:flashIn 1.2s cubic-bezier(.16,1,.3,1)}
+  @keyframes flashIn{0%{background:#dcfce7;box-shadow:inset 3px 0 0 var(--a)}100%{background:transparent;box-shadow:none}}
+
+  /* 右栏 */
+  .right-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+  /* 阶段条 */
+  .phase-bar{display:flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 8px;box-shadow:var(--shadow);overflow-x:auto}
+  .ph{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:0 10px;opacity:.35;transition:opacity .4s}
+  .ph.done,.ph.active{opacity:1}
+  .ph .ph-num{width:24px;height:24px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:11px;font-weight:800;font-family:var(--mono);background:var(--line-soft);color:var(--muted-2);border:1.5px solid var(--line);transition:all .4s}
+  .ph.done .ph-num{background:var(--a-bg);color:var(--a);border-color:var(--a)}
+  .ph.active .ph-num{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 0 0 4px rgba(2,132,199,.16)}
+  .ph .ph-txt{font-size:11.5px;font-weight:700;color:var(--muted);white-space:nowrap;transition:color .4s}
+  .ph.done .ph-txt{color:var(--text-2)}
+  .ph.active .ph-txt{color:var(--brand)}
+  .ph-line{flex:none;width:16px;height:1.5px;background:var(--line);border-radius:2px}
+  @media(max-width:760px){.ph .ph-txt{display:none}.ph{justify-content:center}}
+
+  /* Tab */
+  .tabs{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:8px;box-shadow:var(--shadow);overflow-x:auto}
+  .tab{display:flex;align-items:center;gap:7px;padding:9px 14px;border-radius:9px;border:none;background:transparent;font-family:inherit;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .16s;white-space:nowrap;flex:none;position:relative}
+  .tab:hover{background:var(--line-soft);color:var(--text-2)}
+  .tab.active{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;box-shadow:0 6px 16px -6px rgba(2,132,199,.6)}
+  .tab .tico{font-size:14px}
+  .tab .tbadge{font-size:9px;font-weight:800;font-family:var(--mono);padding:1px 6px;border-radius:99px;background:var(--line-soft);color:var(--muted)}
+  .tab.active .tbadge{background:rgba(255,255,255,.25);color:#fff}
+  .tab .tbadge.on{background:var(--a-bg);color:var(--a)}
+  .tab.active .tbadge.on{background:rgba(255,255,255,.3);color:#fff}
+  .tab .alert-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--r);border:1.5px solid #fff;animation:pulse 1.6s infinite}
+
+  /* Tab内容 */
+  .tab-content{min-height:400px}
+  .tc{display:none;flex-direction:column;gap:14px;animation:viewIn .4s cubic-bezier(.16,1,.3,1)}
+  .tc.active{display:flex}
+  @keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  /* 区块头 */
+  .sec-head{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 20px}
+  .sec-head h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px;display:flex;align-items:center;gap:9px}
+  .sec-head h2 .n{font-family:var(--mono);font-size:11px;background:var(--brand);color:#fff;padding:2px 8px;border-radius:6px}
+  .sec-head p{font-size:12px;color:var(--muted);line-height:1.75}
+  .sec-head p b{color:var(--text-2)}
+
+  /* 卡片 */
+  .cards{display:grid;gap:12px}
+  .cards.c2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .cards.c3{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+
+  .cd{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:15px 17px;cursor:pointer;position:relative;transition:all .2s cubic-bezier(.16,1,.3,1);animation:cardIn .45s both}
+  @keyframes cardIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .cd:hover{border-color:var(--brand);transform:translateY(-2px);box-shadow:0 12px 28px -12px rgba(2,132,199,.4)}
+  .cd.selected{border-color:var(--a);background:linear-gradient(180deg,#f6fefb,#fff);box-shadow:0 12px 28px -12px rgba(5,150,105,.4)}
+  .cd.selected::after{content:"✓";position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;background:var(--a);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:900;animation:pop .3s cubic-bezier(.16,1,.3,1)}
+  .cd.disabled{opacity:.5;cursor:default;pointer-events:none}
+  @keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+
+  .cd-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;padding-right:26px}
+  .cd-head h4{font-size:13.5px;font-weight:700;letter-spacing:-.01em;flex:1;min-width:0}
+  .cd-badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+  .badge-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--line-soft);color:var(--muted);border:1px solid var(--line)}
+  .badge-tag.green{background:var(--a-bg);color:var(--a);border-color:#a7f3d0}
+  .badge-tag.blue{background:var(--b-bg);color:var(--b);border-color:#bfdbfe}
+  .badge-tag.amber{background:var(--c-bg);color:var(--c);border-color:#fde68a}
+  .badge-tag.red{background:var(--r-bg);color:var(--r);border-color:#fecaca}
+  .cd.selected .badge-tag{background:rgba(5,150,105,.08);color:var(--a);border-color:rgba(5,150,105,.2)}
+
+  .cd-body{font-size:12px;color:var(--text-2);line-height:1.7}
+  .cd-body .row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+  .cd-body .row .k{color:var(--muted);flex:none}
+  .cd-body .row .v{font-weight:600;color:var(--text)}
+  .cd-why{font-size:11.5px;color:var(--muted);line-height:1.65;padding-top:9px;margin-top:9px;border-top:1px dashed var(--line);display:flex;gap:6px}
+  .cd-why::before{content:"💡";flex:none;font-size:11px}
+  .cd-foot{display:flex;align-items:center;gap:10px;margin-top:9px;font-size:10.5px;color:var(--muted-2);font-family:var(--mono);flex-wrap:wrap}
+
+  /* 体力条 */
+  .stamina{display:flex;gap:2px;align-items:center}
+  .stamina i{width:10px;height:6px;border-radius:2px;background:var(--line)}
+  .stamina i.on{background:var(--a)}
+  .stamina.s2 i.on{background:#84cc16}
+  .stamina.s3 i.on{background:var(--c)}
+  .stamina.s4 i.on{background:var(--r)}
+
+  /* 余票条 */
+  .avail{height:5px;background:var(--line-soft);border-radius:99px;overflow:hidden;margin-top:4px}
+  .avail i{display:block;height:100%;border-radius:99px}
+
+  /* 天气卡 */
+  .weather-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+  .wcard{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:16px;text-align:center;transition:all .3s;position:relative}
+  .wcard.alert{border-color:var(--c);background:linear-gradient(180deg,#fffdf5,#fff)}
+  .wcard .wd{font-size:11.5px;color:var(--muted);font-weight:600;margin-bottom:8px}
+  .wcard .wi{font-size:30px;line-height:1;margin-bottom:6px}
+  .wcard .wt{font-size:15px;font-weight:800;font-family:var(--mono);letter-spacing:-.02em}
+  .wcard .ws{font-size:11px;color:var(--muted);margin-top:4px}
+  .wcard .wtag{position:absolute;top:8px;right:8px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--c-bg);color:var(--c)}
+
+  /* 携带清单 */
+  .pack-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+  .pack-item{display:flex;align-items:center;gap:9px;padding:10px 13px;background:var(--card);border:1px solid var(--line);border-radius:10px;font-size:12px;transition:all .2s}
+  .pack-item.urgent{border-color:var(--c);background:linear-gradient(180deg,#fffdf5,#fff)}
+  .pack-item .pi{font-size:16px;flex:none}
+  .pack-item .pt{flex:1;min-width:0}
+  .pack-item .pn{font-weight:700;color:var(--text)}
+  .pack-item .pr{font-size:10.5px;color:var(--muted);margin-top:1px}
+
+  /* 行程 */
+  .itinerary-day{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;animation:cardIn .5s both}
+  .id-head{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;background:linear-gradient(180deg,#fbfdff,#fff)}
+  .id-num{font-family:var(--mono);font-size:11px;font-weight:700;background:var(--text);color:#fff;padding:3px 10px;border-radius:6px;letter-spacing:.03em;flex:none}
+  .id-head h3{font-size:14px;font-weight:700;letter-spacing:-.01em}
+  .id-head .id-sub{font-size:11.5px;color:var(--muted);margin-left:auto;text-align:right;line-height:1.5;white-space:pre-line}
+  .id-body{padding:6px 20px 16px}
+  .it{display:grid;grid-template-columns:58px 1fr;gap:14px;padding:13px 0;border-bottom:1px dashed var(--line-soft);position:relative}
+  .it:last-child{border-bottom:none}
+  .it::before{content:"";position:absolute;left:-20px;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;background:var(--brand)}
+  .it.food::before{background:var(--c)}
+  .it.trans::before{background:var(--b)}
+  .it .t-time{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand);padding-top:1px}
+  .it .t-time small{display:block;font-size:10px;color:var(--muted-2);font-weight:400;margin-top:1px}
+  .it h4{font-size:13.5px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .it .t-desc{font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.7}
+  .it .t-meta{font-size:11px;color:var(--muted);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap;font-family:var(--mono)}
+  .it .t-tip{font-size:11.5px;color:var(--muted);margin-top:6px;background:var(--line-soft);border-radius:7px;padding:7px 10px;border-left:2px solid #cbd5e1;display:flex;gap:6px}
+  .it .t-tip::before{content:"💡";flex:none}
+
+  /* 实时修正 */
+  .alert-card{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:16px 18px;animation:cardIn .5s both;position:relative}
+  .alert-card.high{border-color:var(--r);background:linear-gradient(180deg,#fffafa,#fff);box-shadow:0 8px 24px -10px rgba(220,38,38,.25)}
+  .alert-card.mid{border-color:var(--c);background:linear-gradient(180deg,#fffdf5,#fff)}
+  .alert-card.low{border-color:var(--b);background:linear-gradient(180deg,#f8fbff,#fff)}
+  .ac-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:9px}
+  .ac-icon{width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;font-size:16px}
+  .ac-icon.high{background:var(--r-bg);color:var(--r)}
+  .ac-icon.mid{background:var(--c-bg);color:var(--c)}
+  .ac-icon.low{background:var(--b-bg);color:var(--b)}
+  .ac-head h4{font-size:13.5px;font-weight:700;flex:1;line-height:1.5}
+  .ac-head .time{font-size:10.5px;color:var(--muted-2);font-family:var(--mono);flex:none}
+  .ac-body{font-size:12px;color:var(--text-2);line-height:1.75;margin-bottom:10px}
+  .ac-body b{color:var(--text)}
+  .ac-suggest{background:var(--line-soft);border-radius:9px;padding:11px 13px;font-size:12px;color:var(--text-2);line-height:1.75;border-left:3px solid var(--brand)}
+  .ac-suggest .stag{font-size:10.5px;font-weight:700;color:var(--brand);letter-spacing:.03em;margin-bottom:4px}
+  .ac-actions{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+  .ac-btn{font-family:inherit;font-size:11.5px;font-weight:700;border-radius:8px;padding:7px 14px;cursor:pointer;transition:all .16s;border:1px solid transparent}
+  .ac-btn.primary{background:var(--brand);color:#fff}
+  .ac-btn.primary:hover{background:#0369a1;transform:translateY(-1px)}
+  .ac-btn.ghost{background:#fff;color:var(--text-2);border-color:var(--line)}
+  .ac-btn.ghost:hover{border-color:var(--muted-2);color:var(--text)}
+  .ac-btn:disabled{background:var(--line-soft);color:var(--muted-2);cursor:default;transform:none}
+
+  /* 浮层 */
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);background:#0f172a;color:#fff;font-size:12.5px;font-weight:600;padding:11px 20px;border-radius:11px;box-shadow:0 16px 40px -10px rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.16,1,.3,1);z-index:200;display:flex;align-items:center;gap:9px;max-width:90vw}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast::before{content:"✓";color:#6ee7b7;font-weight:900}
+  .toast.info::before{content:"ℹ";color:#93c5fd}
+  .toast.warn::before{content:"⚠";color:#fbbf24}
+
+  .foot{text-align:center;font-size:11.5px;color:var(--muted-2);padding:26px 20px 44px;line-height:1.9}
+  .foot b{color:var(--muted);font-weight:600}
+
+  /* 空状态 */
+  .empty{background:var(--card);border:1px dashed var(--line);border-radius:var(--radius);padding:50px 30px;text-align:center}
+  .empty .ei{width:56px;height:56px;border-radius:18px;margin:0 auto 14px;background:linear-gradient(135deg,#e0f2fe,#f0f9ff);display:grid;place-items:center;font-size:24px}
+  .empty h3{font-size:14.5px;font-weight:700;margin-bottom:6px}
+  .empty p{font-size:12px;color:var(--muted);line-height:1.8;max-width:420px;margin:0 auto}
+
+  /* 加载 */
+  .loading{display:flex;align-items:center;gap:10px;padding:24px;justify-content:center;color:var(--muted);font-size:12px}
+  .spinner{width:16px;height:16px;border-radius:50%;border:2px solid #e0f2fe;border-top-color:var(--brand);animation:spin .8s linear infinite;flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* 汇总bar */
+  .summary-bar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--card);border:1.5px solid var(--brand);border-radius:var(--radius);padding:14px 20px;box-shadow:var(--shadow)}
+  .sb-info{flex:1;min-width:180px}
+  .sb-t{font-size:13px;font-weight:700}
+  .sb-s{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .sb-s b{color:var(--brand);font-family:var(--mono);font-size:13px}
+  .sb-btn{font-family:inherit;font-size:13px;font-weight:700;border:none;border-radius:10px;padding:10px 20px;cursor:pointer;transition:all .16s;white-space:nowrap;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;box-shadow:0 8px 20px -8px rgba(2,132,199,.6)}
+  .sb-btn:hover{transform:translateY(-2px)}
+  .sb-btn:disabled{background:var(--line-soft);color:var(--muted-2);box-shadow:none;cursor:not-allowed;transform:none}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot">旅</span>
+    <span>旅策 TravelPlan Agent<br><small>像朋友一样帮你规划 · 实时护航</small></span>
+  </div>
+  <div class="sources" id="srcBar">
+    <span class="src-chip"><i></i>高德地图 MCP</span>
+    <span class="src-chip"><i></i>12306 余票</span>
+    <span class="src-chip"><i></i>和风天气</span>
+    <span class="src-chip"><i></i>携程酒店 MCP</span>
+    <span class="src-chip"><i></i>大众点评</span>
+  </div>
+  <button class="reset-btn" id="resetBtn">重新开始</button>
+</header>
+
+<div class="shell">
+<div class="layout">
+
+  <!-- 左栏 -->
+  <aside class="left-col">
+    <div class="panel chat-panel">
+      <div class="panel-head">规划对话 <span class="badge" id="chatBadge">等待开始</span></div>
+      <div class="chat" id="chat"></div>
+      <div class="composer" id="composer"></div>
+    </div>
+    <div class="panel needs-panel">
+      <div class="panel-head">需求档案 <span class="badge" id="needsBadge">0 / 6</span></div>
+      <div class="needs-list" id="needsList"></div>
+    </div>
+  </aside>
+
+  <!-- 右栏 -->
+  <main class="right-col">
+    <div class="phase-bar">
+      <div class="ph active" data-phase="1"><span class="ph-num">1</span><span class="ph-txt">聊需求</span></div>
+      <span class="ph-line"></span>
+      <div class="ph" data-phase="2"><span class="ph-num">2</span><span class="ph-txt">查数据</span></div>
+      <span class="ph-line"></span>
+      <div class="ph" data-phase="3"><span class="ph-num">3</span><span class="ph-txt">定行程</span></div>
+      <span class="ph-line"></span>
+      <div class="ph" data-phase="4"><span class="ph-num">4</span><span class="ph-txt">实时护航</span></div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview"><span class="tico">🧭</span>总览</button>
+      <button class="tab" data-tab="transport"><span class="tico">🚄</span>交通<span class="tbadge" id="tbTransport">—</span></button>
+      <button class="tab" data-tab="hotel"><span class="tico">🏨</span>住宿<span class="tbadge" id="tbHotel">—</span></button>
+      <button class="tab" data-tab="weather"><span class="tico">🌤</span>天气<span class="tbadge" id="tbWeather">—</span></button>
+      <button class="tab" data-tab="food"><span class="tico">🍜</span>美食<span class="tbadge" id="tbFood">—</span></button>
+      <button class="tab" data-tab="spots"><span class="tico">🏞</span>景区<span class="tbadge" id="tbSpots">—</span></button>
+      <button class="tab" data-tab="itinerary"><span class="tico">📅</span>行程<span class="tbadge" id="tbItin">—</span></button>
+      <button class="tab" data-tab="alerts"><span class="tico">🚨</span>修正<span class="tbadge" id="tbAlerts">—</span></button>
+    </div>
+
+    <div class="tab-content" id="tabContent"></div>
+  </main>
+</div>
+</div>
+
+<div class="foot">
+  <b>旅策 TravelPlan Agent</b> · 全流程原型<br>
+  交通 · 住宿 · 天气 · 美食 · 景区 · 行程 · 实时修正 —— 一次串起来
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  /* ============================================================
+     数据源（模拟真实 API 返回）
+     ============================================================ */
+  var DATA = {
+    /* --------- 交通 --------- */
+    transport: {
+      from:'北京', to:'青岛', date:'2026-10-15', back:'2026-10-18',
+      options:[
+        {id:'g1', type:'高铁', code:'G1061', dep:'07:20', arr:'11:08', dur:'3h48m',
+         price:314, seat:'二等座', avail:28, total:600, class:'easy',
+         tags:['早出发','到站早'],
+         note:'早上到青岛，下午就能开始逛。',
+         why:'如果你希望第一天下午就开玩，这班最合适。'},
+        {id:'g2', type:'高铁', code:'G207', dep:'09:37', arr:'13:25', dur:'3h48m',
+         price:314, seat:'二等座', avail:5, total:600, class:'tight',
+         tags:['余票紧张','要抢'],
+         note:'只剩 5 张，再不定可能就没了。',
+         why:'时间舒服但票紧张，建议尽快锁定。'},
+        {id:'f1', type:'飞机', code:'CA1571', dep:'08:15', arr:'09:45', dur:'1h30m',
+         price:620, seat:'经济舱', avail:42, total:180, class:'easy',
+         tags:['最快','需提前2h到机场'],
+         note:'加上往返机场的时间，跟高铁其实差不多。',
+         why:'如果家离首都机场近，飞过去也划算。'},
+        {id:'f2', type:'飞机', code:'MU5138', dep:'13:20', arr:'14:55', dur:'1h35m',
+         price:490, seat:'经济舱', avail:8, total:180, class:'mid',
+         tags:['便宜','下午到'],
+         note:'下午到青岛，第一天基本半天在路上。',
+         why:'价格比高铁贵不了多少，但到得晚。'}
+      ],
+      returnOptions:[
+        {id:'rg1', type:'高铁', code:'G208', dep:'14:30', arr:'18:18', dur:'3h48m', price:314, seat:'二等座', avail:120, total:600, class:'easy', tags:['余票充足'], note:'下午返程，白天还能玩半天。', why:'返程这天上午能安排一个轻松的点。'},
+        {id:'rf1', type:'飞机', code:'CA1572', dep:'20:15', arr:'21:45', dur:'1h30m', price:580, seat:'经济舱', avail:22, total:180, class:'easy', tags:['晚上到'], note:'晚上到北京，不影响第二天上班。', why:'如果想最后一天玩满，选这班。'}
+      ]
+    },
+
+    /* --------- 住宿 --------- */
+    hotels:[
+      {id:'h1', name:'青岛栈桥亚朵酒店', type:'酒店', stars:4, score:4.8, reviews:3287, price:486,
+       area:'老城区', dist:'距栈桥 480m', walk:'步行 6 分钟',
+       tags:['近栈桥','隔音好','有早餐','可加床'],
+       pros:['床品评分高','隔音好','前台能寄存行李'],
+       cons:['停车位少'],
+       why:'位置最好的一家。父母走 6 分钟就到栈桥，早上不用赶车。',
+       src:'携程酒店 MCP · 2026-10-03 09:20 查询'},
+      {id:'h2', name:'青岛老城故事青年旅舍', type:'青旅', stars:0, score:4.6, reviews:1205, price:128,
+       area:'老城区', dist:'距天主教堂 300m', walk:'步行 4 分钟',
+       tags:['性价比','氛围好','多人间/标间都有','公共厨房'],
+       pros:['便宜','位置好','老板会推荐本地小吃'],
+       cons:['隔音一般','无独立卫浴（多人间）'],
+       why:'预算紧的话这家最划算。有独立标间，不算太将就。',
+       src:'携程酒店 MCP · 2026-10-03 09:20 查询'},
+      {id:'h3', name:'青岛海景花园酒店', type:'酒店', stars:5, score:4.7, reviews:5642, price:680,
+       area:'五四广场', dist:'距海边 200m', walk:'步行 3 分钟',
+       tags:['海景房','行政酒廊','健身房','亲子设施'],
+       pros:['房间能看到海','服务好','早餐丰富'],
+       cons:['离老城区远','价格高'],
+       why:'如果想让父母住得舒服一点，这家的海景房他们会喜欢。',
+       src:'携程酒店 MCP · 2026-10-03 09:20 查询'},
+      {id:'h4', name:'汉庭酒店（中山路店）', type:'酒店', stars:3, score:4.5, reviews:2103, price:268,
+       area:'老城区', dist:'距中山路 150m', walk:'步行 2 分钟',
+       tags:['连锁','干净','位置好'],
+       pros:['性价比高','连锁标准','房间干净'],
+       cons:['房间偏小','无早'],
+       why:'连锁品牌，干净有保障。想省点预算就选这家。',
+       src:'携程酒店 MCP · 2026-10-03 09:20 查询'},
+      {id:'h5', name:'青岛老城区途家公寓', type:'公寓', stars:0, score:4.4, reviews:876, price:320,
+       area:'老城区', dist:'距大学路 600m', walk:'步行 8 分钟',
+       tags:['有厨房','两室一厅','可洗衣'],
+       pros:['空间大','能做饭','适合一家人'],
+       cons:['服务不如酒店','入住手续略繁琐'],
+       why:'带父母住，有厨房和客厅会方便很多。',
+       src:'携程酒店 MCP · 2026-10-03 09:20 查询'}
+    ],
+
+    /* --------- 天气 --------- */
+    weather:{
+      city:'青岛',
+      days:[
+        {date:'10-15', week:'周四', icon:'☀️', txt:'晴', high:21, low:15, pop:5, wind:'3级'},
+        {date:'10-16', week:'周五', icon:'⛅', txt:'多云', high:20, low:14, pop:10, wind:'4级'},
+        {date:'10-17', week:'周六', icon:'🌧', txt:'中雨', high:17, low:12, pop:80, wind:'5级', alert:'有雨'},
+        {date:'10-18', week:'周日', icon:'⛅', txt:'多云', high:22, low:15, pop:20, wind:'3级'}
+      ],
+      packing:[
+        {icon:'🧥', name:'防风薄外套', reason:'沿海风大，傍晚体感偏凉', urgent:false},
+        {icon:'👟', name:'运动鞋 / 软底鞋', reason:'老城石板路多，高跟鞋走不动', urgent:false},
+        {icon:'☂️', name:'折叠伞', reason:'10/17 有中雨，降水概率 80%', urgent:true},
+        {icon:'🧴', name:'防晒霜 / 帽子', reason:'十月紫外线仍强，海边反射更猛', urgent:false},
+        {icon:'💊', name:'常用药 / 关节贴', reason:'父母有膝盖问题，走路多了会酸', urgent:true},
+        {icon:'🍞', name:'小面包 / 饼干', reason:'栈桥喂海鸥用，父母会喜欢', urgent:false}
+      ],
+      alerts:[
+        {type:'weather', level:'mid', text:'10/17（周六）预报有中雨，原定崂山行程路滑，建议调整。'}
+      ]
+    },
+
+    /* --------- 美食 --------- */
+    foods:[
+      {id:'fo1', name:'春和楼', type:'鲁菜 / 老字号', price:80, score:4.5, area:'中山路',
+       dist:'距栈桥 700m', sign:'香酥鸡、九转大肠',
+       tags:['始于1891','老字号','环境好'],
+       why:'青岛现存最老的鲁菜馆，带父母吃这个比较正式。',
+       src:'大众点评 · 2026-10-03 查询'},
+      {id:'fo2', name:'万和春排骨米饭', type:'快餐 / 本地', price:25, score:4.6, area:'台东',
+       dist:'距台东夜市 300m', sign:'砂锅排骨、米饭',
+       tags:['24小时','便宜','本地人常去'],
+       why:'青岛灵魂快餐，排骨炖到骨肉分离。便宜又好吃。',
+       src:'大众点评 · 2026-10-03 查询'},
+      {id:'fo3', name:'船歌鱼水饺', type:'海鲜饺子', price:90, score:4.7, area:'五四广场',
+       dist:'距奥帆中心 500m', sign:'鲅鱼水饺、墨鱼水饺',
+       tags:['招牌水饺','环境好','适合家人'],
+       why:'鲅鱼水饺是青岛特色，父母应该会喜欢。',
+       src:'大众点评 · 2026-10-03 查询'},
+      {id:'fo4', name:'营口路市场代加工', type:'海鲜市场', price:100, score:4.8, area:'市北',
+       dist:'距啤酒博物馆 1.2km', sign:'辣炒蛤蜊、椒盐虾虎',
+       tags:['自己挑海鲜','政府统一定价','烟火气'],
+       why:'十月开海季，虾蟹最肥。两人 150 能摆一桌，比景区便宜一半。',
+       src:'大众点评 + 知识库 · 2026-10-03 查询'},
+      {id:'fo5', name:'劈柴院', type:'小吃街', price:55, score:4.0, area:'中山路',
+       dist:'距天主教堂 200m', sign:'高家糖球、豆腐脑',
+       tags:['游客多','本地人少去','老字号集中'],
+       why:'顺路看看可以，专门去吃不太值。提醒你别被门口大排档坑。',
+       src:'大众点评 · 2026-10-03 查询'},
+      {id:'fo6', name:'青岛啤酒博物馆原浆', type:'体验 / 酒', price:60, score:4.6, area:'登州路',
+       dist:'距台东 800m', sign:'原浆啤酒、啤酒豆',
+       tags:['含品酒','室内','有电梯'],
+       why:'门票含一杯原浆，父母可以尝个鲜。室内全程无爬坡。',
+       src:'高德 POI + 大众点评 · 2026-10-03 查询'}
+    ],
+
+    /* --------- 景区 --------- */
+    spots:[
+      {id:'s1', name:'栈桥', price:0, stamina:1, dur:60, area:'老城',
+       tags:['地标','海鸥','免费'], best:'清晨 7 点前',
+       desc:'青岛最出名的地标。栈桥尽头是回澜阁，退潮时礁石边能赶海。',
+       why:'走 6 分钟就到，全程平地。清晨人少，父母能慢慢走。',
+       ev:'A', src:'高德 POI · 2026-10-03 查询'},
+      {id:'s2', name:'天主教堂', price:10, stamina:1, dur:30, area:'老城',
+       tags:['哥特式','拍照','外观免费'], best:'上午顺光',
+       desc:'1934 年落成的哥特式双塔教堂，青岛老城最有代表性的西式建筑。',
+       why:'门前广场平坦，父母不用爬台阶。和栈桥顺路。',
+       ev:'A', src:'高德 POI · 2026-10-03 查询'},
+      {id:'s3', name:'八大关', price:0, stamina:2, dur:120, area:'东部',
+       tags:['万国建筑','梧桐','适合慢走'], best:'十月下午',
+       desc:'三百余栋万国建筑藏在林荫里，十月梧桐渐黄，是一年中最舒服的季节。',
+       why:'全程平缓石板路，慢慢逛不累。提醒别穿高跟鞋。',
+       ev:'A', src:'高德路径规划 · 2026-10-03 查询'},
+      {id:'s4', name:'小鱼山公园', price:0, stamina:2, dur:45, area:'老城',
+       tags:['登高','全景','轻松'], best:'下午',
+       desc:'十几分钟就能登顶，能俯瞰老城红瓦与碧海相连的全景。',
+       why:'山不高，对膝盖负担小。比信号山更合适。',
+       ev:'A', src:'高德 POI · 2026-10-03 查询'},
+      {id:'s5', name:'小麦岛公园', price:0, stamina:1, dur:90, area:'东部',
+       tags:['日落','草坪','海景'], best:'日落 17:42 前后',
+       desc:'360° 海景配开阔草坪，青岛看日落最好的位置之一。',
+       why:'木栈道全程平地，适合傍晚慢慢走。',
+       ev:'A', src:'高德 POI + 天文算法 · 2026-10-03 查询'},
+      {id:'s6', name:'五四广场灯光秀', price:0, stamina:1, dur:60, area:'东部',
+       tags:['夜景','灯光秀','免费'], best:'19:30 起',
+       desc:'浮山湾灯光秀每晚 19:30 起，沿海建筑群统一亮灯，每场约 15 分钟。',
+       why:'海边有长椅，父母坐着看。带件防风外套。',
+       ev:'A', src:'高德 POI 营业时间 · 2026-10-03 查询'},
+      {id:'s7', name:'崂山仰口游览区', price:90, stamina:3, dur:420, area:'崂山',
+       tags:['山海','索道','需提前7天预约'], best:'晴天',
+       desc:'海上名山第一。仰口线坡度缓、能看海，是带父母的最佳选择。',
+       why:'山路平缓，建议坐索道上下（¥45），对膝盖友好。但来回 55 分钟车程，占大半天。',
+       ev:'A', src:'高德 POI 门票 · 2026-10-03 查询'},
+      {id:'s8', name:'青岛啤酒博物馆', price:60, stamina:1, dur:90, area:'市北',
+       tags:['文化','含品酒','室内'], best:'任意时段',
+       desc:'百年老厂房，了解青啤酿造工艺。门票含原浆品尝。',
+       why:'室内有电梯，全程无爬坡。下雨天的最佳选择。',
+       ev:'A', src:'高德 POI · 2026-10-03 查询'},
+      {id:'s9', name:'营口路农贸市场', price:0, stamina:1, dur:120, area:'市北',
+       tags:['海鲜','开海季','烟火气'], best:'中午',
+       desc:'自己挑鲜活海鲜，旁边小店代加工。清蒸白灼约 ¥8-10/斤。',
+       why:'十月开海季，虾蟹最肥。两人 ¥150 能摆一桌。',
+       ev:'B', src:'高德 POI + 知识库 · 2026-10-03 查询'},
+      {id:'s10', name:'台东夜市', price:0, stamina:1, dur:90, area:'市北',
+       tags:['小吃','夜市','烟火气'], best:'晚上',
+       desc:'青岛最有烟火气的夜市，恣儿街逛吃。',
+       why:'适合晚上闲逛。若父母不喜欢嘈杂可换成海边散步。',
+       ev:'C', src:'本地知识库 · 2026-10-03 查询'}
+    ],
+
+    /* --------- 实时事件 --------- */
+    events:[
+      {id:'e1', level:'high', icon:'🌧', title:'10/17 崂山有中雨，行程需要调整',
+       time:'09:32 更新',
+       body:'刚刚刷新天气，<b>10/17（周六）青岛崂山片区预报中雨，降水概率 80%，山上路滑</b>。带父母走山路，风险偏高。',
+       suggest:'我建议把<b>崂山挪到 10/16（多云，适宜）</b>，把原定 10/16 的市区行程换到 10/17。市区那天以下雨也能走的<b>啤酒博物馆 + 葡萄酒博物馆</b>为主，室内全程无爬坡。',
+       action:'好的，按你说的调整'},
+      {id:'e2', level:'mid', icon:'🎫', title:'G207 高铁余票从 28 张降到 5 张',
+       time:'09:45 更新',
+       body:'你之前看中的 <b>G207（09:37 出发）</b> 余票在半小时内从 28 张降到 5 张。',
+       suggest:'如果确定坐这班，<b>建议现在就锁票</b>。或者换 <b>G1061（07:20 出发）</b>，余票还有 28 张，只是要早起一点——但到青岛反而更早，下午能多玩半天。',
+       action:'改坐 G1061'},
+      {id:'e3', level:'low', icon:'🍜', title:'劈柴院 3 家店铺临时歇业',
+       time:'10:02 更新',
+       body:'大众点评显示，劈柴院 <b>3 家老字号今天临时歇业</b>，包括你之前标记的高家糖球。',
+       suggest:'你本来也只想顺路看看。我建议<b>把劈柴院从行程里去掉</b>，换成中山路的老字号——<b>春和楼</b>评分更高，父母吃得也更舒服。',
+       action:'换成春和楼'},
+      {id:'e4', level:'mid', icon:'🚧', title:'栈桥东侧封闭施工',
+       time:'10:18 更新',
+       body:'高德路况显示，<b>栈桥东侧海滨步道从今天起封闭施工</b>，预计持续到 10/20。',
+       suggest:'不影响栈桥本身游览，但<b>原定从栈桥沿海边步行到天主教堂的路线要绕行</b>，从中山路走，多 6 分钟。我已经把行程里的步行时间更新了。',
+       action:'知道了'}
+    ]
+  };
+
+  /* ============================================================
+     状态
+     ============================================================ */
+  var state = {
+    stage:1,
+    needs:{},
+    transport:{out:null, ret:null},
+    hotel:null,
+    weatherRead:false,
+    food:[],
+    spots:[],
+    itinerary:null,
+    alertsAccepted:[],
+    alertsDismissed:[]
+  };
+
+  var $ = function(id){ return document.getElementById(id); };
+  var chatEl = $('chat');
+  var composerEl = $('composer');
+  var tabContentEl = $('tabContent');
+  var toastEl = $('toast');
+
+  /* ============================================================
+     工具函数
+     ============================================================ */
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+
+  function toast(msg, type){
+    toastEl.textContent = msg;
+    toastEl.className = 'toast show' + (type ? ' ' + type : '');
+    clearTimeout(toastEl._tm);
+    toastEl._tm = setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
+  }
+
+  function scrollChat(){ setTimeout(function(){ chatEl.scrollTop = chatEl.scrollHeight; }, 60); }
+
+  function addMessage(who, html){
+    var d = document.createElement('div');
+    d.className = 'msg ' + who;
+    d.innerHTML = '<div class="avatar">' + (who==='user'?'你':'AI') + '</div><div class="bubble">' + html + '</div>';
+    chatEl.appendChild(d);
+    scrollChat();
+  }
+
+  function showTyping(){
+    var d = document.createElement('div');
+    d.className = 'msg bot';
+    d.innerHTML = '<div class="avatar">AI</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
+    chatEl.appendChild(d);
+    scrollChat();
+    return d;
+  }
+
+  async function agentSay(html, delay){
+    var t = showTyping();
+    await sleep(delay || 850);
+    t.remove();
+    addMessage('bot', html);
+  }
+
+  function showOptions(opts, hint){
+    return new Promise(function(resolve){
+      var html = '<div class="composer-hint">' + (hint || '请选择') + '</div><div class="opts">';
+      opts.forEach(function(o,i){
+        html += '<button class="opt" data-v="'+o.v+'" data-label="'+o.label+'" style="animation-delay:'+(i*0.06)+'s">' +
+          '<span class="oicon">' + (o.icon||'·') + '</span>' +
+          '<span class="olabel">' + o.label + '</span>' +
+          (o.tag ? '<span class="otag">'+o.tag+'</span>' : '') +
+        '</button>';
+      });
+      html += '</div>';
+      composerEl.innerHTML = html;
+      composerEl.querySelectorAll('.opt').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          resolve({v:btn.dataset.v, label:btn.dataset.label});
+        });
+      });
+    });
+  }
+
+  function clearComposer(){ composerEl.innerHTML = ''; }
+
+  function setPhase(p){
+    state.stage = p;
+    document.querySelectorAll('.ph').forEach(function(el){
+      var n = parseInt(el.dataset.phase);
+      el.classList.remove('done','active');
+      if (n < p) el.classList.add('done');
+      else if (n === p) el.classList.add('active');
+    });
+    var map = {1:'聊需求', 2:'查数据', 3:'定行程', 4:'实时护航'};
+    var b = $('chatBadge');
+    b.textContent = map[p];
+    b.className = 'badge' + (p >= 2 ? ' on' : '');
+  }
+
+  /* ============================================================
+     需求档案
+     ============================================================ */
+  var NEED_FIELDS = [
+    {key:'party', icon:'👥', label:'同行人'},
+    {key:'pace', icon:'🚶', label:'节奏与体力'},
+    {key:'days', icon:'📅', label:'行程天数'},
+    {key:'budget', icon:'💰', label:'预算'},
+    {key:'depart', icon:'🚄', label:'出发地'},
+    {key:'taste', icon:'🍜', label:'饮食偏好'}
+  ];
+
+  function renderNeeds(){
+    var filled = Object.keys(state.needs).length;
+    var html = '';
+    NEED_FIELDS.forEach(function(f){
+      var v = state.needs[f.key];
+      html += '<div class="need-item' + (v?' filled':'') + '" data-field="'+f.key+'">' +
+        '<span class="ni">' + f.icon + '</span>' +
+        '<div class="nb"><div class="nl">' + f.label + '</div><div class="nv">' + (v || '—') + '</div></div>' +
+        '<span class="nc">✓</span>' +
+      '</div>';
+    });
+    $('needsList').innerHTML = html;
+    var b = $('needsBadge');
+    b.textContent = filled + ' / 6';
+    b.className = 'badge' + (filled >= 6 ? ' on' : '');
+  }
+
+  function fillNeed(key, value){
+    state.needs[key] = value;
+    renderNeeds();
+    var el = document.querySelector('[data-field="'+key+'"]');
+    if (el){
+      el.classList.add('flash');
+      setTimeout(function(){ el.classList.remove('flash'); }, 1200);
+    }
+  }
+
+  /* ============================================================
+     Tab 切换
+     ============================================================ */
+  var currentTab = 'overview';
+  function switchTab(name){
+    currentTab = name;
+    document.querySelectorAll('.tab').forEach(function(t){
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    renderTab();
+  }
+
+  document.querySelectorAll('.tab').forEach(function(t){
+    t.addEventListener('click', function(){ switchTab(t.dataset.tab); });
+  });
+
+  /* ============================================================
+     Tab 渲染总入口
+     ============================================================ */
+  function renderTab(){
+    switch(currentTab){
+      case 'overview': renderOverview(); break;
+      case 'transport': renderTransport(); break;
+      case 'hotel': renderHotel(); break;
+      case 'weather': renderWeather(); break;
+      case 'food': renderFood(); break;
+      case 'spots': renderSpots(); break;
+      case 'itinerary': renderItinerary(); break;
+      case 'alerts': renderAlerts(); break;
+    }
+  }
+
+  /* ---------- 总览 ---------- */
+  function renderOverview(){
+    if (state.stage === 1 && !state.needs.party){
+      tabContentEl.innerHTML = '<div class="tc active"><div class="empty"><div class="ei">🧭</div><h3>还没开始规划</h3><p>左边是我和你的对话区。<br>我会一个问题一个问题地问你，右侧会同步把交通、住宿、天气、美食、景区都查出来。<br>等需求清楚了，我再把行程串起来。</p></div></div>';
+      return;
+    }
+
+    var html = '<div class="tc active">';
+
+    html += '<div class="sec-head"><h2>🏔 青岛 4 日行程 <span class="n">'+ (state.stage>=3 ? '已生成' : '准备中') +'</span></h2>' +
+      '<p>像朋友一样，先把交通、住宿、天气、美食、景区都查清楚，再一起把路线排出来。<b>过程中你随时可以改，我随时盯着变化</b>。</p></div>';
+
+    html += '<div class="cards c3">';
+    html += ovCard('🚄', '交通', state.transport.out ? state.transport.out.code : '待选', state.transport.out ? '¥' + state.transport.out.price : '去程还没定', 'transport', state.transport.out ? 'on' : '');
+    html += ovCard('🏨', '住宿', state.hotel ? state.hotel.name.slice(0,8) + '…' : '待选', state.hotel ? '¥' + state.hotel.price + '/晚' : '还没选', 'hotel', state.hotel ? 'on' : '');
+    html += ovCard('🌤', '天气', state.weatherRead ? '已查看' : '待查', state.weatherRead ? '10/17 有雨' : '还没看', 'weather', state.weatherRead ? 'on' : '');
+    html += ovCard('🍜', '美食', state.food.length ? '已选 ' + state.food.length + ' 家' : '待选', state.food.length ? '人均 ¥' + Math.round(state.food.reduce(function(s,f){return s+f.price;},0)/state.food.length) : '还没选', 'food', state.food.length ? 'on' : '');
+    html += ovCard('🏞', '景区', state.spots.length ? '已选 ' + state.spots.length + ' 个' : '待选', state.spots.length ? '总预算 ¥' + state.spots.reduce(function(s,x){return s+x.price;},0) : '还没选', 'spots', state.spots.length ? 'on' : '');
+    html += ovCard('🚨', '修正', state.alertsAccepted.length ? '已处理 ' + state.alertsAccepted.length + ' 条' : '待处理', state.alertsAccepted.length ? '行程已更新' : '还有变化要跟进', 'alerts', state.alertsAccepted.length ? 'on' : '');
+    html += '</div>';
+
+    if (state.stage >= 3 && state.itinerary){
+      html += '<div class="summary-bar">' +
+        '<div class="sb-info"><div class="sb-t">行程已生成，去「行程」Tab 看完整方案</div>' +
+        '<div class="sb-s">共 <b>' + state.itinerary.length + '</b> 天 · 已综合交通/住宿/天气/美食/景区</div></div>' +
+        '<button class="sb-btn" onclick="document.querySelector(\'[data-tab=itinerary]\').click()">查看行程 →</button>' +
+      '</div>';
+    }
+
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-goto]').forEach(function(el){
+      el.addEventListener('click', function(){ switchTab(el.dataset.goto); });
+    });
+  }
+
+  function ovCard(icon, name, main, sub, tab, on){
+    return '<div class="cd' + (on ? ' selected' : '') + '" data-goto="' + tab + '">' +
+      '<div class="cd-head"><h4>' + icon + ' ' + name + '</h4></div>' +
+      '<div class="cd-body">' +
+        '<div class="row"><span class="v" style="font-size:14px">' + main + '</span></div>' +
+        '<div class="row"><span class="k">' + sub + '</span></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* ---------- 交通 ---------- */
+  function renderTransport(){
+    if (!state.needs.party){
+      tabContentEl.innerHTML = '<div class="tc active"><div class="empty"><div class="ei">🚄</div><h3>先聊需求</h3><p>确认出发地和日期后，我会把高铁、飞机都查出来，连余票紧张程度一起告诉你。</p></div></div>';
+      return;
+    }
+
+    var t = DATA.transport;
+    var html = '<div class="tc active">';
+
+    html += '<div class="sec-head"><h2>🚄 去程 · ' + t.from + ' → ' + t.to + ' <span class="n">' + t.date + '</span></h2>' +
+      '<p>高铁和飞机我都查了。<b>余票进度条反映当前紧张程度</b>，选哪个你定——我建议高铁，因为青岛站就在老城区，出站走 10 分钟就到栈桥。</p></div>';
+
+    html += '<div class="cards c2">';
+    t.options.forEach(function(o){
+      var pct = Math.max(5, Math.round(o.avail / o.total * 100));
+      var cls = o.class === 'tight' ? 'red' : (o.class === 'mid' ? 'amber' : 'green');
+      var tag = o.class === 'tight' ? '余票紧张' : (o.class === 'mid' ? '余票偏少' : '余票充足');
+      var sel = state.transport.out && state.transport.out.id === o.id ? ' selected' : '';
+      html += '<div class="cd' + sel + '" data-transport="out" data-id="' + o.id + '">' +
+        '<div class="cd-head"><h4>' + o.type + ' · ' + o.code + '</h4></div>' +
+        '<div class="cd-badges">' +
+          '<span class="badge-tag ' + cls + '">' + tag + '</span>' +
+          o.tags.map(function(x){ return '<span class="badge-tag">' + x + '</span>'; }).join('') +
+        '</div>' +
+        '<div class="cd-body">' +
+          '<div class="row"><span class="k">时间</span><span class="v">' + o.dep + ' → ' + o.arr + '</span></div>' +
+          '<div class="row"><span class="k">历时</span><span class="v">' + o.dur + '</span></div>' +
+          '<div class="row"><span class="k">价格</span><span class="v" style="color:var(--brand);font-size:15px">¥' + o.price + '</span> <span class="k">/ ' + o.seat + '</span></div>' +
+          '<div style="margin-top:8px"><span class="k" style="font-size:11px">余票 ' + o.avail + ' / ' + o.total + '</span>' +
+            '<div class="avail"><i style="width:' + pct + '%;background:' + (o.class==='tight'?'var(--r)':o.class==='mid'?'var(--c)':'var(--a)') + '"></i></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="cd-why">' + o.why + '</div>' +
+        '<div class="cd-foot"><span>12306 · 2026-10-03 09:15 查询</span></div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    if (state.transport.out){
+      html += '<div class="sec-head"><h2>🚄 返程 · ' + t.to + ' → ' + t.from + ' <span class="n">' + t.back + '</span></h2>' +
+        '<p>返程建议下午或晚上出发，<b>最后一天上午还能再安排一个轻松的点</b>。</p></div>';
+      html += '<div class="cards c2">';
+      t.returnOptions.forEach(function(o){
+        var pct = Math.max(5, Math.round(o.avail / o.total * 100));
+        var cls = o.class === 'tight' ? 'red' : (o.class === 'mid' ? 'amber' : 'green');
+        var tag = o.class === 'tight' ? '余票紧张' : (o.class === 'mid' ? '余票偏少' : '余票充足');
+        var sel = state.transport.ret && state.transport.ret.id === o.id ? ' selected' : '';
+        html += '<div class="cd' + sel + '" data-transport="ret" data-id="' + o.id + '">' +
+          '<div class="cd-head"><h4>' + o.type + ' · ' + o.code + '</h4></div>' +
+          '<div class="cd-badges">' +
+            '<span class="badge-tag ' + cls + '">' + tag + '</span>' +
+            o.tags.map(function(x){ return '<span class="badge-tag">' + x + '</span>'; }).join('') +
+          '</div>' +
+          '<div class="cd-body">' +
+            '<div class="row"><span class="k">时间</span><span class="v">' + o.dep + ' → ' + o.arr + '</span></div>' +
+            '<div class="row"><span class="k">价格</span><span class="v" style="color:var(--brand);font-size:15px">¥' + o.price + '</span></div>' +
+            '<div style="margin-top:8px"><span class="k" style="font-size:11px">余票 ' + o.avail + ' / ' + o.total + '</span>' +
+              '<div class="avail"><i style="width:' + pct + '%;background:' + (o.class==='tight'?'var(--r)':o.class==='mid'?'var(--c)':'var(--a)') + '"></i></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="cd-why">' + o.why + '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-transport]').forEach(function(card){
+      card.addEventListener('click', function(){
+        var dir = card.dataset.transport;
+        var id = card.dataset.id;
+        var list = dir === 'out' ? t.options : t.returnOptions;
+        var obj = list.filter(function(x){ return x.id === id; })[0];
+        if (dir === 'out'){
+          state.transport.out = obj;
+          $('tbTransport').textContent = obj.code;
+          $('tbTransport').classList.add('on');
+          toast('已选去程 ' + obj.code);
+        } else {
+          state.transport.ret = obj;
+          toast('已选返程 ' + obj.code);
+        }
+        renderTransport();
+        renderOverview();
+      });
+    });
+  }
+
+  /* ---------- 住宿 ---------- */
+  function renderHotel(){
+    if (!state.needs.party){
+      tabContentEl.innerHTML = '<div class="tc active"><div class="empty"><div class="ei">🏨</div><h3>先聊需求</h3><p>告诉我住宿偏好后，我会把酒店、青旅、公寓都筛出来，<b>评价、位置、性价比</b>都摆给你看。</p></div></div>';
+      return;
+    }
+
+    var html = '<div class="tc active">';
+    html += '<div class="sec-head"><h2>🏨 住宿候选 <span class="n">' + DATA.hotels.length + ' 家</span></h2>' +
+      '<p>都是老城区或五四广场片区的。<b>星级、评分、真实评价摘要</b>都列出来了，含青旅和公寓。你按预算和偏好挑一家。</p></div>';
+
+    html += '<div class="cards c2">';
+    DATA.hotels.forEach(function(h){
+      var sel = state.hotel && state.hotel.id === h.id ? ' selected' : '';
+      var typeTag = h.type === '青旅' ? 'amber' : (h.type === '公寓' ? 'blue' : 'green');
+      html += '<div class="cd' + sel + '" data-hotel="' + h.id + '">' +
+        '<div class="cd-head"><h4>' + h.name + '</h4></div>' +
+        '<div class="cd-badges">' +
+          '<span class="badge-tag ' + typeTag + '">' + h.type + (h.stars ? ' ' + h.stars + '星' : '') + '</span>' +
+          '<span class="badge-tag green">★ ' + h.score + '</span>' +
+          '<span class="badge-tag">' + h.reviews + ' 条评价</span>' +
+        '</div>' +
+        '<div class="cd-body">' +
+          '<div class="row"><span class="k">位置</span><span class="v">' + h.area + ' · ' + h.dist + '</span></div>' +
+          '<div class="row"><span class="k">步行</span><span class="v">' + h.walk + '</span></div>' +
+          '<div class="row"><span class="k">价格</span><span class="v" style="color:var(--brand);font-size:15px">¥' + h.price + '</span><span class="k"> / 晚</span></div>' +
+        '</div>' +
+        '<div class="cd-badges" style="margin-top:9px">' + h.tags.map(function(t){ return '<span class="badge-tag">' + t + '</span>'; }).join('') + '</div>' +
+        '<div class="cd-why">' + h.why + '</div>' +
+        '<div class="cd-foot"><span>📋 ' + h.pros.slice(0,2).join(' · ') + '</span></div>' +
+      '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-hotel]').forEach(function(card){
+      card.addEventListener('click', function(){
+        var h = DATA.hotels.filter(function(x){ return x.id === card.dataset.hotel; })[0];
+        state.hotel = h;
+        $('tbHotel').textContent = '¥' + h.price;
+        $('tbHotel').classList.add('on');
+        toast('已选「' + h.name + '」');
+        renderHotel();
+        renderOverview();
+      });
+    });
+  }
+
+  /* ---------- 天气 ---------- */
+  function renderWeather(){
+    var w = DATA.weather;
+    var html = '<div class="tc active">';
+
+    html += '<div class="sec-head"><h2>🌤 ' + w.city + ' · 10月15日 – 18日天气 <span class="n">和风天气</span></h2>' +
+      '<p>天气直接影响行程安排和要带的东西。<b>10/17 有雨，我会在修正里给出调整方案</b>。</p></div>';
+
+    html += '<div class="weather-grid">';
+    w.days.forEach(function(d){
+      var alertCls = d.alert ? ' alert' : '';
+      html += '<div class="wcard' + alertCls + '">' +
+        (d.alert ? '<span class="wtag">' + d.alert + '</span>' : '') +
+        '<div class="wd">' + d.date + ' ' + d.week + '</div>' +
+        '<div class="wi">' + d.icon + '</div>' +
+        '<div class="wt">' + d.high + '° / ' + d.low + '°</div>' +
+        '<div class="ws">' + d.txt + ' · 降水 ' + d.pop + '% · ' + d.wind + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    html += '<div class="sec-head"><h2>🎒 携带清单 <span class="n">' + w.packing.length + ' 项</span></h2>' +
+      '<p>根据天气 + 你的行程特点（带父母、少爬坡、看海）自动生成。</p></div>';
+    html += '<div class="pack-list">';
+    w.packing.forEach(function(p){
+      html += '<div class="pack-item' + (p.urgent ? ' urgent' : '') + '">' +
+        '<span class="pi">' + p.icon + '</span>' +
+        '<div class="pt"><div class="pn">' + p.name + '</div><div class="pr">' + p.reason + '</div></div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    if (!state.weatherRead){
+      state.weatherRead = true;
+      $('tbWeather').textContent = '查看';
+      $('tbWeather').classList.add('on');
+      renderOverview();
+    }
+  }
+
+  /* ---------- 美食 ---------- */
+  function renderFood(){
+    var html = '<div class="tc active">';
+    html += '<div class="sec-head"><h2>🍜 美食推荐 <span class="n">' + DATA.foods.length + ' 家</span></h2>' +
+      '<p>从大众点评和高德筛出来的。<b>人均、评分、招牌菜、离景点距离</b>都在。选你想去的，我会把它们排到路线里。</p></div>';
+
+    html += '<div class="cards c2">';
+    DATA.foods.forEach(function(f){
+      var sel = state.food.indexOf(f.id) > -1 ? ' selected' : '';
+      html += '<div class="cd' + sel + '" data-food="' + f.id + '">' +
+        '<div class="cd-head"><h4>' + f.name + '</h4></div>' +
+        '<div class="cd-badges">' +
+          '<span class="badge-tag green">★ ' + f.score + '</span>' +
+          '<span class="badge-tag">' + f.type + '</span>' +
+          '<span class="badge-tag blue">人均 ¥' + f.price + '</span>' +
+        '</div>' +
+        '<div class="cd-body">' +
+          '<div class="row"><span class="k">位置</span><span class="v">' + f.area + ' · ' + f.dist + '</span></div>' +
+          '<div class="row"><span class="k">招牌</span><span class="v">' + f.sign + '</span></div>' +
+        '</div>' +
+        '<div class="cd-badges" style="margin-top:9px">' + f.tags.map(function(t){ return '<span class="badge-tag">' + t + '</span>'; }).join('') + '</div>' +
+        '<div class="cd-why">' + f.why + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-food]').forEach(function(card){
+      card.addEventListener('click', function(){
+        var id = card.dataset.food;
+        var idx = state.food.indexOf(id);
+        if (idx > -1){ state.food.splice(idx,1); card.classList.remove('selected'); }
+        else { state.food.push(id); card.classList.add('selected'); }
+        $('tbFood').textContent = state.food.length ? state.food.length + ' 家' : '—';
+        $('tbFood').classList.toggle('on', state.food.length > 0);
+        renderOverview();
+      });
+    });
+  }
+
+  /* ---------- 景区 ---------- */
+  function renderSpots(){
+    var html = '<div class="tc active">';
+    html += '<div class="sec-head"><h2>🏞 景区候选 <span class="n">' + DATA.spots.length + ' 个</span></h2>' +
+      '<p>每个都标了 <b>票价、体力等级、建议时长、最佳时段</b>。<b>体力等级</b>直接影响能不能带父母去——点了会亮绿色。</p></div>';
+
+    html += '<div class="cards c2">';
+    DATA.spots.forEach(function(s){
+      var sel = state.spots.indexOf(s.id) > -1 ? ' selected' : '';
+      var stCls = s.stamina >= 4 ? 's4' : (s.stamina === 3 ? 's3' : (s.stamina === 2 ? 's2' : ''));
+      var stTxt = s.stamina === 1 ? '轻松' : (s.stamina === 2 ? '一般' : (s.stamina === 3 ? '较累' : '很累'));
+      var stColor = s.stamina === 1 ? 'green' : (s.stamina === 2 ? 'blue' : 'amber');
+      html += '<div class="cd' + sel + '" data-spot="' + s.id + '">' +
+        '<div class="cd-head"><h4>' + s.name + '</h4></div>' +
+        '<div class="cd-badges">' +
+          '<span class="badge-tag ' + (s.price === 0 ? 'green' : 'amber') + '">' + (s.price === 0 ? '免费' : '¥' + s.price) + '</span>' +
+          '<span class="badge-tag ' + stColor + '">' + stTxt + '</span>' +
+          '<span class="badge-tag">⏱ ' + s.dur + 'min</span>' +
+          '<span class="badge-tag">' + s.area + '</span>' +
+        '</div>' +
+        '<div class="cd-body">' +
+          '<div style="margin-bottom:6px"><span class="k" style="font-size:11px">体力</span>' +
+            '<div class="stamina ' + stCls + '" style="margin-top:3px">' +
+              [1,2,3,4].map(function(i){ return '<i class="' + (i <= s.stamina ? 'on' : '') + '"></i>'; }).join('') +
+            '</div>' +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--text-2);line-height:1.7">' + s.desc + '</div>' +
+          '<div class="row" style="margin-top:7px"><span class="k">最佳</span><span class="v">' + s.best + '</span></div>' +
+        '</div>' +
+        '<div class="cd-badges" style="margin-top:8px">' + s.tags.map(function(t){ return '<span class="badge-tag">' + t + '</span>'; }).join('') + '</div>' +
+        '<div class="cd-why">' + s.why + '</div>' +
+        '<div class="cd-foot"><span class="ev ev-' + s.ev.toLowerCase() + '">' + s.ev + '</span><span>' + s.src + '</span></div>' +
+      '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-spot]').forEach(function(card){
+      card.addEventListener('click', function(){
+        var id = card.dataset.spot;
+        var idx = state.spots.indexOf(id);
+        if (idx > -1){ state.spots.splice(idx,1); card.classList.remove('selected'); }
+        else { state.spots.push(id); card.classList.add('selected'); }
+        $('tbSpots').textContent = state.spots.length ? state.spots.length + ' 个' : '—';
+        $('tbSpots').classList.toggle('on', state.spots.length > 0);
+        renderOverview();
+      });
+    });
+  }
+
+  /* ---------- 行程 ---------- */
+  function renderItinerary(){
+    if (state.stage < 3 || !state.itinerary){
+      tabContentEl.innerHTML = '<div class="tc active"><div class="empty"><div class="ei">📅</div><h3>行程还没生成</h3><p>先把需求聊清楚，选好交通、住宿、美食、景区，我会把它们串成一条完整的路线。</p></div></div>';
+      return;
+    }
+
+    var it = state.itinerary;
+    var html = '<div class="tc active">';
+
+    html += '<div class="sec-head"><h2>📅 青岛 4 日慢行计划 <span class="n">已综合全部信息</span></h2>' +
+      '<p>交通、住宿、天气、美食、景区，全部串起来了。<b>每天早上几点出发、几点到哪、中午吃什么、下雨怎么办</b>，都在里面。</p></div>';
+
+    it.forEach(function(day){
+      html += '<div class="itinerary-day">' +
+        '<div class="id-head">' +
+          '<span class="id-num">' + day.day + '</span>' +
+          '<h3>' + day.title + '</h3>' +
+          '<div class="id-sub">' + day.sub + '</div>' +
+        '</div>' +
+        '<div class="id-body">';
+      day.items.forEach(function(item){
+        var cls = item.kind === 'food' ? 'food' : (item.kind === 'trans' ? 'trans' : '');
+        html += '<div class="it ' + cls + '">' +
+          '<div class="t-time">' + item.time + '<small>' + item.dur + '</small></div>' +
+          '<div>' +
+            '<h4>' + item.name + (item.price !== undefined ? ' <span class="badge-tag ' + (item.price===0?'green':'amber') + '" style="font-size:10px">' + (item.price===0?'免费':'¥'+item.price) + '</span>' : '') + '</h4>' +
+            '<div class="t-desc">' + item.desc + '</div>' +
+            (item.meta ? '<div class="t-meta">' + item.meta + '</div>' : '') +
+            (item.tip ? '<div class="t-tip">' + item.tip + '</div>' : '') +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div></div>';
+    });
+
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    $('tbItin').textContent = it.length + ' 天';
+    $('tbItin').classList.add('on');
+  }
+
+  /* ---------- 修正 ---------- */
+  function renderAlerts(){
+    if (state.stage < 3){
+      tabContentEl.innerHTML = '<div class="tc active"><div class="empty"><div class="ei">🚨</div><h3>实时护航还没启动</h3><p>行程生成后，我会持续盯着天气、余票、景点状态。<br>有变化会第一时间告诉你，并给出调整建议。</p></div></div>';
+      return;
+    }
+
+    var html = '<div class="tc active">';
+    html += '<div class="sec-head"><h2>🚨 实时修正 <span class="n">' + DATA.events.length + ' 条</span></h2>' +
+      '<p>这些是出行前后可能发生的变化。<b>每条我都给了应对建议，你确认后我会直接改到行程里</b>。</p></div>';
+
+    DATA.events.forEach(function(ev){
+      var accepted = state.alertsAccepted.indexOf(ev.id) > -1;
+      var dismissed = state.alertsDismissed.indexOf(ev.id) > -1;
+      html += '<div class="alert-card ' + ev.level + '">' +
+        '<div class="ac-head">' +
+          '<span class="ac-icon ' + ev.level + '">' + ev.icon + '</span>' +
+          '<h4>' + ev.title + '</h4>' +
+          '<span class="time">' + ev.time + '</span>' +
+        '</div>' +
+        '<div class="ac-body">' + ev.body + '</div>' +
+        '<div class="ac-suggest">' +
+          '<div class="stag">我的建议</div>' +
+          ev.suggest +
+        '</div>' +
+        '<div class="ac-actions">' +
+          (accepted
+            ? '<button class="ac-btn" disabled>✓ 已处理</button>'
+            : (dismissed
+              ? '<button class="ac-btn" disabled>已忽略</button>'
+              : '<button class="ac-btn primary" data-accept="' + ev.id + '">' + ev.action + '</button>' +
+                '<button class="ac-btn ghost" data-dismiss="' + ev.id + '">先不用</button>'
+            )
+          ) +
+        '</div>' +
+      '</div>';
+    });
+
+    html += '</div>';
+    tabContentEl.innerHTML = html;
+
+    tabContentEl.querySelectorAll('[data-accept]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.dataset.accept;
+        if (state.alertsAccepted.indexOf(id) === -1) state.alertsAccepted.push(id);
+        toast('已应用调整，行程已更新');
+        applyAlert(id);
+        renderAlerts();
+        renderOverview();
+        // 顶部红点
+        updateAlertDot();
+      });
+    });
+    tabContentEl.querySelectorAll('[data-dismiss]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.dataset.dismiss;
+        if (state.alertsDismissed.indexOf(id) === -1) state.alertsDismissed.push(id);
+        renderAlerts();
+        updateAlertDot();
+      });
+    });
+
+    var pending = DATA.events.filter(function(e){
+      return state.alertsAccepted.indexOf(e.id) === -1 && state.alertsDismissed.indexOf(e.id) === -1;
+    }).length;
+    $('tbAlerts').textContent = pending ? pending + ' 条' : '全部处理';
+    $('tbAlerts').classList.toggle('on', pending === 0);
+    updateAlertDot();
+  }
+
+  function updateAlertDot(){
+    var alertsTab = document.querySelector('[data-tab="alerts"]');
+    var pending = DATA.events.filter(function(e){
+      return state.alertsAccepted.indexOf(e.id) === -1 && state.alertsDismissed.indexOf(e.id) === -1;
+    }).length;
+    var dot = alertsTab.querySelector('.alert-dot');
+    if (pending > 0 && !dot){
+      var d = document.createElement('span');
+      d.className = 'alert-dot';
+      alertsTab.appendChild(d);
+    } else if (pending === 0 && dot){
+      dot.remove();
+    }
+  }
+
+  /* 应用事件对行程的影响 */
+  function applyAlert(id){
+    if (!state.itinerary) return;
+    if (id === 'e1'){
+      // 交换 Day2 和 Day3
+      var d2 = state.itinerary[1], d3 = state.itinerary[2];
+      state.itinerary[1] = d3; state.itinerary[2] = d2;
+      state.itinerary[1].day = 'DAY 2';
+      state.itinerary[2].day = 'DAY 3';
+    }
+    if (id === 'e2'){
+      // 改交通
+      if (state.transport.out){
+        state.transport.out = DATA.transport.options[0];
+      }
+    }
+    if (id === 'e3'){
+      // 美食替换
+      var idx = state.food.indexOf('fo5');
+      if (idx > -1) state.food.splice(idx,1);
+      if (state.food.indexOf('fo1') === -1) state.food.push('fo1');
+    }
+  }
+
+  /* ============================================================
+     生成最终行程
+     ============================================================ */
+  function buildItinerary(){
+    // 根据用户的选择，组合 4 天
+    var days = [];
+
+    // 选中的景点按区域分
+    var selectedSpots = state.spots.map(function(id){
+      return DATA.spots.filter(function(s){ return s.id === id; })[0];
+    }).filter(Boolean);
+
+    var selectedFoods = state.food.map(function(id){
+      return DATA.foods.filter(function(f){ return f.id === id; })[0];
+    }).filter(Boolean);
+
+    var outTransport = state.transport.out;
+    var retTransport = state.transport.ret;
+    var hotel = state.hotel;
+
+    // Day1 老城
+    var day1Items = [];
+    day1Items.push({
+      kind:'trans', time: outTransport ? outTransport.dep : '07:20', dur:'3h48m',
+      name: (outTransport ? outTransport.type + ' ' + outTransport.code : '高铁 G1061') + ' · 北京 → 青岛',
+      desc: '到青岛站。' + (hotel ? '出站步行 ' + (hotel.walk || '10 分钟') + ' 到「' + hotel.name + '」，先把行李放下。' : '出站后先去酒店放行李。'),
+      meta: '🚄 ' + (outTransport ? '¥' + outTransport.price : '¥314') + ' · 二等座'
+    });
+    var d1spots = selectedSpots.filter(function(s){ return s.area === '老城'; });
+    d1spots.forEach(function(s, i){
+      day1Items.push({
+        time: ['14:00','15:30','16:30'][i] || (16 + i) + ':00',
+        dur: s.dur + 'min',
+        name: s.name, price: s.price,
+        desc: s.desc,
+        meta: '📍 ' + s.area + ' · ⏱ ' + s.dur + 'min · 体力 ' + (s.stamina === 1 ? '轻松' : '一般'),
+        tip: s.why
+      });
+    });
+    if (selectedFoods[0] && selectedFoods[0].area === '老城'){
+      day1Items.push({
+        kind:'food', time:'12:30', dur:'1h',
+        name: selectedFoods[0].name + ' · 午餐',
+        desc: selectedFoods[0].sign + '。' + selectedFoods[0].why,
+        meta: '🍜 人均 ¥' + selectedFoods[0].price + ' · ' + selectedFoods[0].dist
+      });
+    }
+    if (day1Items.length > 1){
+      days.push({
+        day:'DAY 1', title:'抵达青岛 · 老城初印象',
+        sub:'10月15日 周四 · 晴 15~21℃\n半天游览 · 步行约 4km',
+        items: day1Items
+      });
+    }
+
+    // Day2 东部
+    var day2Items = [];
+    var d2spots = selectedSpots.filter(function(s){ return s.area === '东部'; });
+    d2spots.forEach(function(s, i){
+      day2Items.push({
+        time: ['09:00','15:30','19:30'][i] || '14:00',
+        dur: s.dur + 'min',
+        name: s.name, price: s.price,
+        desc: s.desc,
+        meta: '📍 ' + s.area + ' · ⏱ ' + s.dur + 'min',
+        tip: s.why
+      });
+    });
+    if (selectedFoods[1]){
+      day2Items.splice(1, 0, {
+        kind:'food', time:'12:30', dur:'1h',
+        name: selectedFoods[1].name + ' · 午餐',
+        desc: selectedFoods[1].sign,
+        meta: '🍜 人均 ¥' + selectedFoods[1].price
+      });
+    }
+    if (day2Items.length){
+      days.push({
+        day:'DAY 2', title:'海岸线 · 日落与灯火',
+        sub:'10月16日 周五 · 多云 14~20℃\n含地铁 · 海边傍晚凉',
+        items: day2Items
+      });
+    }
+
+    // Day3 崂山（或替代）
+    var day3Items = [];
+    var d3spots = selectedSpots.filter(function(s){ return s.area === '崂山'; });
+    if (d3spots.length){
+      d3spots.forEach(function(s){
+        day3Items.push({
+          time:'08:00', dur:'全天',
+          name: s.name, price: s.price,
+          desc: s.desc,
+          meta: '📍 ' + s.area + ' · ⏱ 全天 · 需提前 7 天预约',
+          tip: s.why
+        });
+      });
+      // 下雨提醒
+      day3Items.push({
+        kind:'food', time:'12:30', dur:'1.5h',
+        name:'青山渔村 · 渔家乐',
+        desc:'红瓦民居错落，蓝海衬着彩色屋舍。渔家乐数量多，以现场为准。',
+        meta:'🍽 人均 ¥80 · 无可靠数据，建议现场挑'
+      });
+    } else {
+      // 没选崂山，改为市北或自由
+      var d3other = selectedSpots.filter(function(s){ return s.area === '市北'; });
+      if (!d3other.length){
+        d3other = selectedSpots.filter(function(s){ return s.area === '老城' && s.id !== 's1' && s.id !== 's2'; });
+      }
+      d3other.forEach(function(s){
+        day3Items.push({
+          time:'09:30', dur: s.dur + 'min',
+          name: s.name, price: s.price,
+          desc: s.desc,
+          meta: '📍 ' + s.area + ' · ⏱ ' + s.dur + 'min',
+          tip: s.why
+        });
+      });
+    }
+    if (day3Items.length){
+      days.push({
+        day:'DAY 3', title: d3spots.length ? '崂山揽秋 · 山海寻仙' : '市区慢行 · 市内漫步',
+        sub: d3spots.length ? '10月17日 周六 · 晴转中雨\n车程 55min · 雨天建议改期' : '10月17日 周六 · 多云\n步行 3km · 室内为主',
+        items: day3Items
+      });
+    }
+
+    // Day4 市北 + 返程
+    var day4Items = [];
+    var d4spots = selectedSpots.filter(function(s){ return s.area === '市北'; });
+    d4spots.forEach(function(s, i){
+      day4Items.push({
+        time: ['09:00','11:00','14:00'][i] || '10:00',
+        dur: s.dur + 'min',
+        name: s.name, price: s.price,
+        desc: s.desc,
+        meta: '📍 ' + s.area + ' · ⏱ ' + s.dur + 'min',
+        tip: s.why
+      });
+    });
+    if (retTransport){
+      day4Items.push({
+        kind:'trans', time: retTransport.dep, dur:'3h48m',
+        name: retTransport.type + ' ' + retTransport.code + ' · 青岛 → 北京',
+        desc: '返程。建议提前 1 小时到站。',
+        meta: '🚄 ¥' + retTransport.price + ' · 二等座'
+      });
+    }
+    if (day4Items.length){
+      days.push({
+        day:'DAY 4', title:'市井饕味 · 返程',
+        sub:'10月18日 周日 · 多云 15~22℃\n轻松 · 有返程',
+        items: day4Items
+      });
+    }
+
+    return days;
+  }
+
+  /* ============================================================
+     主流程
+     ============================================================ */
+  async function runFlow(){
+    /* ---------- 阶段 1：聊需求 ---------- */
+    setPhase(1);
+
+    await agentSay('你好，我是旅策。<br><br>把当朋友就行——你告诉我大概情况，<b>交通、住宿、天气、美食、景区我一个个查给你看</b>，最后一起把行程串起来。', 800);
+    await agentSay('先从最基础的开始 👇', 600);
+
+    // Q1
+    await agentSay('这次是带父母去青岛，对吧？确认一下同行人。', 850);
+    var c1 = await showOptions([
+      {v:'parents', label:'带爸妈两个人', icon:'👨‍👩', tag:'2 位长辈'},
+      {v:'parents_kid', label:'父母 + 一个小孩', icon:'👨‍👩‍👦'},
+      {v:'alone', label:'就我自己', icon:'🧍'}
+    ], '第 1 / 6 步');
+    clearComposer();
+    addMessage('user', c1.label);
+    var map1 = {parents:'父母 2 人 + 你', parents_kid:'父母 + 小孩 + 你', alone:'独自出行'};
+    fillNeed('party', map1[c1.v]);
+    await agentSay(c1.v === 'alone' ? '好，一个人。那我按轻松自由行的节奏来排。' : '好，' + (c1.v === 'parents_kid' ? '三代同行，我会把每天路程缩短，多留休息点。' : '那我下一个问题很关键——'), 800);
+
+    // Q2
+    await agentSay('父母体力怎么样？膝盖、腰这些有没有要注意的？这直接决定我怎么排路线。', 850);
+    var c2 = await showOptions([
+      {v:'weak', label:'膝盖不太好，尽量少爬坡', icon:'🦵', tag:'推荐'},
+      {v:'ok', label:'身体硬朗，能走能爬', icon:'💪'},
+      {v:'normal', label:'一般，正常安排就行', icon:'🚶'}
+    ], '第 2 / 6 步');
+    clearComposer();
+    addMessage('user', c2.label);
+    var map2 = {weak:'膝盖不好 · 少爬坡 · ≤6km/天', ok:'体力好 · 可爬山', normal:'一般 · 正常强度'};
+    fillNeed('pace', map2[c2.v]);
+    if (c2.v === 'weak') await agentSay('明白，膝盖是重点。我会避开台阶密集的点，崂山走仰口缓坡线，每天步行控制在 6 公里内，中间多安排能坐的地方。', 850);
+    else await agentSay('好，那选择面就宽了。', 700);
+
+    // Q3
+    await agentSay('打算玩几天？', 800);
+    var c3 = await showOptions([
+      {v:'3', label:'3 天', icon:'📅'},
+      {v:'4', label:'4 天', icon:'📅', tag:'常见'},
+      {v:'5', label:'5 天以上', icon:'📅'}
+    ], '第 3 / 6 步');
+    clearComposer();
+    addMessage('user', c3.label);
+    fillNeed('days', c3.label);
+    await agentSay('好，' + c3.label + '。青岛的经典路线差不多刚好。', 700);
+
+    // Q4
+    await agentSay('预算大概多少？含住宿和不含，你说个范围就行。', 850);
+    var c4 = await showOptions([
+      {v:'4000', label:'¥4,000 左右', icon:'💰'},
+      {v:'5000', label:'¥5,000 左右', icon:'💰', tag:'常见'},
+      {v:'7000', label:'¥7,000 以上', icon:'💰'},
+      {v:'auto', label:'你按我的选择估一个', icon:'🤖'}
+    ], '第 4 / 6 步');
+    clearComposer();
+    addMessage('user', c4.label);
+    var map4 = {'4000':'¥4,000 左右', '5000':'¥5,000 左右', '7000':'¥7,000 以上', 'auto':'由 Agent 估算'};
+    fillNeed('budget', map4[c4.v]);
+    await agentSay('好。', 650);
+
+    // Q5
+    await agentSay('从哪儿出发？', 800);
+    var c5 = await showOptions([
+      {v:'bj', label:'北京', icon:'🚄', tag:'高铁 3.5h'},
+      {v:'sh', label:'上海', icon:'🚄', tag:'高铁 5h'},
+      {v:'other', label:'其他城市', icon:'✈️'}
+    ], '第 5 / 6 步');
+    clearComposer();
+    addMessage('user', c5.label);
+    var map5 = {bj:'北京', sh:'上海', other:'其他城市'};
+    fillNeed('depart', map5[c5.v]);
+    await agentSay('好，' + map5[c5.v] + '出发，我按这个查车次。', 700);
+
+    // Q6
+    await agentSay('最后一个——父母饮食上有什么忌口或偏好吗？', 850);
+    var c6 = await showOptions([
+      {v:'normal', label:'没什么特别，正常吃', icon:'🍽'},
+      {v:'light', label:'口味清淡，少油少辣', icon:'🥗'},
+      {v:'seafood_yes', label:'爱吃海鲜，想多吃', icon:'🦐', tag:'开海季'},
+      {v:'seafood_no', label:'海鲜过敏 / 不吃', icon:'🚫'}
+    ], '第 6 / 6 步');
+    clearComposer();
+    addMessage('user', c6.label);
+    var map6 = {normal:'无特别偏好', light:'清淡 · 少油少辣', seafood_yes:'爱吃海鲜', seafood_no:'海鲜过敏'};
+    fillNeed('taste', map6[c6.v]);
+    await agentSay('好，需求都清楚了。', 700);
+    await agentSay('接下来我去查数据——<b>交通、住宿、天气、美食、景区一起捞</b>。右边会一条条亮起来。', 900);
+
+    /* ---------- 阶段 2：查数据 ---------- */
+    setPhase(2);
+    switchTab('transport');
+
+    // 依次点亮各 Tab
+    await sleep(400);
+    $('tbTransport').textContent = '已查';
+    $('tbTransport').classList.add('on');
+    await agentSay('交通查好了。高铁 3 小时 48 分，青岛站就在老城区，出站走 10 分钟就到栈桥——<b>比坐飞机还方便</b>。', 900);
+
+    await sleep(300);
+    $('tbHotel').textContent = '已查';
+    $('tbHotel').classList.add('on');
+    await agentSay('住宿也筛完了。<b>酒店、青旅、公寓都有</b>，我按你说的"离景点近"优先排的。你待会儿自己挑。', 900);
+
+    await sleep(300);
+    $('tbWeather').textContent = '已查';
+    $('tbWeather').classList.add('on');
+    await agentSay('⚠️ 天气有个情况——<b>10/17 崂山那边预报中雨</b>，山上路滑，带父母去不太合适。这个我会在后面的修正里给方案。', 1000);
+
+    await sleep(300);
+    $('tbFood').textContent = '已查';
+    $('tbFood').classList.add('on');
+    await agentSay('美食也捞完了。十月开海季，<b>营口路市场代加工</b>值得去一次，两人 ¥150 能摆一桌。', 900);
+
+    await sleep(300);
+    $('tbSpots').textContent = '已查';
+    $('tbSpots').classList.add('on');
+    await agentSay('景区候选都在右边了。每个都标了 <b>票价、体力等级、建议时长</b>——注意看体力条，<b>三格以上的带父母要慎重</b>。', 950);
+
+    await agentSay('现在你可以去各个 Tab 里挑。<b>交通选去程/返程，住宿选一家，美食和景区任意挑</b>。挑好了我就把行程串起来。', 1000);
+
+    /* ---------- 阶段 2.5：等待用户挑选 ---------- */
+    // 提供快捷按钮
+    composerEl.innerHTML = '<div class="composer-hint">挑好了就告诉我</div>' +
+      '<button class="opt" id="quickPick" style="justify-content:center"><span class="oicon">✨</span><span class="olabel">按推荐帮我全选，直接看行程</span></button>';
+
+    await new Promise(function(resolve){
+      document.getElementById('quickPick').addEventListener('click', function(){
+        resolve();
+      });
+    });
+    clearComposer();
+
+    // 自动填充推荐
+    if (!state.transport.out) state.transport.out = DATA.transport.options[0];
+    if (!state.transport.ret) state.transport.ret = DATA.transport.returnOptions[0];
+    if (!state.hotel) state.hotel = DATA.hotels[0];
+    if (!state.food.length) state.food = ['fo1','fo4','fo6'];
+    if (!state.spots.length) state.spots = ['s1','s2','s3','s4','s5','s6','s9','s8'];
+
+    $('tbTransport').textContent = state.transport.out.code;
+    $('tbHotel').textContent = '¥' + state.hotel.price;
+    $('tbFood').textContent = state.food.length + ' 家';
+    $('tbSpots').textContent = state.spots.length + ' 个';
+
+    addMessage('user', '按推荐帮我全选，直接看行程');
+    await agentSay('好，我按你的情况挑了：<b>高铁去返、亚朵酒店、春和楼+营口路市场+啤酒博物馆、8 个景区</b>。有想换的随时说。', 950);
+    await agentSay('我把它们串起来——', 700);
+
+    /* ---------- 阶段 3：定行程 ---------- */
+    setPhase(3);
+    state.itinerary = buildItinerary();
+    switchTab('itinerary');
+    renderItinerary();
+
+    await agentSay('行程出来了。每天几点出发、去哪、吃什么、注意什么，都在里面。', 900);
+    await agentSay('另外——<b>10/17 崂山有雨那个事，我在「修正」里给了调整方案</b>。去看看吧。', 900);
+
+    $('tbItin').textContent = state.itinerary.length + ' 天';
+    $('tbItin').classList.add('on');
+    updateAlertDot();
+
+    /* ---------- 阶段 4：实时护航 ---------- */
+    setPhase(4);
+    $('tbAlerts').textContent = DATA.events.length + ' 条';
+
+    await agentSay('现在就进入护航阶段了。<b>天气、余票、景点状态，我持续盯着</b>。有变化第一时间告诉你，每条都带应对建议——你点头我就改。', 1000);
+
+    // 自动切到修正 Tab 提示
+    setTimeout(function(){
+      if (currentTab !== 'alerts'){
+        switchTab('alerts');
+      }
+    }, 1200);
+  }
+
+  /* ============================================================
+     启动
+     ============================================================ */
+  function init(){
+    chatEl.innerHTML = '';
+    composerEl.innerHTML = '<div class="composer-hint">准备好了就开始</div>' +
+      '<button class="start-btn" id="startBtn">开始规划 →</button>';
+    renderNeeds();
+    renderOverview();
+    setPhase(1);
+    $('startBtn').addEventListener('click', function(){
+      chatEl.innerHTML = '';
+      composerEl.innerHTML = '';
+      runFlow();
+    });
+    $('resetBtn').addEventListener('click', function(){ location.reload(); });
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>

@@ -2,11 +2,11 @@ import asyncio, json, math, time, logging
 import unicodedata
 from datetime import date
 import httpx
-from jsonschema import validate
 from .config import ROOT, setting
 from .storage import now, cache_key, cached, put_cache, connect, record_llm_call, RUNTIME
 from .data_contracts import coordinate,scalar,place_quality
 from .request_cache import http_client,singleflight
+from .integrations.tuniu_policy import ALLOW  # Existing business/test imports stay compatible.
 
 # HTTP logs can contain Amap's key query parameter. Never enable URL debug logs.
 for _name in ('httpx','httpcore','httpx2','httpcore2'):
@@ -214,56 +214,11 @@ async def weather(location):
     put_cache(key,result,900)
     return result
 
-ALLOW={'hotel':{'tuniuHotelSearch','tuniuHotelDetail'},'train':{'searchLowestPriceTrain','queryTrainDetail'},
-       'flight':{'searchLowestPriceFlight','multiCabinDetails'},'ticket':{'query_cheapest_tickets'}}
-TUNIU_LOCK=asyncio.Lock()
-
 async def tuniu(service,tool,arguments):
-    return await singleflight(('tuniu',service,tool,cache_key(tool,arguments)),lambda:_tuniu(service,tool,arguments))
+    # Public import retained for business modules and team branches.
+    from .integrations.tuniu import call
+    return await call(service,tool,arguments)
 
-async def _tuniu(service,tool,arguments):
-    if tool not in ALLOW.get(service,set()): raise DataError('该工具不在只读查询白名单中')
-    key=cache_key('tuniu:'+tool,arguments)
-    old=cached(key)
-    if old: return old
-    from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
-    async with TUNIU_LOCK:
-        old=cached(key)
-        if old: return old
-        with connect() as c:
-            day_start=time.time()-86400
-            count=c.execute('SELECT COUNT(*) FROM calls WHERE provider=? AND time>?',('tuniu',day_start)).fetchone()[0]
-            last=c.execute('SELECT MAX(time) FROM calls WHERE provider=?',('tuniu',)).fetchone()[0]
-        if count>=int(setting('TUNIU_DAILY_LIMIT','40')): raise DataError('本项目的途牛查询预算已用完，请稍后再试')
-        if last and time.time()-last<13: await asyncio.sleep(13-(time.time()-last))
-        with connect() as c: c.execute('INSERT INTO calls VALUES(?,?)',('tuniu',time.time()))
-        try:
-            async with asyncio.timeout(45):
-                async with streamablehttp_client('https://openapi.tuniu.cn/hybrid/mcp/'+service,headers={'apiKey':setting('TUNIU_API_KEY')},timeout=35) as (read,write,_):
-                    async with ClientSession(read,write) as s:
-                        await s.initialize()
-                        f=RUNTIME/('tuniu-'+service+'-schema.json')
-                        if f.exists(): schemas=json.loads(f.read_text(encoding='utf-8'))
-                        else:
-                            schemas=[t.model_dump() for t in (await s.list_tools()).tools]
-                            f.write_text(json.dumps(schemas,ensure_ascii=False,indent=2),encoding='utf-8')
-                        schema=next((t['inputSchema'] for t in schemas if t['name']==tool),None)
-                        if not schema: raise DataError('实时 MCP schema 中没有所需工具')
-                        validate(arguments,schema)
-                        if set(arguments)-set(schema.get('properties',{})): raise DataError('发现供应商未定义的参数')
-                        r=await s.call_tool(tool,arguments)
-                        if r.isError: raise DataError('途牛工具返回查询错误')
-                        data=r.structuredContent
-                        texts=[x.text for x in r.content if getattr(x,'type',None)=='text']
-                        if data is None:
-                            try: data=json.loads('\n'.join(texts))
-                            except ValueError: data={'text':'\n'.join(texts)}
-        except DataError: raise
-        except Exception: raise DataError('途牛查询失败或超时，请稍后重试') from None
-    result={'data':data,'source':source('途牛 MCP','https://open.tuniu.com/mcp/docs/apidoc/mcp/'+service+'MCP.html')}
-    put_cache(key,result,600)
-    return result
 
 def llm_timeout():
     try:return max(5,min(120,float(setting('LLM_TIMEOUT_SECONDS','45'))))

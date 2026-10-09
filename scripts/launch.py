@@ -5,12 +5,14 @@ from urllib.request import build_opener,ProxyHandler
 
 ROOT=Path(__file__).resolve().parents[1]
 PROJECT_ID=hashlib.sha256(str(ROOT.resolve()).casefold().encode()).hexdigest()[:16]
-REQUIRED=('LLM_API_KEY','LLM_BASE_URL','LLM_MODEL','AMAP_API_KEY','QWEATHER_API_HOST','QWEATHER_API_KEY','TUNIU_API_KEY')
+REQUIRED=('LLM_API_KEY','LLM_BASE_URL','LLM_MODEL','AMAP_API_KEY','QWEATHER_API_HOST','QWEATHER_API_KEY')
 
 def configured():
     from dotenv import dotenv_values
     values=dotenv_values(ROOT/'.env',encoding='utf-8-sig')
-    return [key for key in REQUIRED if not str(values.get(key) or '').strip()]
+    missing=[key for key in REQUIRED if not str(values.get(key) or '').strip()]
+    if not any(str(values.get(key) or '').strip() for key in ('TUNIU_API_KEY',*(f'TUNIU_API_KEY_{i}' for i in range(1,5)))):missing.append('TUNIU_API_KEY_1（或 TUNIU_API_KEY）')
+    return missing
 
 def healthy(port):
     try:

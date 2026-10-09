@@ -182,17 +182,10 @@ async def search_hotels_by_keyword(w,args,progress,recommend):
     return summary+'\n可展开房型信息。选定酒店后再生成包含住宿往返的计划书。'
 
 async def hotel_query_budget():
-    """本次操作还能发几次住宿查询：受途牛每日查询预算约束，用于"一次查全程"时顺延。"""
-    from .config import setting
-    from .storage import connect
-    limit=int(setting('TUNIU_DAILY_LIMIT','40'))
-    try:
-        import time as _time
-        with connect() as c:
-            used=c.execute('SELECT COUNT(*) FROM calls WHERE provider=? AND time>?',('tuniu',_time.time()-86400)).fetchone()[0]
-    except Exception:
-        return max(0,limit)
-    return max(0,limit-int(used))
+    """Remaining query reservations across configured independent Tuniu accounts."""
+    from .integrations.tuniu_pool import remaining_budget
+    return remaining_budget()
+
 
 async def load_hotel_detail(w,p,progress):
     """取该候选的房型与报价，供"选中住宿即看房型"与 hotel_detail 动作共用。
