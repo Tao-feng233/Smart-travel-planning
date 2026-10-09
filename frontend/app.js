@@ -64,6 +64,30 @@ function openRoomView(id){
  else{const d=document.querySelector('#candidate-dialog');if(d&&!d.open)d.showModal()}
 }
 
+// 逐晚住宿编排：每晚一行，显示该晚锚点、已选酒店与候选卡片。
+// 行内卡片点选=只改这一晚（带上 data-stay-date）；不带则作为主住宿。
+function stayPlanHTML(){
+ const w=workspace,stay=w.stay_plan;
+ if(!stay||!(stay.rows||[]).length)return '';
+ const primaryId=stay.primary_hotel_id||w.hotel?.id;
+ const rows=(stay.rows||[]).map(row=>{
+  const found=(row.candidate_ids||[]).map(id=>w.catalog[id]).filter(p=>p&&!p.stale);
+  const assigned=(stay.assignments||{})[row.date];
+  const rowHotelId=assigned?assigned.hotel_id:row.hotel_id;
+  const picked=rowHotelId?w.catalog[rowHotelId]:null;
+  const source=(assigned&&assigned.source)||row.hotel_source||(rowHotelId?(rowHotelId===primaryId?'primary':'explicit'):'unset');
+  const explicit=source==='explicit',inherited=source==='primary',needs=source==='unset';
+  const pickedName=(picked||{}).name||'已选住宿';
+  const label=explicit?esc(pickedName)+'（这一晚已选）':esc(row.anchor_name||'待定')+' 周边';
+  const sub=explicit?'这一晚单独指定'
+   :inherited?'沿用主住宿「'+esc(pickedName)+'」（'+esc(row.anchor_basis||'当天收尾地点')+'）；点下面的“住这一晚”可只改这一晚'
+   :'尚未选这一晚的住宿';
+  const onway=(row.dinner_hint||[]).filter(x=>x.on_the_way).map(x=>x.name);
+  return `<div class="stay-row${needs?' needs-hotel':''}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}${row.anchor_is_station?' · 次日赶车':''}</small>${onway.length?`<small>晚餐顺路：${esc(onway.join('、'))}</small>`:''}</div><div class="stay-actions">${found.length?`<small>${found.length} 家候选</small>`:`<button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">${needs?'选这晚':'查这晚'}</button>`}</div>${found.length?`<div class="cards stay-cards">${found.map(card).join('')}</div>`:''}</div>`;
+ }).join('');
+ const pending=(stay.needs_own_hotel||[]).length;
+ return `<div class="stay-plan"><div class="stay-head"><strong>住宿编排</strong><small>${esc(stay.note||'')}</small></div>${rows}${pending?`<p class="panel-footnote">${esc((stay.needs_own_hotel||[]).join('、'))} 还没有选住宿（次日赶车，主住宿不适合）；请点“选这晚”分别挑选。</p>`:'<p class="panel-footnote">住宿行里的“住这一晚/选这晚”只改那一晚；主列表里的卡片会让其余未指定的夜晚都住这家。</p>'}</div>`;
+}
 function empty(n,title,text,button='',actionName=''){return `<div class="empty"><span class="number">${n}</span><h3>${title}</h3><p>${text}</p>${button?`<button data-action="${actionName}">${button}</button>`:''}</div>`}
 function workflowHTML(){return planningNavigation();}
 function legacyWorkflowHTML(){
@@ -164,7 +188,7 @@ function content(){
   const chosen=w.hotel?`<div class="current-stay"><small>已选住宿</small><strong>${esc(w.hotel.name)}</strong><span>${w.selected_room?esc(w.selected_room.name)+' · '+w.selected_room.quantity+'间':'房型可选 · 未选择'}</span></div>`:'';
   const items=w.hotel_query?w.hotel_query.ids.map(id=>w.catalog[id]).filter(p=>p&&!p.stale):Object.values(w.catalog||{}).filter(p=>p.kind==='hotel'&&!p.stale);
   const missing=[['start_date','出游日期'],['days','旅行天数'],['adults','成人数']].filter(([k])=>!w.requirements[k]);
-  return chosen+`<div class="candidate-head"><div><h3>住宿推荐</h3><p>选定酒店即可继续 · 具体房型可选</p></div><button data-action="complete_hotel" ${w.hotel&&!w.hotel.stale?'':'disabled'}>完成住宿选择</button></div>`+(missing.length?`<div class="inline-requirements"><strong>查询住宿需要补充信息</strong><p>${missing.map(x=>x[1]).join('、')}尚未确定。可以直接在对话中提供，或编辑右侧旅行信息。</p><button data-open-settings>补充旅行信息</button></div>`:'')+`<div class="toolbar"><p>${items.length} 家候选${w.hotel_query?.keyword?' · '+esc(w.hotel_query.keyword):''} · 结合游览区域比较</p><button class="ghost" data-action="search_hotels">查询住宿</button></div>`+(items.length?`<div class="cards">${items.sort((a,b)=>(a.recommendation_rank??99)-(b.recommendation_rank??99)).map(card).join('')}</div>`:empty('02','住宿安排',Number(w.requirements.days)===1?'本次为一日游，可以跳过住宿。':'确认景点与日期后查询住宿。已有住宿或暂未决定时，可以先继续规划。'))+`<div class="panel-footer-actions"><button class="ghost" data-action="skip_hotel">暂不安排住宿，继续</button></div>`;
+  return chosen+`<div class="candidate-head"><div><h3>住宿推荐</h3><p>选定酒店即可继续 · 具体房型可选</p></div><button data-action="complete_hotel" ${w.hotel&&!w.hotel.stale?'':'disabled'}>完成住宿选择</button></div>`+(missing.length?`<div class="inline-requirements"><strong>查询住宿需要补充信息</strong><p>${missing.map(x=>x[1]).join('、')}尚未确定。可以直接在对话中提供，或编辑右侧旅行信息。</p><button data-open-settings>补充旅行信息</button></div>`:'')+stayPlanHTML()+`<div class="toolbar"><p>${items.length} 家候选${w.hotel_query?.keyword?' · '+esc(w.hotel_query.keyword):''} · 结合游览区域比较</p><button class="ghost" data-action="search_hotels">查询住宿</button></div>`+(items.length&&!w.stay_plan?`<div class="cards">${items.sort((a,b)=>(a.recommendation_rank??99)-(b.recommendation_rank??99)).map(card).join('')}</div>`:items.length?'':empty('02','住宿安排',Number(w.requirements.days)===1?'本次为一日游，可以跳过住宿。':'确认景点与日期后查询住宿。已有住宿或暂未决定时，可以先继续规划。'))+`<div class="panel-footer-actions"><button class="ghost" data-action="skip_hotel">暂不安排住宿，继续</button></div>`;
  }
  if(tab==='weather')return weatherHTML();
  if(tab==='transport')return transportHTML();
@@ -218,7 +242,11 @@ document.addEventListener('click',async e=>{
  if(b.hasAttribute('data-meal-remove')){await action('meal_choice',{meal_date:mealDate||workspace.requirements.start_date,meal_period:mealPeriod,mode:'remove'});return}
  if(b.hasAttribute('data-self-meal')){await action('meal_choice',{meal_date:mealDate||workspace.requirements.start_date,meal_period:mealPeriod,meal_mode:'self'});return}
  if(b.hasAttribute('data-self-all-meals')){await action('meal_choice',{meal_mode:'self'});return}
- if(b.dataset.select){const picked=workspace.catalog[b.dataset.select],old=picked&&['train','flight'].includes(picked.kind)?workspace[picked.direction==='return'?'selected_return':'selected_transport']:null;if(old&&old.id!==picked.id){replaceTarget=picked.id;$('#replace-text').textContent=`该方向已选 ${old.name}，是否替换为 ${picked.name}？将只保留一个班次。`;$('#replace-dialog').showModal();return}await action('select',{id:b.dataset.select});return}
+ if(b.dataset.select){const picked=workspace.catalog[b.dataset.select],old=picked&&['train','flight'].includes(picked.kind)?workspace[picked.direction==='return'?'selected_return':'selected_transport']:null;if(old&&old.id!==picked.id){replaceTarget=picked.id;$('#replace-text').textContent=`该方向已选 ${old.name}，是否替换为 ${picked.name}？将只保留一个班次。`;$('#replace-dialog').showModal();return}
+  // 住宿候选若位于某个"住宿晚"行内，点选只改那一晚；否则作为主住宿覆盖未指定的夜晚。
+  const stayRow=b.closest&&b.closest('.stay-row');
+  const stayArg=(picked&&picked.kind==='hotel'&&stayRow&&stayRow.dataset.stayDate)?{stay_date:stayRow.dataset.stayDate}:{};
+  await action('select',{id:b.dataset.select,...stayArg});return}
  if(b.dataset.detail){await action('hotel_detail',{id:b.dataset.detail});return}
  if(b.dataset.ticket){const input=$('#candidate-dialog [data-ticket-date]');await action('ticket',{id:b.dataset.ticket,visit_date:input?.value||undefined});return}
  if(b.dataset.placeDetail){await action('place_detail',{id:b.dataset.placeDetail,view:tab});return}

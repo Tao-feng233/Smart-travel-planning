@@ -628,6 +628,7 @@ async def handle(w,action,args,progress):
         cid=args.get('id');p=w['catalog'].get(cid)
         if not p:raise DataError('候选不存在或已失效，请重新查询')
         if p.get('stale'):raise DataError('候选日期或人数条件已经变化，请重新查询后选择')
+        answer_extra='';detail_error=''
         if p['kind']=='spot':
             w['spots_confirmed']=False
             removed=cid in w['selected_spots']
@@ -636,11 +637,23 @@ async def handle(w,action,args,progress):
             else:raise DataError('当前选择已超过120个地点，请先确定优先级后分段规划')
         elif p['kind']=='food':return foods.select_meal(w,{**args,'food_id':cid})
         elif p['kind']=='hotel':
-            if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
-            w['hotel']=dict(p);w['stay_skipped']=False
+            from . import stay_plan
+            # 逐晚选择：带了夜晚就只改那一晚，没带则作为主住宿并覆盖未分配的夜晚。
+            stay_dates=[d for d in (args.get('stay_dates') or ([args['stay_date']] if args.get('stay_date') else []))]
+            if stay_dates:
+                assigned=stay_plan.assign(w,p['id'],stay_dates)
+                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
+                if not w.get('hotel'):w['hotel']=dict(p)
+                answer_extra='已把 '+('、'.join(assigned))+' 的住宿设为 '+p['name']+'。'
+            else:
+                if (w.get('hotel') or {}).get('id')!=p['id']:w['selected_room']=None
+                w['hotel']=dict(p)
+                stay_plan.assign(w,p['id'])
+                answer_extra=''
+            w['stay_hotels']=w.get('stay_hotels') or {}
+            w['stay_skipped']=False
             # 选中即取房型：同一次操作里把房型与报价取回，界面直接打开房型详情，
             # 用户不必再点一次“房型详情”。取不到不打断选择，只说明可重试。
-            detail_error=''
             if not p.get('detail') and p.get('provider_id'):
                 try:await load_hotel_detail(w,p,progress)
                 except DataError as error:detail_error=str(error)
@@ -648,10 +661,14 @@ async def handle(w,action,args,progress):
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
         elif p['kind']=='hotel':
+            from . import stay_plan as _stay
             rooms=len(p.get('room_choices') or [])
-            if rooms:answer=f'已选择住宿：{p["name"]}，房型已展开（{str(rooms)} 个报价）——请选择具体房型后点“完成住宿选择”。具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
-            elif detail_error:answer=f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。选定仅用于规划，尚未预订。'
-            else:answer=f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
+            leaves=_stay.unassigned(w);spread=_stay.multi_stay_note(w)
+            if rooms:answer=answer_extra+f'已选择住宿：{p["name"]}，房型已展开（{str(rooms)} 个报价）——请选择具体房型后点“完成住宿选择”。具体房型可选，也可稍后再定。'
+            elif detail_error:answer=answer_extra+f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。'
+            else:answer=answer_extra+f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
+            if leaves:answer+='\n还有'+str(len(leaves))+' 晚沿用主住宿（'+'、'.join(leaves)+'）；想每晚分开住可以在住宿编排里点对应夜晚的“住这一晚”。'
+            if spread:answer+='\n'+spread
         else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer

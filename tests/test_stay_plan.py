@@ -133,3 +133,50 @@ def test_room_fetch_failure_keeps_the_hotel_selection(monkeypatch):
     asyncio.run(agent.handle(w, 'search_hotels', {}, lambda _: None))
     assert len(calls) == 1
     assert w['hotel_query']['skipped_nights'], '未查的晚次必须标出'
+
+
+def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatch):
+    """逐晚选择：给某一晚单独选酒店，不得把其它晚一起改成这家。
+
+    这是用户反复遇到的问题：点一个酒店，剩下几晚全被覆盖。
+    """
+    w = workspace()
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    for hid, name in (('h1', '主酒店'), ('h2', '第二晚酒店')):
+        w['catalog'][hid] = {'id': hid, 'kind': 'hotel', 'name': name, 'provider_id': 900000,
+                             'location': '120.30,36.00',
+                             'query_conditions': {'checkIn': D1, 'checkOut': D3, 'adultNum': 2, 'roomNum': 1}}
+    async def vendor(service, tool, params):
+        return {'data': {'roomTypes': []}, 'source': {'name': '途牛'}}
+    async def tool(name, args):
+        return {'items': []}
+    monkeypatch.setattr(agent, 'tuniu', vendor)
+    monkeypatch.setattr(agent, 'local_tool', tool)
+
+    # 先把 h1 设为主住宿：未指定的夜晚都沿用主住宿
+    asyncio.run(agent.handle(w, 'select', {'id': 'h1'}, lambda _: None))
+    assert stay_plan.assignment_view(w)[D2]['hotel_id'] == 'h1'
+    assert stay_plan.assignment_view(w)[D2]['source'] == 'primary'
+
+    # 再只改第二晚：第一晚必须保持主住宿，不能被一起改成 h2
+    asyncio.run(agent.handle(w, 'select', {'id': 'h2', 'stay_date': D2}, lambda _: None))
+    view = stay_plan.assignment_view(w)
+    assert view[D1]['hotel_id'] == 'h1' and view[D1]['source'] == 'primary', view
+    assert view[D2]['hotel_id'] == 'h2' and view[D2]['source'] == 'explicit', view
+    # 显式指定的只有第二晚
+    assert list(w['stay_hotels']) == [D2], w['stay_hotels']
+
+
+def test_stay_rows_carry_anchor_and_assignment_for_the_ui(monkeypatch):
+    """逐晚面板需要行级数据：锚点、依据、已选来源；未选时两晚都算未分配。"""
+    w = workspace()
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    stay = stay_plan.plan(w)
+    assert [r['date'] for r in stay['rows']] == [D1, D2, D3]
+    for row in stay['rows']:
+        assert row['anchor_name'] and row['anchor_basis']
+    # 还没选任何酒店：每晚都返回 source=unset，界面据此显示"尚未选这一晚"
+    view = stay_plan.assignment_view(w)
+    assert set(view) == {D1, D2, D3}
+    assert all(v['hotel_id'] is None and v['source'] == 'unset' for v in view.values()), view
+    assert set(stay['unassigned']) == {D1, D2, D3}
