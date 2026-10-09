@@ -186,6 +186,7 @@ async def _generate(w, progress, *, preview=False):
         async with sem:return k,await route_options(*ab)
     routes={} if preview else dict(await asyncio.gather(*(pair(k,v) for k,v in all_pairs.items())))
     computed=[]
+    boundary_issues=[]
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
@@ -342,7 +343,7 @@ async def _generate(w, progress, *, preview=False):
                 # 越过午夜：如实记录并截断到 24:00，不再让整份计划书生成失败。
                 # 与 22:00 的 revision_day_end 保持同一口径——提醒可查看、可继续调整。
                 over=max(0,t+duration-24*60)
-                plan.setdefault('planning_issues',[]).append({'code':'day_boundary','level':'warning','view':'spot',
+                boundary_issues.append({'code':'day_boundary','level':'warning','view':'spot',
                     'date':d['date'],'candidate_ids':[p['id']],'overrun_minutes':over,'available_minutes':max(0,24*60-t),
                     'message':d['date']+'按当前路线与游览时长计算，'+p['name']+'前后已排到 24:00 之后（约超出 '+str(over)+' 分钟）。已按当天 24:00 截断，建议减少当日景点、换更早的班次或调整顺序。'})
                 duration=max(0,24*60-t)
@@ -431,6 +432,7 @@ async def _generate(w, progress, *, preview=False):
     if return_time and return_time.hour*60+return_time.minute<transport_links.offset(w,'return'):
         plan['warnings'].append('返程接驳与候车准备需要提前到返程日期之前开始；请确认前一晚的退房、夜间交通及具体出发时刻，不能假设返程当日才准备即可。')
     plan['planning_issues']=draft.get('planning_issues',[])
+    plan['planning_issues']+=boundary_issues
     for d in computed:
         group=next(g for g in groups if g['date']==d['date'])
         limit=minute(r.get('day_end','18:30'))
