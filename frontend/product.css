@@ -81,3 +81,12 @@ button.inline-execute{background:transparent!important;color:#405fae!important}b
 .timeline-day:first-child{border-top:0;padding-top:0}
 .timeline-day-label{color:#8a97ae;font-weight:600;font-size:11px}
 .stay-unqueried{margin-right:6px;color:#98a2b8}
+/* 选择阶段的时段条目与时间轴其它条目一致，不能继承全局蓝色实心按钮样式。 */
+button.timeline-phase{background:#fbfcff!important;color:#4a5568!important}
+button.timeline-phase:hover{background:#f4f7fd!important}
+button.timeline-phase .timeline-phase-label{background:#eaf0fb!important;color:#4a6cae!important}
+.timeline-phase{display:flex;flex-direction:column;gap:2px;align-items:flex-start;width:100%;padding:7px 9px;border:1px solid #e0e7f3;border-radius:9px;background:#fbfcff;text-align:left;cursor:pointer}
+.timeline-phase:hover{background:#f4f7fd}
+.timeline-phase-label{align-self:flex-start;padding:1px 6px;border-radius:6px;background:#eaf0fb;color:#4a6cae;font-size:10px;font-weight:600}
+.timeline-phase span{font-size:12px;line-height:1.55;color:#4a5568;overflow-wrap:anywhere}
+.timeline-phase-notice{margin:6px 0 0;padding:7px 9px;border-radius:8px;background:#fdf6ec;color:#8a6636;font-size:11px;line-height:1.6}
