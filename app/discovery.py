@@ -1,6 +1,5 @@
 """Bounded, source-backed destination discovery and distinct POI recommendation pages."""
-import asyncio,json,re,math
-from .config import ROOT
+import re,math
 from .tools import local_tool
 from .providers import DataError
 from .data_contracts import guide_conditions
@@ -63,16 +62,13 @@ def groups(w):
         if g['parent_id'] in w.get('rejected_spots',[]):g['parent_id']=None
     return result
 
-async def fetch(w,keywords,page_num):
-    results=await asyncio.gather(*(local_tool('search_places',{'city':w['requirements']['city'],'keywords':q,'category':'spot','page':page_num,'page_size':12}) for q in keywords),return_exceptions=True)
-    rows=[];successful=False;has_more=False
-    for result in results:
-        if isinstance(result,Exception):continue
-        successful=True;items=result.get('items',[]);rows.extend(items);has_more|=len(items)>=12
-    if not successful:raise DataError('景点查询暂时不可用，请稍后重试。')
-    rejected=set(w.get('rejected_spots',[]));names=set(w.get('rejected_spot_names',[]))
-    from .data_coverage import place_known
-    return [p for p in main_pois(rows) if place_known(w['requirements']['city'],p['name']) and p['id'] not in rejected and clean_name(p['name']) not in names],has_more
+def recommendation_minimum(w,args):
+    try:days=max(1,int(w['requirements'].get('days') or 2))
+    except (TypeError,ValueError):days=2
+    try:requested=max(0,int(args.get('recommend_count') or 0))
+    except (TypeError,ValueError):requested=0
+    return min(MAX_RECOMMENDATIONS,max(4 if args.get('expand_spots') else days*2,requested))
+
 
 async def search(w,args,progress,recommend):
     from .data_coverage import require_city,require_place
@@ -81,21 +77,33 @@ async def search(w,args,progress,recommend):
     city=w['requirements']['city'];classic=classic_names(city)
     expanding=args.get('expand_spots') is True;previous=w.get('spot_search') or {}
     history=list(dict.fromkeys(previous.get('history_ids',[])+previous.get('ids',[]))) if previous.get('city')==city else []
-    seen_names={clean_name(w['catalog'][cid]['name']) for cid in history if cid in w['catalog']}
     if args.get('reject_current'):
         for cid in page_info(w)['ids']:
             if cid not in w['selected_spots']:reject_one(w,cid)
-    keywords=[str(x)[:40] for x in (args.get('keywords') or (previous.get('keywords') if expanding else None) or classic[:3]+['风景名胜'])[:4]]
-    progress('正在查询景点并筛选重复地点与附属设施')
-    page=previous.get('provider_page',1)+1 if expanding else 1
-    items,more=await fetch(w,keywords,page)
-    if expanding:
-        items=[p for p in items if p['id'] not in history and p['id'] not in w['selected_spots'] and clean_name(p['name']) not in seen_names]
-        if not items and more and page<3:
-            page+=1;items,more=await fetch(w,keywords,page)
-            items=[p for p in items if p['id'] not in history and p['id'] not in w['selected_spots'] and clean_name(p['name']) not in seen_names]
-        if not items:return '本轮暂未找到新的相关景点，已有推荐与选择已保留。可以补充感兴趣的主题或希望扩展的区域，再继续推荐。'
-    if not items:raise DataError('未找到新的景点候选，请调整兴趣或搜索名称。')
+    excluded_ids=list(dict.fromkeys(w.get('rejected_spots',[])+w.get('selected_spots',[])+(history if expanding else [])))
+    excluded_names=list(w.get('rejected_spot_names',[]))+[w['catalog'][i]['name'] for i in excluded_ids if i in w['catalog']]
+    keywords=[str(x)[:40] for x in (args.get('keywords') or (previous.get('keywords') if expanding else None) or classic[:3])[:4]]
+    minimum=recommendation_minimum(w,args);items=[];offset=0;seen=set();source_exhausted=False
+    from .spot_hierarchy import candidates
+    for batch in range(math.ceil(MAX_RECOMMENDATIONS/4)):
+        progress('正在获取第'+str(batch+1)+'批景点（每批最多4个），目标至少'+str(minimum)+'个候选')
+        result=await local_tool('get_spot_candidates',{'city':city,'keywords':keywords,'offset':offset,'exclude_ids':excluded_ids,'exclude_names':excluded_names})
+        from .data_coverage import place_known
+        for p in main_pois(result.get('items',[]))[:4]:
+            if not place_known(city,p['name']):continue
+            if p['id'] in seen or p['id'] in excluded_ids:continue
+            seen.add(p['id']);items.append(p)
+        merged={**w['catalog'],**{p['id']:p for p in items}}
+        items=candidates(merged,items)
+        next_offset=result.get('next_offset')
+        source_exhausted=result.get('exhausted') is True
+        advanced=isinstance(next_offset,int) and next_offset>offset
+        if advanced:offset=next_offset
+        if len(items)>=minimum or source_exhausted or not advanced:break
+    if not items:
+        if expanding:return '本轮暂未找到新的相关景点，已有推荐与选择已保留。已有资料的候选已查到末尾或位置暂未核实，可以更换主题或地区；不会重复推荐已看过的地点。'
+        return '本次已有资料中的景点暂未取得可用地图候选，当前选择保留。可以稍后重试；不会以背景介绍代替已核对的地点。'
+    page=1
     from .locations import ready_candidates
     items,location_excluded=await ready_candidates(w,items,local_tool)
     if not items:return '本次景点候选尚未核对到有效坐标，暂不列入推荐。可以更换搜索条件或稍后重试；已有选择保留。'
@@ -111,11 +119,12 @@ async def search(w,args,progress,recommend):
         if p['classic']:p['discovery_label']='城市代表景点'
     guides=(await local_tool('retrieve_guides',guide_conditions(city,' '.join(p['name'] for p in items)+' 游览 特色',w['requirements'])))['items']
     progress('正在按旅行偏好比较推荐顺序')
-    summary=await recommend(w,items,('补充新相关景点，保留已选景点与偏好，避免重复；' if expanding else '结合已知游玩天数推荐能组成整趟旅行的景点集合，并提供适量备选；')+'数量按预计停留与休息、位置和需求判断。优先匹配条件，其次参考城市代表景点，不把评分当实时热门榜',guides)
+    summary=await recommend(w,items,('补充新相关景点，保留已选景点与偏好，避免重复；' if expanding else '结合已知游玩天数推荐能组成整趟旅行的景点集合，并提供适量备选；')+'本轮目标至少'+str(minimum)+'个候选，已核对'+str(len(items))+'个；候选与备选不等于全部必去。数量按预计停留与休息、位置和需求判断。优先匹配条件，其次参考城市代表景点，不把评分当实时热门榜',guides)
     items.sort(key=lambda p:((not p.get('classic')) if args.get('prefer_known') else False,p.get('recommendation_rank',99),not p.get('classic'),-(float(p.get('rating') or 0) if str(p.get('rating') or '').replace('.','',1).isdigit() else 0)))
-    # Publish a bounded set actually compared by the model, rather than all raw API rows.
-    ranked=[p for p in items if p.get('recommendation_rank') is not None]
-    items=(ranked or items)[:MAX_RECOMMENDATIONS]
+    # Model ranking orders candidates; it cannot discard the rest of a valid multi-day batch.
+    for p in items:
+        if p.get('recommendation_rank') is None:p.setdefault('discovery_label','可比较景点')
+    items=items[:MAX_RECOMMENDATIONS]
     from .planning import route_options,choose_route
     from .access import screen
     anchor=w.get('hotel') or next((w['catalog'].get(cid) for cid in w.get('selected_spots',[]) if w['catalog'].get(cid,{}).get('location')),None)
@@ -130,11 +139,12 @@ async def search(w,args,progress,recommend):
             parents=await local_tool('get_place_details',{'ids':missing})
             w['catalog'].update({p['id']:p for p in parents.get('items',[]) if p.get('kind')=='spot'})
         except DataError:pass
-    w['spot_search']={'city':city,'keywords':keywords,'provider_page':page,'page':1,'ids':[p['id'] for p in items],'history_ids':history,'excluded':location_excluded+excluded,'exhausted':True}
+    w['spot_search']={'city':city,'keywords':keywords,'provider_page':page,'page':1,'ids':[p['id'] for p in items],'history_ids':history,'excluded':location_excluded+excluded,'exhausted':True,'source_exhausted':source_exhausted,'minimum':minimum,'batch_size':4,'next_offset':offset}
     w['discovery_mode']=False
     if not expanding:w['spots_confirmed']=False
     w['stage']='景点'
-    return f'已{"补充" if expanding else "推荐"}{len(items)}个景点，已展示在右侧，可分页比较行程建议与备选。'+summary
+    shortage=('\n目前仅核对到'+str(len(items))+'个候选，少于本次至少'+str(minimum)+'个的目标；已有资料、位置或通行条件不足，未虚构补齐。' if len(items)<minimum else '')
+    return f'已{"补充" if expanding else "推荐"}{len(items)}个景点，已展示在右侧，可分页比较行程建议与备选。这些是候选选择，不表示全部必须游玩。'+summary+shortage
 
 async def turn_page(w,args,progress,recommend):
     search=w.get('spot_search')

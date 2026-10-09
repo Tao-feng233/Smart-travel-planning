@@ -39,6 +39,29 @@ def install(monkeypatch):
     return calls
 
 
+@pytest.mark.parametrize('return_date', [None, D2])
+def test_one_day_trip_can_query_and_select_an_overnight_stay(monkeypatch, return_date):
+    w = workspace()
+    w['requirements']['days'] = 1
+    if return_date:
+        w['requirements']['return_date'] = return_date
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'},
+                    {'candidate_id': 's2', 'date': D1, 'period': 'afternoon'}])
+    w['ui'] = {}
+    calls = install(monkeypatch)
+
+    answer = asyncio.run(agent.handle(w, 'search_hotels', {'stay_date': D1}, lambda _: None))
+
+    assert stay_plan.nights(w) == [D1]
+    assert len(calls) == 1
+    assert calls[0]['checkIn'] == D1 and calls[0]['checkOut'] == D2
+    candidate = w['candidates'][0]
+    asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
+    assert stay_plan.hotel_for(w, D1)['id'] == candidate['id']
+    assert not w.get('selected_room')
+    assert '住宿' in answer
+
+
 def test_each_night_is_queried_with_its_own_anchor_and_keeps_its_own_quote(monkeypatch):
     """每晚各自查询：带该晚的入住日期与当天收尾地点；同店两晚的报价互不覆盖。"""
     w = workspace()

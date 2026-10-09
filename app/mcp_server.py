@@ -26,6 +26,12 @@ async def search_places(city: str, keywords: str, category: str='spot',page:int=
                           {'city':city,'keywords':keywords,'category':category,'page':page,'page_size':page_size,'location':location,'radius':radius})
 
 @mcp.tool()
+async def get_spot_candidates(city:str,keywords:list[str]|None=None,offset:int=0,exclude_ids:list[str]|None=None,exclude_names:list[str]|None=None) -> dict:
+    """按已有资料逐批获取真实景点，每批最多4个，返回next_offset与exhausted；按量推荐时继续取下一批，不虚构或代选。"""
+    from app.spot_candidates import get_batch
+    return await get_batch(city,keywords,offset,exclude_ids,exclude_names)
+
+@mcp.tool()
 async def get_place_details(ids:list[str]) -> dict:
     """使用真实POI ID查询景点、餐厅等的营业资料、联系方式、图片和位置；单次最多10个。"""
     return await providers.place_details(ids)

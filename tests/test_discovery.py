@@ -35,16 +35,17 @@ def test_recommendation_order_changes_displayed_page(monkeypatch):
     w=trip();calls=[]
     async def tool(name,args):
         if name=='retrieve_guides':return {'items':[]}
-        calls.append(args);return {'items':[poi(i) for i in range(1,9)]}
+        calls.append(args);offset=args.get('offset',0)
+        return {'items':[poi(i) for i in range(1+offset,5+offset)],'next_offset':offset+4,'exhausted':offset>=4}
     async def rank(w,items,*args):
         next(p for p in items if p['id']=='s8')['recommendation_rank']=0
         return '推荐理由\\n第二行'
     monkeypatch.setattr(discovery,'local_tool',tool)
-    asyncio.run(discovery.search(w,{'keywords':['景点']},lambda x:None,rank))
+    asyncio.run(discovery.search(w,{'keywords':['景点'],'recommend_count':8},lambda x:None,rank))
     assert discovery.page_info(w)['ids'][0]=='s8'
-    assert calls[0]['page']==1 and calls[0]['page_size']==12
-    assert discovery.page_info(w)['pages']==1
-    assert discovery.page_info(w)['ids']==['s8']  # Only the model's ranked candidate is published.
+    assert calls[0]['offset']==0 and calls[1]['offset']==4
+    assert discovery.page_info(w)['pages']==2
+    assert len(w['spot_search']['ids'])==8  # Ranking does not discard valid unranked candidates.
 
 def test_next_and_previous_page_preserve_selected_items():
     w=trip();w['catalog']={p['id']:p for p in [poi(i) for i in range(1,9)]}

@@ -48,13 +48,29 @@ def require_city(value):
 def place_known(city,value):
     c=canonical_city(city)
     if not c:return False
-    def cleaned(s):
-        s=key(s)
-        if s.startswith(c+'市'):s=s[len(c)+1:]
-        elif s.startswith(c):s=s[len(c):]
-        return s
-    name=cleaned(value)
-    return len(name)>=2 and name in {cleaned(x) for x in snapshot()['names'].get(c,set())}
+    name=place_key(city,value)
+    return len(name)>=2 and name in {place_key(city,x) for x in snapshot()['names'].get(c,set())}
+
+
+def place_key(city,value):
+    """A stable city-prefix/suffix key; no fuzzy parent-child equivalence."""
+    c=canonical_city(city) or ''
+    name=key(value)
+    if c and name.startswith(c+'市'):name=name[len(c)+1:]
+    elif c and name.startswith(c):name=name[len(c):]
+    return name.removesuffix('公园')
+
+
+def covered_places(city):
+    c=canonical_city(city)
+    if not c:return []
+    records=snapshot();first=records['cities'][c].get('highlights') or []
+    result=[];seen=set()
+    for name in [*first,*sorted(records['names'].get(c,set()))]:
+        identity=place_key(city,name)
+        if len(identity)<2 or identity in seen:continue
+        seen.add(identity);result.append(name)
+    return result
 
 
 def require_place(city,value):

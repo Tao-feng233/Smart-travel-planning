@@ -21,7 +21,7 @@ def test_more_candidates_excludes_shown_and_preserves_selection(monkeypatch):
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,rank))
     assert w['selected_spots']==['old'] and w['spots_confirmed']
     assert w['spot_search']['ids']==['new'] and 'old' in w['spot_search']['history_ids']
-    assert calls[0]['page']==2 and '已补充' in result
+    assert calls[0]['offset']==0 and 'old' in calls[0]['exclude_ids'] and '已补充' in result
 
 
 def test_no_new_candidates_is_a_normal_result_with_old_batch_kept(monkeypatch):

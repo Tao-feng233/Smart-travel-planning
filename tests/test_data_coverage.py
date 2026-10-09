@@ -30,8 +30,13 @@ def test_explicit_uncovered_place_is_rejected_before_preference_or_query(monkeyp
 
 def test_external_map_results_cannot_expand_local_place_coverage(monkeypatch):
     w={'requirements':{'city':'青岛'},'selected_spots':[],'catalog':{}}
-    async def tool(*_):return {'items':[{'id':'real','name':'栈桥景区','kind':'spot','location':'120.31,36.06'},{'id':'outside','name':'外部新景点','kind':'spot','location':'120.32,36.06'}]}
+    async def tool(name, args):
+        if name == 'retrieve_guides':
+            return {'items': []}
+        return {'items':[{'id':'real','name':'栈桥景区','kind':'spot','location':'120.31,36.06'},{'id':'outside','name':'外部新景点','kind':'spot','location':'120.32,36.06'}], 'exhausted': True}
+    async def recommend(*_):
+        return ''
     monkeypatch.setattr(discovery,'local_tool',tool)
-    rows,_=asyncio.run(discovery.fetch(w,['风景'],1))
-    assert [x['id'] for x in rows]==['real']
+    asyncio.run(discovery.search(w, {'keywords': ['风景']}, lambda _: None, recommend))
+    assert w['spot_search']['ids'] == ['real']
     assert data_coverage.place_known('青岛','青岛市崂山景区')

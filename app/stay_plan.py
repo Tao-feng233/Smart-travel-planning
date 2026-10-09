@@ -43,7 +43,6 @@ def return_date_bounds(w):
 
 def _return_departure(w):
     """(日期, 分钟) 或 (None, None)：仅当班次日期可作为返程日依据时返回。"""
-    from . import journey
     r = (w.get('requirements') or {})
     selected = w.get('selected_return') or {}
     stamp = selected.get('departure')
@@ -79,14 +78,10 @@ def nights(w):
     if not start:
         return []
     last_date, _ = return_date_bounds(w)
-    stamp, departure = _return_departure(w)
     last = None
     if last_date:
         # 返程当天不订酒店，故最后一晚是返程前一天。
         last = last_date - timedelta(days=1)
-        # 班次确定当天出发时同样以班次日期为准（当天走就不订当晚）。
-        if departure is not None and stamp == last_date:
-            last = max(last, stamp - timedelta(days=1))
     elif tour:
         last = max(tour)
     if last is None or last < start:
