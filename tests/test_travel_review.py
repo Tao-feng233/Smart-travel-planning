@@ -23,6 +23,52 @@ def workspace(arrival='2026-10-09 12:00', departure=D_OUT + ' 06:00',
             'stay_hotels': {}, 'messages': []}
 
 
+def test_return_day_meals_move_as_late_as_the_window_allows():
+    """返程日餐次尽量往后排（吃完就上车），但不超过餐次窗口、不早于默认时刻。
+
+    用户举例：11:00 发车，准备时刻 09:00 落进早餐窗口，早餐应推到窗口内最晚。
+    """
+    def return_workspace(departure, days=1, arrival=D_TOUR + ' 06:00', return_day=None):
+        return_day = return_day or D_TOUR
+        return {'requirements': {'city': '洛阳', 'start_date': D_TOUR, 'days': days, 'adults': 2,
+                                 'day_start': '09:00', 'day_end': '18:30'},
+                'selected_transport': {'id': 'a', 'kind': 'train', 'name': 'G0',
+                                       'departure': D_TOUR + ' 04:00',
+                                       'arrival': arrival,
+                                       'selection_status': 'confirmed'},
+                'selected_return': {'id': 'b', 'kind': 'train', 'name': 'G1',
+                                    'departure': return_day + ' ' + departure,
+                                    'arrival': return_day + ' 23:30', 'selection_status': 'confirmed'},
+                'catalog': {}, 'selected_spots': [], 'meal_choices': {}, 'visit_requests': {}}
+
+    # 11:00 发车：准备时刻 09:00 就是早餐窗口上界，早餐贴到最晚（08:15 开饭，09:00 吃完）
+    w = return_workspace('11:00')
+    assert schedule.return_bounded(w, D_TOUR) is True
+    start = schedule.meal_start(w, D_TOUR, 'breakfast', as_late=True)
+    window = schedule.meal_window(w, D_TOUR, 'breakfast')
+    assert start == window[1] - 45, (start, window)
+    assert start > 8 * 60, '应比默认 08:00 更晚'
+    assert start >= window[0]
+    # 13:00 发车：早餐推到 09:15（窗口上界 10:00 减 45 分钟）
+    later = return_workspace('13:00')
+    assert schedule.meal_start(later, D_TOUR, 'breakfast', as_late=True) == 9 * 60 + 15
+    # 若抵达太晚导致当天早餐窗口本身为空，则不安排（而不是硬塞）
+    too_late = return_workspace('11:00', arrival=D_TOUR + ' 10:00')
+    assert schedule.meal_window(too_late, D_TOUR, 'breakfast')[1] < schedule.meal_window(too_late, D_TOUR, 'breakfast')[0]
+    assert schedule.meal_start(too_late, D_TOUR, 'breakfast', as_late=True) is None
+
+    # 普通游玩日不受影响：多日行程里只有返程日被推后
+    w4 = return_workspace('20:00', days=4, return_day='2026-10-13')
+    span = ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13']
+    for day in span[:-1]:
+        assert schedule.return_bounded(w4, day) is False, day
+        assert schedule.meal_start(w4, day, 'dinner') == 17 * 60, day
+    assert schedule.return_bounded(w4, '2026-10-13') is True
+    # 普通游玩日的餐次仍在时间轴上
+    meals = {(x['date'], x['period']) for x in schedule.build(w4)['entries'] if x['kind'] == 'meal'}
+    assert ('2026-10-11', 'dinner') in meals and ('2026-10-12', 'breakfast') in meals, sorted(meals)
+
+
 def test_return_day_meals_must_finish_two_hours_before_departure():
     """返程日：必须在发车前 2 小时吃完；赶不上的餐次直接不安排，并给出原因。"""
     def return_workspace(departure):
