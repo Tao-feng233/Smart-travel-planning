@@ -338,7 +338,15 @@ async def _generate(w, progress, *, preview=False):
                 raise DataError(p['name']+'的当前建议时长超出指定'+('上午' if limit==720 else '下午')+'窗口，正在核对可调整的顺序与游览范围。',
                     {'phase':'schedule','code':'visit_window','date':d['date'],'candidate_ids':[p['id']],'view':'spot','available_minutes':max(0,limit-t),'suggested_minutes':duration,
                      'events':[{'kind':e['kind'],'name':e.get('name'),'start':e['start'],'end':e['end'],'route':{k:(e.get('route') or {}).get(k) for k in ('mode','minutes','source')}} for e in events]})
-            if t+duration>24*60:raise DataError('到达后可用时间不足，草稿跨越当天边界，请减少当日景点或换班次。')
+            if t+duration>24*60:
+                # 越过午夜：如实记录并截断到 24:00，不再让整份计划书生成失败。
+                # 与 22:00 的 revision_day_end 保持同一口径——提醒可查看、可继续调整。
+                over=max(0,t+duration-24*60)
+                plan.setdefault('planning_issues',[]).append({'code':'day_boundary','level':'warning','view':'spot',
+                    'date':d['date'],'candidate_ids':[p['id']],'overrun_minutes':over,'available_minutes':max(0,24*60-t),
+                    'message':d['date']+'按当前路线与游览时长计算，'+p['name']+'前后已排到 24:00 之后（约超出 '+str(over)+' 分钟）。已按当天 24:00 截断，建议减少当日景点、换更早的班次或调整顺序。'})
+                duration=max(0,24*60-t)
+                if duration<=0:break
             evidence=[x for x in guides if x['id'] in item.get('evidence_ids',[])]
             note=str(item.get('note',''))[:500]
             # A long visit must not silently consume the selected lunch window.
