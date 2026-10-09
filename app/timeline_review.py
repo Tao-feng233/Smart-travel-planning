@@ -33,9 +33,17 @@ def checks(w,timeline):
         load=sum(x.get('duration',0) if x['kind'] in ('spot','spot_continue') else max(0,schedule.minutes(x.get('end'))-schedule.minutes(x['time'])) for x in rows)
         finish=max((schedule.minutes(x.get('end')) for x in rows),default=start)
         if load>capacity or finish>end or any(x.get('over_capacity') for x in spots):
+            # 还没生成计划书时不带"优化时间安排"按钮：这段时间用户还在挑景点与住宿，
+            # 每步都摆一个改排期的入口很吵，而且此时改排期也为时过早。
+            # 提醒本身保留（一句话），统一调整留到生成计划书。
+            planned=bool(w.get('plan'))
             issues.append({'code':'timeline_load','level':'warning','view':'spot','date':day,
-                'candidate_ids':list(dict.fromkeys(x['candidate_id'] for x in spots)), 'optimize':True,'overrun_minutes':max(load-capacity,finish-end),'available_minutes':capacity,
-                'message':day+'活动、已列交通与休息预计占用约'+str(load)+'分钟，可安排窗口约'+str(capacity)+'分钟，当前时间轴偏紧。建议调整可移动景点的日期或顺序；建议时长未被强行压缩，也未删除已选地点。'})
+                'candidate_ids':list(dict.fromkeys(x['candidate_id'] for x in spots)),
+                **({'optimize':True} if planned else {}),
+                'overrun_minutes':max(load-capacity,finish-end),'available_minutes':capacity,
+                'message':(day+'活动、已列交通与休息预计占用约'+str(load)+'分钟，可安排窗口约'+str(capacity)+'分钟，当前时间轴偏紧。建议调整可移动景点的日期或顺序；建议时长未被强行压缩，也未删除已选地点。'
+                           if planned else
+                           day+'安排可能偏紧：预计占用约'+str(load)+'分钟、可安排窗口约'+str(capacity)+'分钟。生成计划书时会统一调整；建议时长未被压缩，也未删除已选地点。')})
     arrival=schedule.transport_time(w.get('selected_transport'),'arrival')
     if arrival and (w.get('selected_transport') or {}).get('selection_status')=='confirmed':
         day=arrival.date().isoformat();low,high=schedule.windows(w,day)
