@@ -49,6 +49,7 @@ def point(w,cid):return w.get('catalog',{}).get(cid)
 
 def provisional(w):
  from . import visit_analysis
+ from . import pacing
  ds=visits.dates(w);cat=w.get('catalog',{});pins=w.get('visit_requests',{});hotel=w.get('hotel');selected=[cat[i] for i in w.get('selected_spots',[]) if i in cat]
  if not ds:return []
  estimates={x['candidate_id']:x for x in visit_analysis.preview(w)}
@@ -58,6 +59,9 @@ def provisional(w):
  rows=[];order={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
  for dt,places in buckets.items():
   floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
+  lunch_at=meal_start(w,dt,'lunch');rest_start=lunch_at+PERIODS['lunch'][2] if lunch_at is not None else None
+  rest_minutes=pacing.rest_length(w,dt,rest_start) if rest_start is not None else 0
+  breaks=sorted([(at,length) for _,at,length in PERIODS.values()]+([(rest_start,rest_minutes)] if rest_minutes else []))
   # Respect explicit periods and orders; within flexible groups use nearest
   # coordinates. Straight distance is never displayed as road travel time.
   while places:
@@ -68,16 +72,20 @@ def provisional(w):
    t=max(t,{'afternoon':13*60,'evening':18*60}.get(period,0))
    # A long visit can span lunch with a labelled meal pause. Do not move a
    # whole half-day visit into the afternoon just because it crosses noon.
-   for _,at,length in PERIODS.values():
+   for at,length in breaks:
     if at<=t<at+length:t=at+length
    finish=t+duration
-   for _,at,length in PERIODS.values():
+   for at,length in breaks:
     if t<at<finish:finish+=length
    pin_period=pins.get(p['id'],{}).get('period')
    over=finish>min(end,day_end(w,dt)) or pin_period in ('morning','afternoon') and finish>{'morning':720,'afternoon':1080}[pin_period]
    arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':finish-t>duration,'over_capacity':over})
-   t=finish+20;last=p
+   t=finish+pacing.for_day(w,dt)['break_minutes'];last=p
   rows+=arranged
+  if rest_minutes:
+   rows.append({'key':dt+'|midday_rest','date':dt,'time':clock(rest_start),'end':clock(rest_start+rest_minutes),
+                'kind':'rest','rest_type':'midday','name':'午休与放松','estimated':True,'confirmed':False,
+                'reason':pacing.for_day(w,dt)['reason']})
   for period,(label,at,duration) in PERIODS.items():
    at=meal_start(w,dt,period)
    if at is None:continue
@@ -96,10 +104,10 @@ def build(w):
  if plan and not plan.get('stale'):
   for d in plan.get('days',[]):
    for i,e in enumerate(d.get('events',[])):
-    if e.get('kind') not in ('spot','spot_continue','meal','transport','arrival'):continue
+    if e.get('kind') not in ('spot','spot_continue','meal','transport','arrival') and e.get('rest_type')!='midday':continue
     cid=e.get('candidate_id') or (e.get('food') or {}).get('id')
     period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if e.get('kind')=='meal' else None
-    rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if e.get('kind')=='spot_continue' else ''),'date':d['date'],'time':e['start'],'end':e['end'],'kind':e['kind'],'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':e.get('kind')!='meal' or bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))),'estimated':False})
+    rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if e.get('kind')=='spot_continue' else ''),'date':d['date'],'time':e['start'],'end':e['end'],'kind':e['kind'],'rest_type':e.get('rest_type'),'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':e.get('kind') not in ('meal','rest') or bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))),'estimated':e.get('kind')=='rest'})
  else:rows=provisional(w)
  # Include transport-only dates, outside the sightseeing period.
  for key,kind in [('selected_transport','去程'),('selected_return','返程')]:

@@ -42,6 +42,7 @@ async def compose(w,result):
     from .journey import next_step
     data={'requirements':r,'action':focus,'confirmed_prefix':PREFIX.get(),'result':result,'spots':spots,
           'assistant_goal':w.get('assistant_goal') if w.get('turn_is_chat') else None,
+          'recommendation_batch':[{'id':i,'name':w['catalog'][i]['name'],'role':w['catalog'][i].get('recommendation_role','primary')} for i in (w.get('spot_search') or {}).get('ids',[]) if i in w['catalog']] if focus in ('search_spots','spots_page') else [],
           'pending_plan_warning':{'issues':w['pending_plan_warning']['issues']} if w.get('pending_plan_warning') else None,'pending_auto_selection':w.get('pending_auto_selection'),'auto_selection_running':bool(w.get('auto_selection_run')),'auto_selection_result':w.get('auto_selection_result') if focus in ('approve_auto_selection','continue_auto_selection') else None,'visit_analysis':visit_analysis.current(w),'visit_requests':w.get('visit_requests',{}),'has_current_plan':bool(w.get('plan') and not w['plan'].get('stale')),'foods':[w['catalog'][i] for i in (w.get('food_query') or {}).get('ids',[]) if i in w['catalog']] if w.get('turn_food_updated') or focus=='search_foods' else [],
           'markets':[w['catalog'][i] for i in (w.get('food_query') or {}).get('markets',[]) if i in w['catalog']] if w.get('turn_food_updated') else [],
           'plan_revision':(w.get('plan') or {}).get('revision') if focus=='optimize_plan' else None,
@@ -56,7 +57,7 @@ async def compose(w,result):
             '只使用给定结果和来源字段，未知不补造；不把背景资料当实时客流榜。不复述查询过程或模型思考。'
             '使用简短Markdown：##小标题、**重点**、分段或项目符号；通常260字，有景点和餐饮两组时可到650字。'
             '用户只给城市、尚未提供兴趣时，先问一句偏好（海滨/人文/自然等），再换行列出当前可查询的代表景点供初步比较。'
-            '本轮实际查询景点与餐饮时分别列在##景点和##餐饮小标题下；没有查询餐饮或foods为空且result未提到餐饮失败时，不输出餐饮小标题或“未查到餐饮”。景点介绍3至4项，餐饮返回足够时列4至5家，不把餐厅称为景点，不补齐不存在的候选。每项写真实名称及1句有依据的特色或位置。已有明确偏好则不再重复问。'
+            '本轮实际查询景点与餐饮时分别列在##景点和##餐饮小标题下；没有查询餐饮或foods为空且result未提到餐饮失败时，不输出餐饮小标题或“未查到餐饮”。景点按实际推荐集合概述行程建议与备选，具体列表可在右侧分页查看；餐饮按实际结果介绍，不把餐厅称为景点，不补齐不存在的候选。每项写真实名称及1句有依据的特色或位置。已有明确偏好则不再重复问。'
             '查询结果先告知已找到什么、在哪里查看。例如“已查询到4个海滨景点，已展示在右侧，可按介绍选择或补充要求”。'
             '用户补充条件时，确认前缀已发送，不要再次确认或重复前缀中的偏好问题；描述查到的新信息。日期/人数/天数已提供不要重复询问；只询问缺项。'
             '必须回应last_question表达的变化或质疑；如果用户嫌不知名，说本次按代表景点重新筛选，保留海边与餐饮需求。不把“知名”当查实实时热度。'
@@ -80,6 +81,7 @@ async def compose(w,result):
     prompt+='住宿选定酒店位置即可继续，具体房型属于可选项；没有选择房型时不要求补选，不声称已核对房型容量或确认住宿总价。'
     prompt+='已选酒店stale/quote_stale只说明原报价需更新，不代表酒店位置不存在；用餐起点的缺项以实际工具错误中的酒店和日期为准。'
     prompt+='不强制输出“下一步：”或“还需补充：”标题。缺项引导应贴合当前操作：正在选择景点时先说明可以继续挑选，再说“选择完成后，请补充……”；景点已确认时才邀请补充用于住宿/排程的缺项。按next_step.message表达先后关系，不把未来步骤当作当前必须立即完成的任务。保留必要操作入口，使用自然的服务语气。'
+    prompt+='推荐数量由模型结合行程需求判断，recommendation_batch是完整批次，spots可能只是当前可见页，不把每页几个景点说成整批只有几个。区分行程建议与备选，说明已知天数的匹配或不足；用户尚未选定时不宣称已完成正式排程。继续推荐的正常空结果不是安排冲突，已有选择保留。'
     prompt+='缺少日期、成人数等时使用礼貌的补充邀请，例如“请补充一下出游日期、成人数等相关信息，便于更精细地推荐”。已查到的景点仍可比较，不写“补齐后才能推荐”。首次尚未确认偏好时只询问并说明默认入口，不编造候选；已选择默认推荐后不重复询问偏好。没有实时热度数据，不声称热门榜或热度名次；评分仅代表地图评分。未知门票、人均不估造数字，预算充足与否没有完整费用依据时不作承诺。'
     try:
         prefix=PREFIX.get();target=re.sub(r'\s+','',prefix);pending='';decided=not bool(target)

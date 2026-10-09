@@ -123,11 +123,14 @@ async def _generate(w, progress):
     payload={'requirements':r,'dates':[(date.fromisoformat(begin)+timedelta(days=i)).isoformat() for i in range(span)],'tour_dates':tour_dates,'spots':spots,
              'visit_requests':w.get('visit_requests',{}),'visit_order':w.get('visit_order',[]),'selected_room':w.get('selected_room'),'hotel':w.get('hotel'),'selected_transport':w.get('selected_transport'),'selected_return':w.get('selected_return'),'official_guides':guides}
     if w.get('planning_feedback'):payload['validation_feedback']=w['planning_feedback']+'。调整可变景点日期或同日顺序，保留已选地点、班次、餐厅与用户明确日期时段，不可修改用户选择来掩盖冲突。'
-    from . import visit_analysis
+    from . import visit_analysis,pacing
     payload['day_budgets']=visit_analysis.budgets(w)
     payload['visit_analysis']=visit_analysis.current(w)
     payload['initial_balanced_estimate']=visit_analysis.preview(w)
     prompt+='按day_budgets和全部景点平衡每天的游玩分钟数与体力负担。visit_analysis是经校验的建议，优先延续；如调整需在note说明原因。少量景点分散各日并保留自由时间，较多景点提示密集，不自行新增未选地点。模型知识仅用于建议玩法和时长，不补造营业或实时事实。'
+    from .recommendation_context import context
+    payload['recommendation_context']=context(w)
+    prompt+='游览时长包含观景、拍照、慢行和合理排队余量，不以最短打卡时长塞满景点。午餐后另有午休，day_budgets已扣除午休，visit_analysis.day_pacing给出每天的午休与景点间机动建议；不能重复把它算入游玩duration。依据同行人群、行动需求、天气和游览重点自主取舍，偏紧时提示而不是压缩休息掩盖问题。'
     payload['meal_choices']={key:{**value,'food':catalog.get(value.get('food_id'))} for key,value in w.get('meal_choices',{}).items()}
     if w.get('planning_revision'):
         payload['revision_context']=w['planning_revision']
@@ -185,7 +188,16 @@ async def _generate(w, progress):
         name=foods.PERIODS[period]+' · '+(p['name'] if p else '自行安排')
         events.append({'kind':'meal','name':name,'start':clock(t),'end':clock(t+duration),'note':'餐厅为规划意向，营业时段、菜单和价格请出发前确认，可随时更换。' if p else '弹性用餐建议，可自行选择餐厅或调整时间；未预订，费用未核实。',**({'food':p,'source':p.get('source')} if p else {})})
         scheduled_meals.add(dt+'|'+period)
-        return events,t+duration,p or last
+        finish=t+duration
+        if period=='lunch':
+            rest=pacing.rest_length(w,dt,finish)
+            if rest:
+                events.append({'kind':'rest','rest_type':'midday','name':'午休与放松','start':clock(finish),'end':clock(finish+rest),
+                    'note':pacing.for_day(w,dt)['reason']+' 就近休息，不默认返回酒店；具体休息条件可按现场情况调整。','estimated':True})
+                finish+=rest
+            if rest<pacing.for_day(w,dt)['rest_minutes']:
+                warnings.append(dt+'午餐后可安排的午休为'+str(rest)+'分钟，受抵达或返程时间限制；如需更充分休息，可调整该日活动或班次。')
+        return events,finish,p or last
     if not base:warnings.append(('已选住宿位置尚未核实' if hotel else '未确定住宿位置')+'，日程尚不包含住宿往返；更新住宿位置后请重新生成。')
     if quote_stale(hotel):warnings.append('已保留'+hotel['name']+'作为住宿位置；原房型或列表报价已过期，本次住宿实际总价需重新核实。')
     transport=w.get('selected_transport'); arrival=None
@@ -302,8 +314,9 @@ async def _generate(w, progress):
                                'duration':duration,'note':note,'poi':p,'evidence':evidence})
                 t+=duration
             if i<len(d['items'])-1:
-                events.append({'kind':'rest','name':'休息与机动时间','start':clock(t),'end':clock(t+20),'note':'规划建议，可根据状态调整'})
-                t+=20
+                leisure=pacing.for_day(w,d['date'])['break_minutes']
+                events.append({'kind':'rest','name':'休息与机动时间','start':clock(t),'end':clock(t+leisure),'note':pacing.for_day(w,d['date'])['reason']})
+                t+=leisure
             last=p
         if base and last and last['id']!=base['id']:
             opts=routes.get((last['id'],base['id']),[])

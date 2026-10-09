@@ -81,13 +81,18 @@ def test_real_plan_revision_preserves_lunch_inside_a_long_scenic_visit(monkeypat
     monkeypatch.setattr(planning,'RUNTIME',tmp_path)
     before=copy.deepcopy({k:w.get(k) for k in plan_revision.PROTECTED})
     result=asyncio.run(plan_revision.optimize(w,{'instruction':'那你帮我优化一下吧'},lambda _:None,model,planning.generate))
-    assert '已重新核对并更新' in result
+    if w.get('pending_plan_warning'):
+        from app.plan_warnings import approve
+        assert '估算偏紧' in result
+        approve(w,{'approval_id':w['pending_plan_warning']['id'],'confirmed':True})
+    else:assert '已重新核对并更新' in result
     events=w['plan']['days'][0]['events']
     assert sum(e.get('duration',0) for e in events if e['kind'] in ('spot','spot_continue'))==405
     assert len([e for e in events if e['kind']=='spot'])==1
     lunch=next(e for e in events if e['kind']=='meal' and e.get('food',{}).get('id')=='f')
     assert '12:'<=lunch['start']<'15:'
     assert any(e['kind']=='spot_continue' for e in events)
+    assert any(e.get('rest_type')=='midday' for e in events)
     assert all(w.get(k)==v for k,v in before.items())
     assert seen[0]['revision_context']['reported_conflict']['issues'][0]['date']=='2026-10-12'
     assert any('revision_context' in payload and 'dates' in payload for payload in seen)

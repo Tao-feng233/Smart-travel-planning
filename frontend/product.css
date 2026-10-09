@@ -64,3 +64,5 @@ button.inline-execute{background:transparent!important;color:#405fae!important}b
 
 /* Source-backed consumption labels below card scores. */
 .card-metrics .price-hint{max-width:180px;margin-top:8px;text-align:right}.price-hint strong{font-size:14px;color:#66738c}.price-hint.free-admission strong{color:#28785c}.price-hint small{display:block;margin-top:5px;line-height:1.6;color:#7b89a3}#candidate-modal-body .price-hint{margin:12px 0}.preference-prompt p{line-height:1.8}
+
+.timeline-entry.midday-rest{background:#faf4e8;border-color:#e9d6b4}.timeline-entry.midday-rest time{color:#947043}

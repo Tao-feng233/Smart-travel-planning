@@ -19,8 +19,15 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
   if(u.pathname.endsWith('/map-image'))return r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768"/>'});
   if(u.pathname.endsWith('/actions')){request=r.request().postDataJSON();return r.fulfill({contentType:'application/json',body:'{"job_id":"j"}'})}
   if(u.pathname.endsWith('/events')){
-   assert.equal(request.action,'search_spots');assert.equal(request.args.preference_mode,'default');
+   assert.equal(request.action,'search_spots');
+   if(request.args.expand_spots){
+    assert.equal(request.args.expand_spots,true);w.selected_spots=['free'];
+    w.catalog.more={id:'more',kind:'spot',name:'新增相关景点',source};w.spot_search.ids=['more'];w.spot_page.ids=['more'];
+   }else{
+   assert.equal(request.args.preference_mode,'default');
    w.catalog=Object.fromEntries(spots.map(s=>[s.id,{...s,source}]));w.spot_preference.status='default';w.spot_search={city:'青岛',ids:spots.map(s=>s.id),page:1};w.spot_page={ids:spots.map(s=>s.id),page:1,pages:1};w.revision++;w.ui={view:'spot',action:'search_spots',status:'ready'};
+   w.timeline.entries=[{key:'2026-10-12|midday_rest',date:'2026-10-12',time:'13:15',end:'14:15',kind:'rest',rest_type:'midday',name:'午休与放松',estimated:true}];
+   }
    return r.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({id:'j',action:'search_spots',status:'completed',workspace:w,ui:w.ui})+'\n\n'});
   }
   const data=u.pathname.endsWith('/auth/me')?{user:{id:'qa',nickname:'测试'},csrf_token:'fixture'}:u.pathname==='/api/workspaces'?{items:[{id:w.id,title:w.title}],total:1}:w;
@@ -37,6 +44,12 @@ const root=path.resolve(__dirname,'..'),base='http://127.0.0.1:8767';
   await p.locator('[data-candidate=paid] h3').click();
   assert.match(await p.locator('#candidate-modal-body').innerText(),/不是实际报价/);
   assert.equal(await p.evaluate(()=>priceHintHTML({kind:'food',cost:'94'}).includes('参考人均 ¥94')),true);
+  await p.locator('#candidate-dialog [data-close=candidate-dialog]').click();
+  assert.equal(await p.locator('.timeline-entry.midday-rest').count(),1);
+  assert.match(await p.locator('.timeline-entry.midday-rest').textContent(),/午休与放松[\s\S]*14:15/);
+  await p.getByRole('button',{name:'继续推荐相关景点',exact:true}).click();
+  await p.waitForSelector('[data-candidate=more]');
+  assert.deepEqual(await p.evaluate(()=>workspace.selected_spots),['free']);
   assert.deepEqual(errors,[]);console.log('Preference fallback, score/price labels, detail notes and restaurant reference passed.');
  }finally{await b.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -6,6 +6,7 @@ from .providers import DataError
 from .data_contracts import guide_conditions
 
 PAGE_SIZE=4
+MAX_RECOMMENDATIONS=24
 
 def destinations():
     items={}
@@ -36,7 +37,7 @@ def main_pois(items):
 
 def visible(w):
     search=w.get('spot_search') or {};rejected=set(w.get('rejected_spots',[]))
-    return [cid for cid in search.get('ids',[])[:8] if cid not in rejected and cid in w['catalog']]
+    return [cid for cid in search.get('ids',[])[:MAX_RECOMMENDATIONS] if cid not in rejected and cid in w['catalog']]
 
 def page_info(w):
     search=w.get('spot_search') or {};grouped=groups(w);page=max(1,min(int(search.get('page',1)),max(1,math.ceil(len(grouped)/PAGE_SIZE))))
@@ -74,27 +75,38 @@ async def fetch(w,keywords,page_num):
 
 async def search(w,args,progress,recommend):
     city=w['requirements']['city'];classic=classic_names(city)
+    expanding=args.get('expand_spots') is True;previous=w.get('spot_search') or {}
+    history=list(dict.fromkeys(previous.get('history_ids',[])+previous.get('ids',[]))) if previous.get('city')==city else []
+    seen_names={clean_name(w['catalog'][cid]['name']) for cid in history if cid in w['catalog']}
     if args.get('reject_current'):
         for cid in page_info(w)['ids']:
             if cid not in w['selected_spots']:reject_one(w,cid)
-    keywords=[str(x)[:40] for x in (args.get('keywords') or classic[:3]+['风景名胜'])[:4]]
+    keywords=[str(x)[:40] for x in (args.get('keywords') or (previous.get('keywords') if expanding else None) or classic[:3]+['风景名胜'])[:4]]
     progress('正在查询景点并筛选重复地点与附属设施')
-    items,more=await fetch(w,keywords,1)
+    page=previous.get('provider_page',1)+1 if expanding else 1
+    items,more=await fetch(w,keywords,page)
+    if expanding:
+        items=[p for p in items if p['id'] not in history and p['id'] not in w['selected_spots'] and clean_name(p['name']) not in seen_names]
+        if not items and more and page<3:
+            page+=1;items,more=await fetch(w,keywords,page)
+            items=[p for p in items if p['id'] not in history and p['id'] not in w['selected_spots'] and clean_name(p['name']) not in seen_names]
+        if not items:return '本轮暂未找到新的相关景点，已有推荐与选择已保留。可以补充感兴趣的主题或希望扩展的区域，再继续推荐。'
     if not items:raise DataError('未找到新的景点候选，请调整兴趣或搜索名称。')
-    w['catalog'].update({p['id']:p for p in items[:8]});w['candidates']=items[:8]
-    w['spot_search']={'city':city,'keywords':keywords,'ids':[p['id'] for p in items[:8]],'page':1,'provider_page':1,'exhausted':True}
+    items=items[:MAX_RECOMMENDATIONS]
+    w['catalog'].update({p['id']:p for p in items});w['candidates']=items
+    w['spot_search']={'city':city,'keywords':keywords,'ids':[p['id'] for p in items],'page':1,'provider_page':page,'history_ids':history,'exhausted':True}
     w['discovery_mode']=False
     progress('基础景点资料已到达，正在补充推荐与通行核对')
     for p in items:
         p['classic']=any(clean_name(n)==clean_name(p['name']) for n in classic)
         if p['classic']:p['discovery_label']='城市代表景点'
-    guides=(await local_tool('retrieve_guides',guide_conditions(city,' '.join(p['name'] for p in items[:8])+' 游览 特色',w['requirements'])))['items']
+    guides=(await local_tool('retrieve_guides',guide_conditions(city,' '.join(p['name'] for p in items)+' 游览 特色',w['requirements'])))['items']
     progress('正在按旅行偏好比较推荐顺序')
-    summary=await recommend(w,items,'优先匹配用户条件，其次参考城市代表景点；给出有依据的推荐顺序，不把评分当作实时热门榜',guides)
+    summary=await recommend(w,items,('补充新相关景点，保留已选景点与偏好，避免重复；' if expanding else '结合已知游玩天数推荐能组成整趟旅行的景点集合，并提供适量备选；')+'数量按预计停留与休息、位置和需求判断。优先匹配条件，其次参考城市代表景点，不把评分当实时热门榜',guides)
     items.sort(key=lambda p:((not p.get('classic')) if args.get('prefer_known') else False,p.get('recommendation_rank',99),not p.get('classic'),-(float(p.get('rating') or 0) if str(p.get('rating') or '').replace('.','',1).isdigit() else 0)))
     # Publish a bounded set actually compared by the model, rather than all raw API rows.
     ranked=[p for p in items if p.get('recommendation_rank') is not None]
-    items=(ranked or items)[:8]
+    items=(ranked or items)[:MAX_RECOMMENDATIONS]
     from .planning import route_options,choose_route
     from .access import screen
     anchor=w.get('hotel') or next((w['catalog'].get(cid) for cid in w.get('selected_spots',[]) if w['catalog'].get(cid,{}).get('location')),None)
@@ -109,9 +121,11 @@ async def search(w,args,progress,recommend):
             parents=await local_tool('get_place_details',{'ids':missing})
             w['catalog'].update({p['id']:p for p in parents.get('items',[]) if p.get('kind')=='spot'})
         except DataError:pass
-    w['spot_search']={'city':city,'keywords':keywords,'provider_page':1,'page':1,'ids':[p['id'] for p in items],'excluded':excluded,'exhausted':True}
-    w['discovery_mode']=False;w['spots_confirmed']=False;w['stage']='景点'
-    return f'已查询到{min(PAGE_SIZE,len(items))}个景点，已展示在右侧。'+summary
+    w['spot_search']={'city':city,'keywords':keywords,'provider_page':page,'page':1,'ids':[p['id'] for p in items],'history_ids':history,'excluded':excluded,'exhausted':True}
+    w['discovery_mode']=False
+    if not expanding:w['spots_confirmed']=False
+    w['stage']='景点'
+    return f'已{"补充" if expanding else "推荐"}{len(items)}个景点，已展示在右侧，可分页比较行程建议与备选。'+summary
 
 async def turn_page(w,args,progress,recommend):
     search=w.get('spot_search')
