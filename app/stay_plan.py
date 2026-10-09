@@ -67,12 +67,20 @@ def _return_departure(w):
 
 
 def nights(w):
-    """需要住宿的夜晚列表：从入住日到返程前一天；返程当天不计住宿。"""
+    """需要住宿的夜晚列表：从入住日到返程前一天；返程当天不计住宿。
+
+    入住日取「开始游玩日」与「去程抵达日」中较早的一个：去程早于开始游玩日时
+    （例如 9 号到、10 号才开玩），落地当晚同样要住，不能从 10 号才算起。
+    """
     r = w.get('requirements') or {}
     from . import visits
     start = _d(r.get('start_date'))
     tour = [_d(x) for x in (visits.dates(w) or [])]
     tour = [x for x in tour if x]
+    # 提前抵达：入住日提前到抵达/出发当天。
+    early = _d(w.get('arrival_stay_from'))
+    if early and (start is None or early < start):
+        start = early
     if not start:
         return []
     last_date, _ = return_date_bounds(w)
@@ -137,6 +145,12 @@ def center_of_spots(w):
             'location': f'{lng:.6f},{lat:.6f}', 'center_of_spots': True}, len(points)
 
 
+def arrival_anchor(w):
+    """抵达日的吃住中心：抵达车站/机场；定位不到时退回当晚住宿。"""
+    from .travel_review import arrival_anchor as _anchor
+    return _anchor(w)
+
+
 def trip_closure(w, before_day=None):
     """行程最后一个活动的地点：某晚没有当天活动时用它作兜底参照。
 
@@ -161,7 +175,16 @@ def day_closure(w, day):
     返回 (地点, 依据)。锚点不要求已有坐标：poiName 查询只用到名称，坐标仅用于
     额外核算通行距离，因此没有坐标的收尾景点仍是有效的锚点。
     当天没有活动时退回行程最后一个活动，而不是留空。
+    提前抵达日（去程早于开始游玩日）以抵达车站/机场为中心：那天人刚落地，
+    住宿与餐饮都该围着到达地点安排。
     """
+    from . import travel_review
+    if any(d.isoformat() == day for d in travel_review.pre_tour_days(w)):
+        anchor = travel_review.arrival_anchor(w)
+        if anchor:
+            point = dict(anchor)
+            point['_closure'] = 'station' if anchor.get('kind') == 'station' else 'hotel'
+            return point, anchor.get('basis') or '抵达地点'
     order = touring_days(w).get(day) or []
     for cid in reversed(order):
         p = (w.get('catalog') or {}).get(cid)

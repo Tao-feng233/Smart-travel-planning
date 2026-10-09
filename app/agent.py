@@ -703,7 +703,13 @@ async def handle(w,action,args,progress):
             if not p.get('detail') and p.get('provider_id'):
                 try:await load_hotel_detail(w,p,progress)
                 except DataError as error:detail_error=str(error)
-        elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
+        elif p['kind'] in ('train','flight'):
+            transport_select(w,p,args.get('replace',False))
+            # 选定班次后自动审查安排：提前抵达日要吃住、返程过早则剔除当天住宿。
+            # 只说清结论与依据，不在此处写死时刻。
+            from . import travel_review
+            review_notices,review_dropped=travel_review.apply(w)
+            answer_extra=('\n'+'\n'.join('· '+x for x in review_notices)) if review_notices else ''
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
         elif p['kind']=='hotel':
@@ -714,7 +720,7 @@ async def handle(w,action,args,progress):
             elif detail_error:answer=answer_extra+f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。'
             else:answer=answer_extra+f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
             if left:answer+='\n还有 '+str(len(left))+' 晚没有选住宿（'+'、'.join(left)+'）：在住宿编排里逐晚挑，没选就是还没选。'
-        else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
+        else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'+answer_extra
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer
     if action=='hotel_detail':

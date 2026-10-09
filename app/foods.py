@@ -19,10 +19,12 @@ BREAKFAST_SIGNALS=('早餐','早点','包子','馒头','粥','豆浆','油条','
 # 每餐最终给几个候选：用户要求 5~6 个。
 MEAL_LIMIT=6
 
-# 房型报价里的餐食文本形如"含双早""无早餐""含早餐""含单早"。据此判断这一晚
-# 是否已经在房费里带了早餐——带了就不该再推荐早点铺、也不该重复计早餐费用。
-MEAL_INCLUDED_PATTERNS=('含早','含早餐','含双早','含单早','双早','单早','含餐','含双餐','早餐2份','早餐两份','含2早','含二早','自助早')
+# 房型报价里的餐食文本实测形如"2份早餐""1份早餐""无早餐"，也见过"含双早"等写法。
+# 据此判断这一晚是否已在房费里带了早餐——带了就不该再推荐早点铺。
+MEAL_INCLUDED_PATTERNS=('含早','含早餐','含双早','含单早','双早','单早','含餐','含双餐','份早餐','早餐')
 MEAL_EXCLUDED_PATTERNS=('无早','不含早','不含餐','无早餐','不含早餐','自行解决','不含餐食','无餐')
+# 表明"两份"的写法：途牛是"2份早餐"，其它渠道可能写"双早/两份/含2早"。
+MEAL_DOUBLE_PATTERNS=('双早','2份','两份','2早','二早','双餐','2 份')
 
 
 def parse_room_meal(text):
@@ -35,7 +37,7 @@ def parse_room_meal(text):
     if not raw:return (None,0,'房型报价未说明是否含早')
     if any(x in raw for x in MEAL_EXCLUDED_PATTERNS):return (False,0,raw)
     if any(x in raw for x in MEAL_INCLUDED_PATTERNS):
-        count=2 if any(x in raw for x in ('双早','2份','两份','含2早','含二早','双餐')) else 1
+        count=2 if any(x in raw for x in MEAL_DOUBLE_PATTERNS) else 1
         return (True,count,raw)
     return (None,0,raw)
 
