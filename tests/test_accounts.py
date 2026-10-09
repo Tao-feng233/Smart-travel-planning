@@ -15,6 +15,11 @@ def client(monkeypatch,tmp_path):
     async def offline_model(*args,**kwargs):return {'content':'{"summary":"合成审核","issues":[]}'},{}
     async def offline_audit(w,model,progress,**kwargs):return await original_audit(w,offline_model,progress,**kwargs)
     monkeypatch.setattr(timeline_review,'refresh',offline_audit)
+    from app import timeline_tools
+    original_optimize=timeline_tools.optimize
+    async def offline_tool_model(*args,**kwargs):return {'tool_calls':[{'id':'offline','function':{'name':'keep_timeline','arguments':'{"reason":"合成测试保留安排"}'}}]},{}
+    async def offline_optimize(w,model,progress,**kwargs):return await original_optimize(w,offline_tool_model,progress,**kwargs)
+    monkeypatch.setattr(timeline_tools,'optimize',offline_optimize)
     @asynccontextmanager
     async def lifespan(app):
         main.SHUTTING_DOWN=False;main.TASKS.clear();main.LOCKS.clear()
@@ -268,7 +273,7 @@ def test_final_transport_selection_has_one_needed_message_and_dining_target(clie
  stored['catalog']={'s':{'id':'s','kind':'spot','name':'西湖'},'b':{'id':'b','name':'G2','kind':'train','direction':'return','departure':'2026-10-13 18:00','arrival':'2026-10-13 22:00','seats':99}};storage.save(stored)
  result=wait(client,submit(client,stored,'select',{'id':'b'}).json()['job_id']);assert result['ui']['suggested_view']=='food'
  assert '往返班次已确认' in result['workspace']['messages'][-1]['content']
- assert any('时间安排提醒' in m['content'] for m in result['workspace']['messages'])
+ assert len(result['workspace']['messages'])==2, '没有严重影响的选票不应追加警告'
  result2=wait(client,submit(client,result['workspace'],'select',{'id':'b'}).json()['job_id'])
  assert len(result2['workspace']['messages'])==len(result['workspace']['messages'])
 

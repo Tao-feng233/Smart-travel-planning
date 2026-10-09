@@ -3,16 +3,22 @@ import copy
 import time
 import uuid
 
-from .auto_selection import signature
+from .auto_selection import signature as selection_signature
 from .providers import DataError
+
+def signature(w):
+    import hashlib,json
+    value={'choices':selection_signature(w),'visit_analysis':w.get('visit_analysis')}
+    return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 SOFT_CODES={'estimated_capacity','estimated_period_capacity','unbalanced_estimate','revision_day_end'}
 
 
 def request(w,plan,action='plan',analysis=None,time_policy=None):
+    from .schedule_quality import serious
     issues=[]
     for item in plan.get('planning_issues',[]):
-        if item.get('code') not in SOFT_CODES:continue
+        if item.get('code') not in SOFT_CODES or not serious(item):continue
         if item.get('code')=='revision_day_end' and any(i['code']==item['code'] and i.get('date')==item.get('date') for i in issues):continue
         issues.append(item)
     if not issues:

@@ -70,3 +70,5 @@ button.inline-execute{background:transparent!important;color:#405fae!important}b
 .scope-hint{padding:9px 12px;background:#f5f7fc;border-radius:9px;color:#60708c;font-size:13px;line-height:1.7}
 
 .timeline-entry.travel-leg{background:#f1f6fb;border-color:#d8e3ee}.timeline-entry.travel-leg span{font-size:12px}.timeline-entry.travel-leg small{line-height:1.6}
+
+.timeline-entry .timeline-transport-mode{color:#45618a;font-weight:600}.timeline-entry .timeline-arrival{color:#637b9d}.timeline-entry.travel-leg time{font-size:12px}

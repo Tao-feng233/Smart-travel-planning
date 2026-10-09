@@ -20,9 +20,10 @@ async def check(w,p,anchor,route_options,choose_route,meal=None):
     if chosen:
         result.update(route=chosen,message='从'+start['name']+'到'+end['name']+'，'+{'walking':'步行','driving':'驾车','transit':'公交'}.get(chosen['mode'],'通行')+'预计'+str(chosen['minutes'])+'分钟')
         if meal:
+            from .pacing import meal_duration
             from .schedule import meal_window,PERIODS
             low,high=meal_window(w,*meal)
-            if low+chosen['minutes']+15+PERIODS[meal[1]][2]>high:
+            if low+chosen['minutes']+15+meal_duration(w,meal[0],meal[1])>high:
                 result.update(status='time_conflict',message='该餐次可用时段不足以容纳已查询通行、15分钟缓冲与完整用餐')
         from .stay_plan import anchor as stay_anchor
         hotel=stay_anchor(w,meal[0]) if meal else None
@@ -33,7 +34,7 @@ async def check(w,p,anchor,route_options,choose_route,meal=None):
                 result['return_route']=back_route
                 from .schedule import day_end,windows
                 limit=min(day_end(w,meal[0]),windows(w,meal[0])[1])
-                if low+chosen['minutes']+15+PERIODS[meal[1]][2]+back_route['minutes']+15>limit:
+                if low+chosen['minutes']+15+meal_duration(w,meal[0],meal[1])+back_route['minutes']+15>limit:
                     result.update(status='time_conflict',message='该餐次含前往餐厅、完整用餐及返回住宿的通行，超过当前结束或返程准备时刻')
             elif back and all(x.get('status')=='no_route' for x in back):result.update(status='no_route',message='当前已核对的方式均未返回餐厅至住宿的方案')
             else:result.update(status='unknown',message='已核对去餐厅通行，返回住宿方案尚未核实')

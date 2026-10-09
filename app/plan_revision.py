@@ -76,7 +76,7 @@ def check(w, plan):
                     issues.append(diagnostics.issue('revision_fixed_time', event.get('name', '景点')+'的安排未能满足你指定的日期或时段。', ids=[cid], dt=dt))
         high=schedule.day_end(w,dt)
         if any(e.get('kind') in ('spot','spot_continue') and schedule.minutes(e.get('end'))>high for e in day.get('events', [])):
-            issues.append(diagnostics.issue('revision_day_end', dt+'的建议游玩超过当前每日结束时间。可调整节奏或查看带警告的草稿；当前结束时刻不会自动延后。',dt=dt,level='warning'))
+            issues.append(diagnostics.issue('revision_day_end', dt+'的建议游玩超过当前每日结束时间。可调整节奏或查看带警告的草稿；当前结束时刻不会自动延后。',dt=dt,level='warning',overrun_minutes=max(schedule.minutes(e.get('end')) for e in day['events'] if e.get('kind') in ('spot','spot_continue'))-high,available_minutes=max(0,high-schedule.minutes(w['requirements'].get('day_start','09:00')))))
     if len(seen)!=len(set(seen)) or set(seen)!=set(hierarchy['active_ids']):
         issues.append(diagnostics.issue('model_output', '修订没有完整保留全部已选景点，旧计划已保留，可重试。',view='plan',retry=True))
     for key, choice in w.get('meal_choices', {}).items():

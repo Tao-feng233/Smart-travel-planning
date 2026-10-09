@@ -35,14 +35,20 @@ def windows(w,dt):
 def day_end(w,dt):
  pins=w.get('visit_requests',{});cat=w.get('catalog',{})
  evening=any((pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('date')==dt and (pins.get(cid) or cat.get(cid,{}).get('visit_suggestion') or {}).get('period')=='evening' for cid in w.get('selected_spots',[]))
+ from .visit_analysis import current
+ analysis=current(w)
+ evening=evening or any(x.get('date')==dt and x.get('period')=='evening' for x in (analysis or {}).get('items',[]))
  return max(minutes(w['requirements'].get('day_end','18:30')),22*60 if evening else 0)
 
 def meal_window(w,dt,period):
+ from . import pacing
  low,high=windows(w,dt);begin,end=MEAL_WINDOWS[period]
+ begin=min(begin,pacing.meal_time(w,dt,period))
  return max(begin,low),min(end,high,day_end(w,dt))
 
 def meal_start(w,dt,period,preferred=None):
- begin,end=meal_window(w,dt,period);_,at,duration=PERIODS[period]
+ from . import pacing
+ begin,end=meal_window(w,dt,period);at=pacing.meal_time(w,dt,period);duration=pacing.meal_duration(w,dt,period)
  if begin+duration>end:return None
  return max(begin,min(at if preferred is None else preferred,end-duration))
 
@@ -63,17 +69,17 @@ def provisional(w):
  for dt,places in buckets.items():
   hotel=stay_plan.hotel_for(w,dt,morning=True)
   floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
-  lunch_at=meal_start(w,dt,'lunch');rest_start=lunch_at+PERIODS['lunch'][2] if lunch_at is not None else None
+  lunch_at=meal_start(w,dt,'lunch');rest_start=lunch_at+pacing.meal_duration(w,dt,'lunch') if lunch_at is not None else None
   rest_minutes=pacing.rest_length(w,dt,rest_start) if rest_start is not None else 0
-  breaks=sorted([(at,length) for _,at,length in PERIODS.values()]+([(rest_start,rest_minutes)] if rest_minutes else []))
+  breaks=sorted([(meal_start(w,dt,period),pacing.meal_duration(w,dt,period)) for period in PERIODS if meal_start(w,dt,period) is not None]+([(rest_start,rest_minutes)] if rest_minutes else []))
   # Respect explicit periods and orders; within flexible groups use nearest
   # coordinates. Straight distance is never displayed as road travel time.
   while places:
    def rank(p):
     period=estimates[p['id']].get('period','any')
-    return ({'morning':0,'any':1,'afternoon':2,'evening':3}.get(period,1),order.get(p['id'],9999),coordinate_distance(last,p) if last and last.get('location') and p.get('location') else 0)
+    return ({'morning':0,'any':1,'afternoon':2,'evening':3}.get(period,1),order.get(p['id'],9999),estimates[p['id']].get('sequence',9999),coordinate_distance(last,p) if last and last.get('location') and p.get('location') else 0)
    p=min(places,key=rank);places.remove(p);estimate=estimates[p['id']];period=estimate.get('period','any');duration=estimate['duration']
-   t=max(t,{'afternoon':13*60,'evening':18*60}.get(period,0))
+   t=max(t,{'afternoon':13*60,'evening':18*60}.get(period,0),minutes(estimate.get('not_before')))
    # A long visit can span lunch with a labelled meal pause. Do not move a
    # whole half-day visit into the afternoon just because it crosses noon.
    for at,length in breaks:
@@ -83,7 +89,7 @@ def provisional(w):
     if t<at<finish:finish+=length
    pin_period=pins.get(p['id'],{}).get('period')
    over=finish>min(end,day_end(w,dt)) or pin_period in ('morning','afternoon') and finish>{'morning':720,'afternoon':1080}[pin_period]
-   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':finish-t>duration,'over_capacity':over})
+   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'not_before':estimate.get('not_before'),'sequence':estimate.get('sequence'),'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':finish-t>duration,'over_capacity':over})
    t=finish+pacing.for_day(w,dt)['break_minutes'];last=p
   rows+=arranged
   if rest_minutes:
@@ -91,7 +97,7 @@ def provisional(w):
                 'kind':'rest','rest_type':'midday','name':'午休与放松','estimated':True,'confirmed':False,
                 'reason':pacing.for_day(w,dt)['reason']})
   for period,(label,at,duration) in PERIODS.items():
-   at=meal_start(w,dt,period)
+   at=meal_start(w,dt,period);duration=pacing.meal_duration(w,dt,period)
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
    if not choice and (w.get('meal_mode')=='self' or w.get('dining_reviewed')):choice={'mode':'self'}
@@ -105,6 +111,30 @@ def provisional(w):
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
+def pending_legs(w,rows):
+ # No clock or duration is invented before route lookup.
+ legs=[]
+ for dt in sorted({r['date'] for r in rows}):
+  last=stay_plan.anchor(w,dt,morning=True);ordinal=0
+  activity=sorted([r for r in rows if r['date']==dt and r['kind'] in ('spot','meal') and r.get('candidate_id') and not r.get('included_in_room')],key=lambda r:r['time'])
+  for row in activity:
+   target=point(w,row['candidate_id'])
+   if not target:continue
+   if not last or last['id']!=target['id']:
+    ordinal+=1
+    legs.append({'key':dt+'|pending-road|'+str(ordinal),'date':dt,'time':'','sort_time':row['time'],'sort_order':0,'kind':'unknown_route',
+     'name':(last['name'] if last else '出发位置待确定')+' → '+target['name'],'candidate_id':target['id'],
+     'route_status':'unknown','mode':None,'route_minutes':None,'end':None,'estimated':True,'confirmed':False,
+     'reason':'交通方式、出发及抵达时间尚未查询；点击核对交通时间后更新，当前游玩时刻仍为初步建议。'})
+   last=target
+  hotel=stay_plan.anchor(w,dt)
+  if activity and hotel and last and last['id']!=hotel['id']:
+   legs.append({'key':dt+'|pending-return','date':dt,'time':'','sort_time':activity[-1].get('end') or activity[-1]['time'],'sort_order':1,'kind':'unknown_route',
+    'name':last['name']+' → '+hotel['name'],'candidate_id':hotel['id'],'route_status':'unknown','mode':None,'route_minutes':None,'end':None,'estimated':True,'confirmed':False,
+    'reason':'返回住宿的交通方式和耗时待查询。'})
+ return legs
+
+
 def plan_rows(w,plan,provisional=False):
  rows=[]
  from .spot_hierarchy import state
@@ -114,20 +144,22 @@ def plan_rows(w,plan,provisional=False):
    kind=e.get('kind')
    if kind not in ('spot','spot_continue','meal','transport','arrival','route','unknown_route','transfer_plan') and e.get('rest_type')!='midday':continue
    cid=e.get('candidate_id') or (e.get('food') or {}).get('id')
-   direction=None
+   direction=None;ticket={}
    if kind=='transport':
     for slot,label in [('selected_transport','outbound'),('selected_return','return')]:
-     ticket=w.get(slot) or {}
-     depart=transport_time(ticket,'departure')
+     candidate=w.get(slot) or {}
+     depart=transport_time(candidate,'departure')
      if depart and depart.date().isoformat()==d['date'] and depart.strftime('%H:%M')==e['start']:
-      direction=label;cid=ticket.get('id');break
+      direction=label;ticket=candidate;cid=ticket.get('id');break
+   arrival=transport_time(ticket,'arrival') if kind=='transport' else None
    period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if kind=='meal' else None
    route=e.get('route') or {}
    confirmed=bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))) if kind=='meal' else bool(pins.get(cid)) if provisional and kind in ('spot','spot_continue') else kind in ('spot','spot_continue','transport','arrival')
-   rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if kind=='spot_continue' else ''),
-                'date':d['date'],'time':e['start'],'end':e['end'],'kind':kind,'rest_type':e.get('rest_type'),
+   rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if kind=='spot_continue' else '|'+kind+'|'+str(i) if kind not in ('spot','meal') else ''),
+                'date':d['date'],'time':e['start'],'end':arrival.strftime('%H:%M') if arrival else e['end'],'end_date':arrival.date().isoformat() if arrival else None,'kind':kind,'rest_type':e.get('rest_type'),
                 'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':confirmed,'estimated':provisional or kind in ('rest','unknown_route','transfer_plan'),
-                'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
+                'duration':e.get('duration'),'included_in_room':e.get('included_in_room',False),'transport_kind':(ticket.get('kind') if kind=='transport' else None),'train_type':(ticket.get('train_type') if kind=='transport' else None),
+                 'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
                 'route_status':route.get('status') or ('waiting_estimate' if e.get('transfer_scope')=='waiting' else 'unknown' if kind in ('unknown_route','transfer_plan') else None),
                 'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
  for dt,cid in stay_plan.assignment_map(w).items():
@@ -143,15 +175,15 @@ def build(w):
  formal=bool(plan and not plan.get('stale') and not duplicate_plan(w,plan))
  if formal:rows=plan_rows(w,plan)
  elif checked:rows=checked['entries']
- else:rows=provisional(w)
+ else:rows=provisional(w);rows+=pending_legs(w,rows)
  # Include transport-only dates outside the sightseeing period.
  for key,kind in [('selected_transport','去程'),('selected_return','返程')]:
   p=w.get(key);dt=transport_time(p,'departure')
-  if p and dt and not any(x['kind']=='transport' and x['date']==dt.date().isoformat() and x['time']==dt.strftime('%H:%M') for x in rows):rows.append({'key':key,'date':dt.date().isoformat(),'time':dt.strftime('%H:%M'),'kind':'transport','candidate_id':p.get('id'),'direction':'return' if key=='selected_return' else 'outbound','name':kind+' · '+p.get('name','班次'),'confirmed':p.get('selection_status')=='confirmed','estimated':False})
- rows=sorted(rows,key=lambda x:(x['date'],x['time'],x['key']))
+  if p and dt and not any(x['kind']=='transport' and x['date']==dt.date().isoformat() and x['time']==dt.strftime('%H:%M') for x in rows):rows.append({'key':key,'date':dt.date().isoformat(),'time':dt.strftime('%H:%M'),'kind':'transport','candidate_id':p.get('id'),'direction':'return' if key=='selected_return' else 'outbound','name':kind+' · '+p.get('name','班次'),'transport_kind':p.get('kind'),'train_type':p.get('train_type'),'end':(transport_time(p,'arrival').strftime('%H:%M') if transport_time(p,'arrival') else None),'end_date':(transport_time(p,'arrival').date().isoformat() if transport_time(p,'arrival') else None),'confirmed':p.get('selection_status')=='confirmed','estimated':False})
+ rows=sorted(rows,key=lambda x:(x['date'],x.get('sort_time',x['time']),x.get('sort_order',1),x['key']))
  slots=[x for x in rows if x['kind']=='meal']
  from .locations import hotel_anchor
- partial=not hotel_anchor(w) or any(x.get('route_status')=='unknown' for x in rows)
+ partial=not hotel_anchor(w) or any(not stay_plan.anchor(w,dt,morning=True) for dt in {x['date'] for x in rows if x['kind']=='spot'}) or any(x.get('route_status')=='unknown' for x in rows)
  from . import visit_analysis
  from .travel_preview import signature
  pending=w.get('travel_preview') or {}

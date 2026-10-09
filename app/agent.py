@@ -305,7 +305,7 @@ class GraphState(TypedDict):
 
 FUNCTION={'type':'function','function':{'name':'submit_intent','description':'理解用户的本轮需求，更新必要条件并选择下一项查询或规划动作。不要补造用户没说的条件。',
  'parameters':{'type':'object','properties':{
-  'action':{'type':'string','enum':['discover_destinations','search_spots','spots_page','complete_spots','search_hotels','weather','train','flight','ticket','place_detail','plan','chat','select_room','complete_hotel','search_foods','meal_choice','visit_schedule','analyze_visits','refresh_routes','review_timeline','optimize_plan','complete_food','request_auto_selection','cancel_auto_selection']},
+  'action':{'type':'string','enum':['discover_destinations','search_spots','spots_page','complete_spots','search_hotels','weather','train','flight','ticket','place_detail','plan','chat','select_room','complete_hotel','search_foods','meal_choice','visit_schedule','analyze_visits','adjust_timeline','refresh_routes','review_timeline','optimize_plan','complete_food','request_auto_selection','cancel_auto_selection']},
   'patch':{'type':'object','description':'仅本轮明确提供的条件，未提供不填写','properties':{
    'end_date':{'type':'string'},'local_trip':{'type':'boolean'},'return_date':{'type':'string'},'outbound_date':{'type':'string'},'food_preferences':{'type':'array','items':{'type':'string'}},'city':{'type':'string'},'origin':{'type':'string'},'start_date':{'type':'string'},'days':{'type':'integer'},'adults':{'type':'integer'},
    'children':{'type':'integer'},'child_ages':{'type':'array','items':{'type':'integer'}},'rooms':{'type':'integer'},'budget':{'type':'number'},
@@ -317,6 +317,8 @@ FUNCTION={'type':'function','function':{'name':'submit_intent','description':'�
   'select_ids':{'type':'array','items':{'type':'string'}},'remove_ids':{'type':'array','items':{'type':'string'}},
   'answer':{'type':'string','description':'简短确认、解释或询问缺项。不宣称尚未执行的查询已完成。'}},'required':['action','patch','answer']}}}
 
+from .timeline_tools import CHANGE_SCHEMA
+FUNCTION['function']['parameters']['properties']['timeline_changes']=CHANGE_SCHEMA
 FUNCTION['function']['parameters']['properties'].update(keyword={'type':'string','description':'用户指定的酒店品牌、名称或住宿区域，原样用于酒店查询'},room_id={'type':'string','description':'来自给定room_choices的房型报价ID'},replace={'type':'boolean','description':'用户明确要求改选已有班次时为true'},time_start={'type':'string','description':'出发时间段起点 HH:MM'},time_end={'type':'string','description':'出发时间段终点 HH:MM'},train_type={'type':'string','enum':['all','highspeed','regular']})
 FUNCTION['function']['parameters']['properties'].update(acknowledgement={'type':'string','description':'执行前回应本轮要求的一句简短确认，不宣称已完成查询或选择'},include_food={'type':'boolean'},food_keywords={'type':'array','items':{'type':'string'}},prefer_known={'type':'boolean'},auto_select={'type':'boolean','description':'班次仅展示候选，此字段始终为false'},meal_mode={'type':'string','enum':['chosen','self','remove']},meal_date={'type':'string'},meal_period={'type':'string','enum':['breakfast','lunch','dinner']},food_id={'type':'string'},anchor_id={'type':'string','description':'当前景点或酒店参照ID，用于餐饮查询'},departure_date={'type':'string','description':'本轮交通查询日期，不能覆盖整趟开始日期'})
 FUNCTION['function']['parameters']['properties']['visit_requests']={'type':'array','items':{'type':'object','properties':{'candidate_id':{'type':'string'},'date':{'type':'string'},'period':{'type':'string','enum':list(visits.PERIODS)},'clear':{'type':'boolean'}},'required':['candidate_id']},'description':'用户明确指定某景点哪天哪个时段游玩，使用真实ID和旅行日期；取消指定用clear。'}
@@ -372,6 +374,7 @@ async def understand(s):
     prompt+='住宿只需选定酒店位置即可继续，具体房型属于可选项。用户确认住宿完成时使用complete_hotel，不要求补选房型，不自动加载或选择房型报价。用户明确选择具体房型时才保存房型。'
     prompt+='已选酒店的stale或quote_stale是原报价过期，不等于酒店位置失效；条件变化时保留酒店位置，提示房型和实际总价需要重新核实。抵达后默认先前往已选酒店，不假设已预订或可以立即入住。'
     prompt+='用户提到老人、儿童、行动能力或同行需求时，将原意保存在companion_notes；只按明确数字填写人数和儿童年龄，不根据称谓猜人数。推荐需要综合这些条件与有效日期的天气，没预报时不凭季节编造天气。对日期和人数缺项使用“请补充一下出游日期、成人数等相关信息，便于更精细地推荐”，不要说不补齐就不能推荐。'
+    prompt+='用户希望重新分配、主动优化或修改时间轴时使用adjust_timeline，mission.mode=act；可给timeline_changes由工具核对后应用，或不填让排程助手查询现状后调用工具。不能仅回复冲突让用户自己改。'
     prompt+='用户询问当前时间轴是否合理、是否太赶但尚未授权修改时使用review_timeline并将mission设为query；只读审核提出建议，不擅自改期或生成计划。'
     prompt+='用户只要求核对路程或更新时间轴交通时用refresh_routes，mission使用query；不额外生成计划或改变选择。要求重排完整计划时仍用optimize_plan。'
     prompt+='午休和游览宽裕程度需要综合判断。用户明确午休分钟数或明确不要午休时填写midday_rest_minutes，默认值不填patch。要求慢慢逛、充分休息时保存偏好并分析或修订安排，不能声称已改动未执行的计划。'
@@ -463,7 +466,7 @@ async def execute(s):
         if p['kind']=='spot' and cid not in w['selected_spots']:w['selected_spots'].append(cid);w['spots_confirmed']=False;mark_stale(w)
         elif p['kind']!='spot':selection_answer=await handle(w,'select',{'id':cid,'replace':intent.get('replace',False),**{k:intent[k] for k in ('meal_date','meal_period','meal_mode') if k in intent}},s['progress'])
         if action=='chat':w['ui']=guidance.describe(w,'select',{'id':cid},status='loading')
-    arguments={'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('expand_spots','page','stay_date','stay_dates','preference_mode','proposed_patch','allow_missing','auto_generate_plan','instruction','conflict','auto_mode','auto_categories','id','view','visit_date','keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','visit_requests','visit_order') if k in intent}}
+    arguments={'keywords':intent.get('keywords',[]),'direction':intent.get('direction','outbound'),'reject_current':intent.get('reject_current',False),**{k:intent[k] for k in ('expand_spots','page','timeline_changes','stay_date','stay_dates','preference_mode','proposed_patch','allow_missing','auto_generate_plan','instruction','conflict','auto_mode','auto_categories','id','view','visit_date','keyword','room_id','replace','time_start','time_end','train_type','food_keywords','prefer_known','auto_select','meal_mode','meal_date','meal_period','food_id','departure_date','anchor_id','visit_requests','visit_order') if k in intent}}
     import time
     started=time.monotonic();tool_error=None
     try:answer=await handle(w,action,arguments,s['progress'])
@@ -582,6 +585,17 @@ async def handle(w,action,args,progress):
         from .plan_warnings import approve,cancel
         return approve(w,args) if action=='approve_plan_warning' else cancel(w)
     if action=='chat':return ''
+    if action=='adjust_timeline':
+        from .timeline_tools import apply,optimize
+        from .travel_preview import refresh
+        if args.get('timeline_changes'):
+            result=await apply(w,args['timeline_changes'],progress)
+        else:
+            await refresh(w,progress)
+            result=await optimize(w,llm,progress,force=True,conflict=(w.get('travel_preview') or {}).get('issues'))
+        w['ui']=guidance.describe(w,action,view=w.get('ui',{}).get('view') or 'spot',status='loading')
+        if result['status']=='applied':return '已通过时间轴工具调整景点顺序、建议游玩时间与餐次，页面已更新。'+result.get('reason','')+' 已选地点和班次保留。'+('部分道路仍需核对，当前时刻为建议。' if not result['roads_checked'] else '')
+        return result.get('reason') or '当前时间轴未改动；已有选择保留。'
     if action=='review_timeline':
         return '已核对时间轴，具体建议会显示在对话中的时间安排提醒里；已有选择保留。'
     if action=='refresh_routes':

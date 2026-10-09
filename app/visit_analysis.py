@@ -31,7 +31,7 @@ def signature(w):
     value = {'nightly_stays':facts(w),'hierarchy_version':1,'parent_coverage':hierarchy['parent_coverage'],'parent_context':parent_facts(w),'chosen':w.get('selected_spots',[]),
         'chains':{cid:ancestors(w.get('catalog',{}),cid) for cid in hierarchy['active_ids']},
         'transfer_offsets':[offset(w,'outbound'),offset(w,'return')],
-        'pacing_version':2,'recommendation_context':context(w),'requirements': w['requirements'], 'spots': [
+        'pacing_version':3,'recommendation_context':context(w),'requirements': w['requirements'], 'spots': [
         {k: p.get(k) for k in FACT_KEYS} for p in selected(w)],
         'requests': hierarchy['visit_requests'], 'order': hierarchy['visit_order'],
         'hotel': {k: (w.get('hotel') or {}).get(k) for k in ('id', 'location')},
@@ -46,15 +46,14 @@ def current(w):
 
 
 def budgets(w):
-    from .schedule import windows, minutes, day_end, PERIODS
+    from .schedule import windows, minutes, day_end, PERIODS,meal_start
     from . import pacing
     result = []
     for dt in visits.dates(w):
         low, high = windows(w, dt)
         low = max(low, minutes(w['requirements'].get('day_start', '09:00')))
         high = min(high, day_end(w, dt))
-        meals = sum(max(0, min(high, at + length) - max(low, at))
-                    for _, at, length in PERIODS.values())
+        meals=sum(max(0,min(high,at+pacing.meal_duration(w,dt,period))-max(low,at)) for period in PERIODS for at in [meal_start(w,dt,period)] if at is not None)
         rest=pacing.reserved(w,dt,low,high)
         result.append({'date': dt, 'start_minute': low, 'end_minute': high,
                        'visit_minutes': max(0, high - low - meals-rest),
@@ -116,7 +115,7 @@ def distribution_warnings(w, items, allowed_dates=None):
     for d, load in loads.items():
         ids=[i['candidate_id'] for i in items if i['date']==d]
         if load > bs[d]['visit_minutes']:
-            warning('estimated_capacity',d+'建议游玩及转场约'+str(load)+'分钟，扣除用餐与午休后的估算可用时间为'+str(bs[d]['visit_minutes'])+'分钟。安排可能偏紧，可调整游览范围或顺序，也可继续生成带警告的草稿，再核对实际路线。',d,ids)
+            warning('estimated_capacity',d+'建议游玩及转场约'+str(load)+'分钟，扣除用餐与午休后的估算可用时间为'+str(bs[d]['visit_minutes'])+'分钟。安排可能偏紧，可调整游览范围或顺序，也可继续生成带警告的草稿，再核对实际路线。',d,ids,needed_minutes=load,available_minutes=bs[d]['visit_minutes'],overrun_minutes=load-bs[d]['visit_minutes'])
         for period, low, high in [('morning', 540, 720), ('afternoon', 795, 1080), ('evening', 1080, 1380)]:
             fixed = [i for i in items if i['date'] == d and w.get('visit_requests', {}).get(i['candidate_id'], {}).get('period') == period]
             capacity = max(0, min(high, bs[d]['end_minute']) - max(low, bs[d]['start_minute']))
@@ -124,7 +123,7 @@ def distribution_warnings(w, items, allowed_dates=None):
             capacity=max(0,capacity-reserved(w,d,max(low,bs[d]['start_minute']),min(high,bs[d]['end_minute'])))
             needed=sum(i['duration'] for i in fixed) + max(0, len(fixed)-1)*bs[d]['transfer_buffer_minutes']
             if needed > capacity:
-                warning('estimated_period_capacity',d+'指定'+visits.PERIODS[period]+'的建议游览约'+str(needed)+'分钟，该时段估算可用约'+str(capacity)+'分钟。建议时长尚需核对；明确时段不会被自动更改。',d,[i['candidate_id'] for i in fixed])
+                warning('estimated_period_capacity',d+'指定'+visits.PERIODS[period]+'的建议游览约'+str(needed)+'分钟，该时段估算可用约'+str(capacity)+'分钟。建议时长尚需核对；明确时段不会被自动更改。',d,[i['candidate_id'] for i in fixed],needed_minutes=needed,available_minutes=capacity,overrun_minutes=needed-capacity)
     usable = [d for d in bs if bs[d]['visit_minutes'] >= 30]
     if len(usable) > 1 and len(items) > 1:
         ratio = lambda d, load: load / max(1, bs[d]['visit_minutes'])
@@ -173,7 +172,7 @@ def summary(w, value):
     for item in value['items']:
         groups.setdefault(item['date'], []).append(cat[item['candidate_id']]['name'] +
             '（建议' + str(item['duration']) + '分钟）')
-    text = '已按景点规模、位置、旅行节奏与可用日期分析游玩安排。时长为建议估算，正式计划还会核对道路耗时与开放条件。' if value['status'] == 'model' else '模型分配暂未通过校验，已保留可用的时长估算并按每日负担提供初步安排，可点击“优化分配”重试。'
+    text = '已按景点规模、位置、旅行节奏与可用日期分析游玩安排。时长为建议估算，正式计划还会核对道路耗时与开放条件。' if value['status'] == 'model' else '已按已选地点与可用日期整理初步安排，交通核对后会继续优化起止时间。'
     text += '\n' + '\n'.join(dt + '：' + '、'.join(ps) for dt, ps in list(groups.items())[:8])
     if len(groups) > 8: text += '\n其余日期可在时间轴中查看。'
     return text + ('\n' + '\n'.join(value['notices']) if value['notices'] else '')
@@ -226,7 +225,7 @@ async def analyze(w, model, progress, force=False):
         try:
             message, _ = await model(messages, json_mode=True, max_tokens=min(16000, max(2500, len(ps) * 140)))
         except DataError: break
-        errors = []; items = []; raw = message.get('content') or '{}'
+        errors = []; advisories=[]; items = []; raw = message.get('content') or '{}'
         try:
             value = json.loads(raw); seen = set(); ids = {p['id'] for p in ps}
             pacing_rows=value.get('day_pacing',[])
@@ -250,14 +249,15 @@ async def analyze(w, model, progress, force=False):
             if seen != ids: raise ValueError('遗漏已选景点')
             duration_estimates = {i['candidate_id']: {k: i[k] for k in ('duration', 'period', 'reason', 'basis')} for i in items}
             day_pacing=parsed_pacing
-            errors.extend(distribution_errors({**w,'_pacing_override':day_pacing}, items))
+            from .schedule_quality import serious
+            advisories=[x['message'] for x in distribution_warnings({**w,'_pacing_override':day_pacing},items) if serious(x)]
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             errors.append('候选ID、日期、时段或JSON结构未通过校验：' + str(e))
-        if not errors: valid = items; break
+        if not errors and not advisories: valid = items; break
         if not attempt:
             progress('正在根据每日负担与日期校验结果修订安排')
             messages.extend([{'role': 'assistant', 'content': raw}, {'role': 'user', 'content':
-                json.dumps({'validation_errors': errors, 'allowed_ids': [p['id'] for p in ps]}, ensure_ascii=False)}])
+                json.dumps({'validation_errors': errors,'workload_advisories':advisories,'allowed_ids': [p['id'] for p in ps]}, ensure_ascii=False)}])
     value = {'signature': signature(w), 'status': 'model' if valid is not None else 'fallback',
              'items': valid if valid is not None else allocate({**w,'_pacing_override':day_pacing}, duration_estimates),
              'day_pacing':day_pacing,'estimated': True}

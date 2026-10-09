@@ -1,5 +1,5 @@
 """Bounded proposal batches for long trips; every selected ID is validated once."""
-import json,math
+import json,math,re
 
 async def create(w,spots,payload,prompt,progress,model,runtime):
     from .providers import DataError
@@ -46,7 +46,10 @@ async def create(w,spots,payload,prompt,progress,model,runtime):
                         duration=item.get('duration',estimates.get(cid,{}).get('duration',90))
                         if isinstance(duration,bool) or not isinstance(duration,(int,float)) or not 15<=duration<=720:
                             errors.append('时长必须为15至720分钟的建议值：'+cid);continue
-                        seen.add(cid);items.append({**item,'period':period,'duration':round_up(duration,15)})
+                        not_before=item.get('not_before') or estimates.get(cid,{}).get('not_before')
+                        if not_before and (not isinstance(not_before,str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d',not_before)):
+                            errors.append('建议开始时间格式无效：'+cid);continue
+                        seen.add(cid);items.append({**item,'not_before':not_before,'period':period,'duration':round_up(duration,15)})
                     if items and dt in allowed_tour:
                         from .schedule import windows,minutes
                         low,high=windows(w,dt)

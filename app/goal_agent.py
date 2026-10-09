@@ -55,7 +55,7 @@ def normalize(w,text,intent):
             value.update(action='chat',patch={},answer='本次查询提到的条件与已选行程不同。现有选择已保留；请说明是更改当前旅行，还是仅比较另一方案。')
             goal['multi_step']=False;value['mission']=goal;value['needs_info']=True
     if goal['mode']=='explain':value.update(action='chat',patch={})
-    if goal['mode']=='edit_plan' and value['action']!='visit_schedule':
+    if goal['mode']=='edit_plan' and value['action'] not in ('visit_schedule','adjust_timeline'):
         value.update(action='optimize_plan' if w.get('plan') or w.get('last_plan_conflict') else 'plan',instruction=text)
     if goal['mode']=='delegate':
         # Defaults belong in the reviewable proposal, not the known facts.

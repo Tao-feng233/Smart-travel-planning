@@ -182,7 +182,7 @@ class Action(BaseModel):
 async def action(wid:str,body:Action,user=Depends(auth.current_user)):
     w=owned(wid,user)
     if w['archived']:raise HTTPException(409,'这次旅行已归档，请恢复后再继续规划')
-    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','refresh_routes','review_timeline','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
+    if body.action not in {'chat','request_auto_selection','approve_auto_selection','continue_auto_selection','cancel_auto_selection','approve_plan_warning','cancel_plan_warning','requirements','discover_destinations','choose_destination','search_spots','spots_page','dismiss_spot','complete_spots','complete_hotel','skip_hotel','search_hotels','search_foods','meal_choice','complete_food','visit_schedule','analyze_visits','adjust_timeline','refresh_routes','review_timeline','optimize_plan','select','select_room','hotel_detail','place_detail','weather','train','flight','ticket','plan','undo'}:
         raise HTTPException(400,'不支持的操作')
     if body.action=='chat' and not body.text.strip():raise HTTPException(400,'请先输入旅行想法')
     jid=uuid.uuid4().hex
@@ -241,6 +241,8 @@ async def perform(wid,body,jid,owner_id):
             w['revision']+=1;storage.save(w)
         audit_result=None
         before_audit=json.dumps({'requirements':w['requirements'],'selected':w.get('selected_spots'),'stays':w.get('stay_hotels'),'rooms':w.get('selected_rooms'),'pins':w.get('visit_requests'),'hotel':(w.get('hotel') or {}).get('id'),'outbound':w.get('selected_transport'),'return':w.get('selected_return'),'meals':w.get('meal_choices')},sort_keys=True)
+        before_adjustment=json.dumps(w.get('timeline_adjustment'),sort_keys=True)
+        before_spots=tuple(w.get('selected_spots',[]))
         before_choices=json.dumps({'hotel':(w.get('hotel') or {}).get('id'),'outbound':(w.get('selected_transport') or {}).get('id'),'return':(w.get('selected_return') or {}).get('id'),'meals':w.get('meal_choices',{})},sort_keys=True)
         try:
             async with asyncio.timeout(600):
@@ -255,14 +257,15 @@ async def perform(wid,body,jid,owner_id):
                     if body.action=='requirements':
                         from .agent import ensure_weather
                         await ensure_weather(w,progress)
-                    if body.action not in ('refresh_routes','review_timeline','select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots','cancel_auto_selection','approve_plan_warning','cancel_plan_warning'):
+                    if body.action not in ('refresh_routes','review_timeline','adjust_timeline','select','select_room','meal_choice','dismiss_spot','spots_page','requirements','undo','train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots','cancel_auto_selection','approve_plan_warning','cancel_plan_warning'):
                         answer=await replies.compose(w,answer)
                 performed=w.get('turn_action') if body.action=='chat' else body.action
                 selected_kind=w.get('catalog',{}).get(body.args.get('id'),{}).get('kind') if body.action=='select' else None
                 choices=json.dumps({'hotel':(w.get('hotel') or {}).get('id'),'outbound':(w.get('selected_transport') or {}).get('id'),'return':(w.get('selected_return') or {}).get('id'),'meals':w.get('meal_choices',{})},sort_keys=True)
-                if performed in ('select_room','review_timeline','complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
+                if tuple(w.get('selected_spots',[]))!=before_spots or performed in ('adjust_timeline','select_room','review_timeline','complete_spots','complete_hotel','complete_food','meal_choice','visit_schedule','analyze_visits','approve_auto_selection','continue_auto_selection') or selected_kind in ('hotel','train','flight') or choices!=before_choices:
                     from .travel_preview import refresh
-                    await refresh(w,progress)
+                    from .agent import llm as schedule_model
+                    await refresh(w,progress,model=schedule_model,optimize=performed not in ('refresh_routes','review_timeline','adjust_timeline'))
                 after_audit=json.dumps({'requirements':w['requirements'],'selected':w.get('selected_spots'),'stays':w.get('stay_hotels'),'rooms':w.get('selected_rooms'),'pins':w.get('visit_requests'),'hotel':(w.get('hotel') or {}).get('id'),'outbound':w.get('selected_transport'),'return':w.get('selected_return'),'meals':w.get('meal_choices')},sort_keys=True)
                 if before_audit!=after_audit or performed in ('complete_spots','analyze_visits','visit_schedule','review_timeline'):
                     from .timeline_review import refresh as audit
@@ -296,10 +299,18 @@ async def perform(wid,body,jid,owner_id):
             if body.action in ('select_room','meal_choice') or body.action=='select' and w['catalog'].get(body.args.get('id'),{}).get('kind')!='spot':w['feedback']['text']=readable(answer).split('\n')[0]
             if body.action in ('train','flight','weather','hotel_detail','place_detail','search_foods','ticket','search_hotels','search_spots'):w['feedback']['text']='查询结果已更新，请在右侧查看。'
             from .journey import selection_assessment
-            assessment=selection_assessment(w);key=('dense' if assessment['count']>max(5,assessment['days']*3) else '')+('wide' if assessment['spread_km']>=50 else '')
-            if assessment['level']=='warning' and key!=w.get('selection_warning_key'):
-                w['messages'].append({'role':'assistant','content':'**行程安排提醒**\n'+ '\n'.join(assessment['messages']),'time':storage.now()});w['selection_warning_key']=key
-            if assessment['level']=='normal':w['selection_warning_key']=''
+            # Count and straight-distance heuristics remain advisory; only the
+            # checked timeline audit publishes material warnings in conversation.
+        adjustment=w.get('timeline_adjustment') or {}
+        if adjustment.get('status')=='applied' and before_adjustment!=json.dumps(adjustment,sort_keys=True):
+            names=[w['catalog'].get(cid,{}).get('name','景点') for cid in adjustment.get('changed_ids',[])]
+            text='**时间轴已自动优化**\n'+adjustment.get('reason','已调整可移动活动的日期、顺序与建议时间。')
+            if names:text+='\n涉及：'+'、'.join(names[:12])+'。'
+            if not adjustment.get('roads_checked'):text+=' 部分交通仍待核对，显示时间为建议。'
+            w['messages'].append({'role':'assistant','content':text,'time':storage.now()})
+            if performed in ('complete_spots','analyze_visits','visit_schedule'):
+                from .visit_analysis import summary as visit_summary
+                answer=visit_summary(w,w['visit_analysis'])+'\n'+next_step(w)['message']
         if audit_result:
             from .timeline_review import message as audit_message,fresh_issues
             fresh=fresh_issues(w,audit_result)

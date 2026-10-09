@@ -89,8 +89,9 @@ def test_suggested_day_end_is_warning_but_return_deadline_is_real_conflict(monke
 
 def test_afternoon_arrival_audit_is_read_only_bounded_and_deduplicates_warnings():
     w=trip();w['selected_transport']={'id':'out','kind':'train','name':'G1','arrival':D1+' 14:20','departure':D1+' 10:00','selection_status':'confirmed'}
+    w['visit_requests']['a']['period']='morning'
     before=copy.deepcopy(w)
-    async def model(*a,**k):return {'content':json.dumps({'summary':'首日宜轻松','issues':[{'date':D1,'candidate_ids':['a'],'view':'spot','message':'建议把较长游览移到第二天，固定日期需用户确认。'}]},ensure_ascii=False)},{}
+    async def model(*a,**k):return {'content':json.dumps({'summary':'首日宜轻松','issues':[{'date':D1,'candidate_ids':['a'],'view':'spot','impact':'major','message':'建议把较长游览移到第二天，固定日期需用户确认。'}]},ensure_ascii=False)},{}
     result=asyncio.run(timeline_review.refresh(w,model,lambda _:None))
     assert result['status']=='completed' and any(x['code']=='late_arrival' for x in result['issues'])
     assert all(w.get(k)==before.get(k) for k in ['requirements','selected_spots','stay_hotels','selected_transport','visit_requests','plan'])
