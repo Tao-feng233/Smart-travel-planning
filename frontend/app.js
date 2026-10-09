@@ -54,11 +54,15 @@ function finishJob(j,name,args){applyQueryControls(j.ui?.controls,false);running
  if(performed==='hotel_detail'||pickedHotel)detailOpenId=pickedHotel||args.id||j.ui?.focus_id;
  // 选择住宿后直接打开该酒店的房型详情：房型已由后端在同一次操作里取回。
  if(pickedHotel&&workspace.catalog[pickedHotel]?.room_choices?.length)pickedHotelOpen=pickedHotel;
+ // 折叠状态必须在 render() 之前定好：选好某一晚就收起该晚，刚查过某一晚则保持展开。
+ // 放到 render() 之后再改，等于改了状态却没重画。选房型（select_room）之后也会重画，
+ // 所以按"这次是否真的给某晚定好了酒店"来判断，而不是只看动作名。
+ const hotelJustSettled=!!(workspace.stay_plan&&(performed==='select'||performed==='select_room')
+                           &&workspace.catalog[args.id]?.kind==='hotel');
+ if(hotelJustSettled)stayOpenDate='';
+ else if(performed==='search_hotels'&&args.stay_date)stayOpenDate=args.stay_date;
 const view=j.ui?.view||actionViews[performed];if(sceneNames[view]&&tab!==view)switchTab(view);else render();if(j.status==='completed'&&workspace.feedback?.id===j.id)toast(workspace.feedback.text);else if(j.status==='completed'&&['search_spots','search_hotels','weather','train','flight'].includes(performed))toast('查询结果已更新，可在右侧查看');if(j.status==='completed'&&performed==='select'){const picked=workspace.catalog[args.id];if(picked&&['train','flight'].includes(picked.kind)&&picked.direction!=='return'&&(!workspace.selected_return||workspace.selected_return.selection_status==='recommended'))$('#return-dialog').showModal()}if(j.ui?.suggested_view&&j.status==='completed'){switchTab(j.ui.suggested_view);toast(workspace.next_step?.message||'往返班次已确认。');if(j.ui.suggested_view==='food'){const slot=nextMealSlot();if(slot){mealDate=slot.date;mealPeriod=slot.period;render();const epoch=tripEpoch,wid=workspace.id;setTimeout(()=>{if(epoch===tripEpoch&&workspace.id===wid&&!busy)action('search_foods',{meal_date:slot.date,meal_period:slot.period})},120)}}}else if(['train','flight'].includes(performed)&&j.status==='completed'){scrollToResults()}
  if(pickedHotelOpen&&pickedHotelOpen===pickedHotel)openRoomView(pickedHotel);pickedHotelOpen=null;
- // 选好某一晚的住宿后把那一晚折叠起来；查过某一晚则保持该晚展开。
- if(performed==='select'&&args.stay_date)stayOpenDate='';
- else if(performed==='search_hotels'&&args.stay_date)stayOpenDate=args.stay_date;
  if(j.error)error(j.error);}
 // 打开某家酒店的房型详情：复用详情弹窗，与点“房型详情”看到的是同一个界面。
 function openRoomView(id){
