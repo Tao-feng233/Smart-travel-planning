@@ -80,7 +80,51 @@ def test_nights_exclude_the_return_day_and_fall_back_to_the_trip_close(monkeypat
     assert rows[1]['anchor_name'] == '八大关' and '最后' in rows[1]['anchor_basis']
 
 
-def test_full_run_queries_only_within_budget_and_marks_skipped(monkeypatch):
+def test_selecting_a_hotel_fetches_rooms_so_the_modal_can_open(monkeypatch):
+    """点选住宿即取房型：前端据此直接打开房型详情，不必再点一次"房型详情"。"""
+    w = workspace()
+    candidate = {'id': 'tuniu:hotel:900001@' + D1, 'provider_id': 900001, 'kind': 'hotel',
+                 'name': '示例酒店', 'location': '120.30,36.00',
+                 'query_conditions': {'checkIn': D1, 'checkOut': D2, 'adultNum': 2, 'roomNum': 1}}
+    w['catalog'][candidate['id']] = candidate
+    calls = []
+    async def vendor(service, tool, params):
+        calls.append((tool, params))
+        return {'data': {'starName': '高档型', 'policies': {'checkInTime': '14:00'},
+                         'roomTypes': [{'roomTypeId': 'r1', 'roomTypeName': '大床房',
+                                        'ratePlans': [{'rmbPrices': '199', 'count': 3}]}]},
+                'source': {'name': '途牛'}}
+    monkeypatch.setattr(agent, 'tuniu', vendor)
+    async def tool(name, args):
+        return {'items': []}
+    monkeypatch.setattr(agent, 'local_tool', tool)
+    reply = asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
+    assert len(calls) == 1 and calls[0][0] == 'tuniuHotelDetail'
+    # 用该候选自己的入住日期核对，而不是整段旅行日期
+    assert calls[0][1]['checkIn'] == D1 and calls[0][1]['checkOut'] == D2
+    assert candidate.get('room_choices'), '房型必须已就绪，前端才能直接打开房型详情'
+    assert '房型已展开' in reply
+    # 已有房型时不重复请求
+    calls.clear()
+    asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
+    assert calls == []
+
+
+def test_room_fetch_failure_keeps_the_hotel_selection(monkeypatch):
+    """取房型失败不能把住宿选择弄丢，要保留选择并说明可重试。"""
+    from app.providers import DataError
+    w = workspace()
+    candidate = {'id': 'tuniu:hotel:900002@' + D1, 'provider_id': 900002, 'kind': 'hotel',
+                 'name': '示例酒店', 'location': '120.30,36.00',
+                 'query_conditions': {'checkIn': D1, 'checkOut': D2, 'adultNum': 2, 'roomNum': 1}}
+    w['catalog'][candidate['id']] = candidate
+    async def failing(service, tool, params):
+        raise DataError('本项目的途牛查询预算已用完，请稍后再试')
+    monkeypatch.setattr(agent, 'tuniu', failing)
+    reply = asyncio.run(agent.handle(w, 'select', {'id': candidate['id']}, lambda _: None))
+    assert w['hotel']['id'] == candidate['id'], '取房型失败也必须保留住宿选择'
+    assert '已选择住宿' in reply and '重试' in reply
+
     """一次查全程受剩余额度限制，未查的晚次要明确标出，不能静默少查。"""
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
