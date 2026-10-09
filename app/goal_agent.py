@@ -8,6 +8,7 @@ from .providers import DataError
 
 MODES={'consult','query','delegate','edit_plan','explain','act'}
 READ_TOOLS={
+    'refresh_routes':('核对已有选择之间的道路与班次接驳，更新时间轴预览；不重新生成正式计划或改变选择',{}),
     'search_spots':('根据天数推荐行程景点及备选；继续推荐用expand_spots=true补充新候选。无偏好先询问，明确无偏好时preference_mode=default；不替用户选择',{'keywords':{'type':'array','items':{'type':'string'}},'preference_mode':{'type':'string','enum':['default']},'expand_spots':{'type':'boolean'}}),
     'search_hotels':('按已有目的地、日期、人数查询酒店；条件不足会返回缺项',{'keyword':{'type':'string'}}),
     'search_foods':('按餐次或景点/住宿周边查询餐厅，不保存选择',{'keywords':{'type':'array','items':{'type':'string'}},'meal_date':{'type':'string'},'meal_period':{'type':'string','enum':['breakfast','lunch','dinner']},'anchor_id':{'type':'string'}}),

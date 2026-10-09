@@ -1,9 +1,10 @@
 from .locations import quote_stale
+from .spot_hierarchy import duplicate_plan
 
 def markdown(w):
     p=w['plan'];r=w['requirements']
     lines=['# '+p['title'],'',f"生成时间：{p['created']}；工作区版本：{w['revision']}",'',
-           '**状态：需要重新生成**' if p.get('stale') else '**状态：草稿，关键未知需确认**','',
+           '**状态：需要重新生成**' if p.get('stale') or duplicate_plan(w,p) else '**状态：草稿，关键未知需确认**','',
            '## 旅行条件','',f"目的地：{r.get('city')}；开始日期：{r.get('start_date')}；天数：{r.get('days')}；成人：{r.get('adults','未确定')}；儿童：{r.get('children',0)}",'',
            f"总预算：{r.get('budget','未确定')}；节奏：{r.get('pace','balanced')}",'','## 已选住宿','']
     h=w.get('hotel')
@@ -33,7 +34,7 @@ def markdown(w):
         for e in d['events']:
             lines += [f"- {e['start']}–{e['end']} {e['name']}：{e.get('note','')}"]
             if e.get('route'):
-                rt=e['route'];lines += [f"  方式：{rt['mode']}；高德预计 {rt['minutes']} 分钟；另留 {e['buffer']} 分钟缓冲；查询：{rt['source']['queried_at']}"]
+                rt=e['route'];lines += [f"  方式：{rt['mode']}；高德预计 {rt['minutes']} 分钟；另留 {e['buffer']} 分钟缓冲；查询：{(rt.get('source') or {}).get('queried_at','未额外请求导航或来源时间未提供')}"]
             if e.get('poi'):lines += [f"  地址：{e['poi'].get('address','未知')}；来源：高德地图 {e['poi']['source']['queried_at']}"]
         lines+=['']
     lines+=['## 预算与未核实费用','',str(p['budget'].get('hotel_reference','未知'))+' 元住宿起价参考；口径：'+p['budget'].get('basis','住宿未确认'),'']

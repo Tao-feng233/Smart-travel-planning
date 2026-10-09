@@ -113,7 +113,8 @@ def refine_intent(w,text,intent):
     return intent
 
 def next_step(w):
-    if w.get('plan') and not w['plan'].get('stale'):
+    from .spot_hierarchy import duplicate_plan
+    if w.get('plan') and not w['plan'].get('stale') and not duplicate_plan(w):
         return {'message':'请查看已生成的旅行计划书；如需调整日期、景点、住宿或餐饮，直接在对话中告诉我。','view':'plan','label':'查看计划书'}
     r=w['requirements'];missing=[label for k,label in [('city','目的地'),('start_date','出游日期'),('days','游玩天数'),('adults','成人数')] if not r.get(k)]
     if not r.get('city'):return {'message':'可以在右侧比较旅游地区，或在对话中告诉我目的地；确定后再挑选景点。','view':'spot','missing':missing}

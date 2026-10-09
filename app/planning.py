@@ -36,7 +36,7 @@ def validate_plan(plan,requirements):
             if start<previous: issues.append(f"{day['date']} 的 {e['name']} 与前项时间重叠")
             if end<=start: issues.append(f"{e['name']} 时长无效")
             previous=end
-        tour_end=max([minute(e['end']) for e in day['events'] if e.get('kind') not in ('transport','arrival','transfer_plan')]+[0])
+        tour_end=max([minute(e['end']) for e in day['events'] if e.get('kind') not in ('transport','arrival','transfer_plan') and not e.get('route_scope')]+[0])
         if tour_end>minute(requirements.get('day_end','18:30')):
             issues.append(f"{day['date']} 超出每日结束时间，建议减少景点或调整顺序")
     if requirements.get('hard_constraints'):
@@ -97,20 +97,26 @@ async def generate(w, progress):
         progress('时间衔接未通过，正在保留已选班次与明确安排、调整可变顺序后重新核对')
         return await _generate({**w,'planning_feedback':str(e)},progress)
 
-async def _generate(w, progress):
+async def _generate(w, progress, *, preview=False):
+    from .spot_hierarchy import state,notes,parent_facts
+    hierarchy=state(w)
+    if hierarchy['issues']:raise DataError(hierarchy['issues'][0]['message'],{'issues':hierarchy['issues'],'view':'spot'})
+    w={**w,'visit_requests':hierarchy['visit_requests'],'visit_order':hierarchy['visit_order']}
     r=w['requirements']; catalog=w.get('catalog',{})
-    spots=[catalog[i] for i in w['selected_spots'] if i in catalog]
+    from . import transport_links
+    await transport_links.resolve(w,progress,local_tool,route_options,choose_route)
+    spots=[catalog[i] for i in hierarchy['active_ids']]
     if not spots:raise DataError('请先选择想去的景点')
     if not r.get('start_date'):raise DataError('请先确定出游日期')
     days=int(r.get('days',2)); start=date.fromisoformat(r['start_date'])
-    guides=(await local_tool('retrieve_guides',guide_conditions(r['city'],' '.join(x['name'] for x in spots)+' 开放 预约',r)))['items']
-    progress('主助手正在组织每天的景点顺序与游览建议')
+    guides=w.get('rag_results',[]) if preview else (await local_tool('retrieve_guides',guide_conditions(r['city'],' '.join(x['name'] for x in spots)+' 开放 预约',r)))['items']
+    if not preview:progress('主助手正在组织每天的景点顺序与游览建议')
     schema='{"title":"旅行主题","days":[{"date":"YYYY-MM-DD","theme":"当日主题","items":[{"candidate_id":"真实候选ID","period":"morning/afternoon/evening/any","duration":90,"note":"游玩建议与日期时段安排理由","evidence_ids":["资料ID"]}]}],"packing":["携带建议"],"todos":["出发前待办"]}'
     prompt=('你是旅游规划助手，输出 JSON。只用给定已选景点ID，每个ID恰好出现一次，不得新增景点、酒店、餐厅或事实。'
             '优先将同一景区的主景点和子景点安排在同日连续游览，避免重复计算完整景区游玩。只输出有景点的日期，无景点日期由程序补齐。把景点按位置和节奏分到给定日期，duration 是建议游玩分钟数，按景点范围、玩法和节奏分别估计；大型景区可安排半天或全天，不能统一90分钟。技术范围15至720分钟，不得为塞入日程而缩短大型景区时长。不要自己估交通耗时，程序会查询。'
             'visit_requests是用户指定日期与时段，必须遵守；visit_suggestion是灵活推荐，按地区和实际时间优化。结合季节与营业资料区分白天和晚上，没夜间开放依据不能假设可入园。上午项目在下午项目之前，晚上项目最后。'
             '以对用户说明的语气写游玩提示：建议如何逛、停留重点和安排理由，不写自言自语式分析。待办与携带建议用“请注意核实”“建议携带并保管好”等明确语气。'
-            '已选去程到达后90分钟超过每日结束时刻时，当日items必须为空，仅入住休息。返程日游玩必须在出发前120分钟结束，时间不足就不安排景点。'
+            '以day_budgets中的抵达接驳与返程准备窗口为准；到达后超过每日结束时刻时，当日不安排景点。窗口按已查询接驳与准备预留计算，未知道路保留建议值。'
             '注意已有交通到达日期/时刻。没有所选交通时不能假设已到达，也不要把第一天称为抵达日；明确这是待交通确定的草稿。'
             '已有酒店时，抵达后默认先前往该酒店，寄存行李或核对入住，再开始用餐或游览；报价过期不等于位置失效，不假设可提前入住。'
             '引用资料要检查适用日期，旧公告不当成未来当天状态。'
@@ -120,7 +126,7 @@ async def _generate(w, progress):
     begin=min(start.isoformat(),(w.get('selected_transport') or {}).get('departure','')[:10] or start.isoformat())
     span=(date.fromisoformat(finish)-date.fromisoformat(begin)).days+1
     if span>90:raise DataError('完整旅途跨度超过90天，请按阶段分别规划。')
-    payload={'requirements':r,'dates':[(date.fromisoformat(begin)+timedelta(days=i)).isoformat() for i in range(span)],'tour_dates':tour_dates,'spots':spots,
+    payload={'requirements':r,'parent_coverage':hierarchy['parent_coverage'],'parent_context':parent_facts(w),'dates':[(date.fromisoformat(begin)+timedelta(days=i)).isoformat() for i in range(span)],'tour_dates':tour_dates,'spots':spots,
              'visit_requests':w.get('visit_requests',{}),'visit_order':w.get('visit_order',[]),'selected_room':w.get('selected_room'),'hotel':w.get('hotel'),'selected_transport':w.get('selected_transport'),'selected_return':w.get('selected_return'),'official_guides':guides}
     if w.get('planning_feedback'):payload['validation_feedback']=w['planning_feedback']+'。调整可变景点日期或同日顺序，保留已选地点、班次、餐厅与用户明确日期时段，不可修改用户选择来掩盖冲突。'
     from . import visit_analysis,pacing
@@ -131,6 +137,8 @@ async def _generate(w, progress):
     from .recommendation_context import context
     payload['recommendation_context']=context(w)
     prompt+='游览时长包含观景、拍照、慢行和合理排队余量，不以最短打卡时长塞满景点。午餐后另有午休，day_budgets已扣除午休，visit_analysis.day_pacing给出每天的午休与景点间机动建议；不能重复把它算入游玩duration。依据同行人群、行动需求、天气和游览重点自主取舍，偏紧时提示而不是压缩休息掩盖问题。'
+    prompt+='parent_coverage中的父景区属于已选范围，由具体子地点覆盖，不再输出父项独立游览或重复时长。实际游玩只使用spots中的ID，继承的父项日期时段仍须遵守，原始选择保留。'
+    prompt+='结合parent_context保留区域慢行与已选子地点的游览重点，在同一活动中合并说明和估时，不默认游览该父景区全部未选地点。'
     payload['meal_choices']={key:{**value,'food':catalog.get(value.get('food_id'))} for key,value in w.get('meal_choices',{}).items()}
     if w.get('planning_revision'):
         payload['revision_context']=w['planning_revision']
@@ -138,7 +146,18 @@ async def _generate(w, progress):
     # Model output is a proposal. Enforce exact candidate identity and allow one
     # repair with concrete validation feedback, never silently add/remove spots.
     from .proposals import create
-    dates=payload['dates'];draft,groups,usage=await create(w,spots,payload,prompt,progress,llm,RUNTIME)
+    dates=payload['dates']
+    if preview:
+        from .schedule import provisional,conflicts
+        issues=conflicts(w)
+        if issues:raise DataError(issues[0]['message'],{'issues':issues,'view':'spot'})
+        by_date={}
+        for row in provisional(w):
+            if row['kind']!='spot':continue
+            by_date.setdefault(row['date'],[]).append({'candidate_id':row['candidate_id'],'period':row['period'],'duration':row['duration'],'note':row.get('reason','')})
+        groups=[{'date':dt,'items':items} for dt,items in by_date.items()]
+        draft={'title':'道路核对后的建议安排','packing':[],'todos':[],'planning_issues':[]};usage={}
+    else:draft,groups,usage=await create(w,spots,payload,prompt,progress,llm,RUNTIME)
     for dt in dates:
         if dt not in {d['date'] for d in groups}:groups.append({'date':dt,'theme':'弹性休息日','items':[]})
     groups.sort(key=lambda x:x['date'])
@@ -158,7 +177,7 @@ async def _generate(w, progress):
     sem=asyncio.Semaphore(3)
     async def pair(k,ab):
         async with sem:return k,await route_options(*ab)
-    routes=dict(await asyncio.gather(*(pair(k,v) for k,v in all_pairs.items())))
+    routes={} if preview else dict(await asyncio.gather(*(pair(k,v) for k,v in all_pairs.items())))
     computed=[]
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
@@ -219,20 +238,27 @@ async def _generate(w, progress):
                 computed.append({'date':d['date'],'theme':'在途，尚未抵达目的地','events':events, 'end':clock(t),'note':'当天在途，尚未抵达目的地，不安排游览。'})
                 continue
             elif d['date']==arrival.date().isoformat():
-                t=round_up(max(t,arrival.hour*60+arrival.minute+90))
+                arrival_buffer=transport_links.offset(w,'outbound')
+                t=round_up(max(t,arrival.hour*60+arrival.minute+arrival_buffer))
+                arrival_links=transport_links.events(w,'outbound',arrival.hour*60+arrival.minute)
                 if t>=minute(r.get('day_end','18:30')) and not d['items']:
-                    events.append({'kind':'arrival','name':'抵达后先前往'+(base['name'] if base else '住宿地点')+'，核对入住并休息','start':arrival.strftime('%H:%M'),'end':'23:59','candidate_id':base['id'] if base else None,
+                    if arrival_links:events+=arrival_links
+                    events.append({'kind':'arrival','name':'抵达后先前往'+(base['name'] if base else '住宿地点')+'，核对入住并休息','start':arrival_links[-1]['end'] if arrival_links else arrival.strftime('%H:%M'),'end':'23:59','candidate_id':base['id'] if base else None,
                                    'note':'抵达时间较晚，当天不安排景点。先前往已选酒店；接驳路线及当晚入住条件尚需核实，不代表已预订或可立即入住。'})
+                    if t>=1440:warnings.append(d['date']+'抵达后出站与前往酒店的接驳可能跨至次日；不能假设当晚已办理入住，请确认夜间交通及入住条件。')
                     computed.append({'date':d['date'],'theme':'抵达与休息','events':events,'end':'23:59','note':'到达较晚，优先办理入住和休息。'})
                     continue
-                warnings.append(f"{d['date']} 从到达后预留90分钟开始游玩，此为出站/接驳建议，尚未核实完整接驳路线。")
-                if base:events.append({'kind':'arrival','name':'抵达后先前往'+base['name']+'，寄存行李或核对入住','start':arrival.strftime('%H:%M'),'end':clock(t),'candidate_id':base['id'],
-                                       'note':'默认先前往已选酒店，再开始用餐或游览。出站与接驳暂按90分钟建议预留；酒店能否提前入住或寄存行李需确认。'})
+                warnings.append(f"{d['date']} 到达后预留{arrival_buffer}分钟出站与前往住宿；道路部分以查询结果为参考，出站、入住与等待仍是建议预留。")
+                if arrival_links:
+                    events+=arrival_links
+                    if minute(arrival_links[-1]['end'])<t:events.append({'kind':'arrival','candidate_id':base['id'],'name':'寄存行李、核对入住与机动时间','start':arrival_links[-1]['end'],'end':clock(t),'note':'入住和寄存条件需确认，不代表已预订。'})
+                elif base:events.append({'kind':'arrival','name':'抵达后先前往'+base['name']+'，寄存行李或核对入住','start':arrival.strftime('%H:%M'),'end':clock(t),'candidate_id':base['id'],
+                                       'note':'默认先前往已选酒店，再开始用餐或游览。接驳路线尚未核实，暂按建议预留；入住和寄存条件需确认。'})
         # A return-only day is not a sightseeing day. In particular, a morning
         # train must not be rejected because of an invented 09:00 day start.
         if return_time and d['date']==return_time.date().isoformat() and not d['items']:
             depart=return_time.hour*60+return_time.minute
-            preparation=max(0,depart-120)
+            preparation=max(0,depart-transport_links.offset(w,'return'))
             if arrival and arrival.date()==return_time.date() and arrival.hour*60+arrival.minute>preparation:
                 raise DataError('到达时间与返程接驳准备时间冲突，请调整往返班次。',{'date':d['date'],'direction':'return','candidate_ids':[],'view':'transport'})
             # Meals are optional and must fit before preparation. No meal is
@@ -241,7 +267,9 @@ async def _generate(w, progress):
                 breakfast,bt,last=await meal(d['date'],'breakfast',7*60+30,last,45)
                 if bt>preparation:raise DataError('返程当天已选早餐与接驳准备时间冲突，请调整早餐地点或返程班次。',{'date':d['date'],'direction':'return','view':'food','meal_period':'breakfast','candidate_ids':[]})
                 events+=breakfast
-            events.append({'kind':'transfer_plan','name':'退房与前往车站或机场，预留候车和安检时间','start':clock(preparation),'end':return_time.strftime('%H:%M'),'note':'暂按提前120分钟准备；实际接驳路线、退房及候车耗时请核对。'})
+            back_links=transport_links.events(w,'return',depart)
+            if back_links:events+=back_links
+            else:events.append({'kind':'transfer_plan','name':'退房与前往车站或机场，预留候车和安检时间','start':clock(preparation),'end':return_time.strftime('%H:%M'),'note':'接驳道路尚未核实，暂按建议准备；实际路线、退房及候车耗时请核对。'})
             back=w['selected_return'];finish=back.get('arrival','')[-5:] if back.get('arrival','')[:10]==d['date'] else '23:59'
             events.append({'kind':'transport','name':'乘坐'+back.get('name','返程班次')+'返程','start':return_time.strftime('%H:%M'),'end':finish,'source':back.get('source'),'note':'请核实班次最终时刻、车站或机场及席别。'})
             computed.append({'date':d['date'],'theme':'退房与返程','events':events,'end':clock(preparation)})
@@ -258,7 +286,7 @@ async def _generate(w, progress):
                 lunch_events,t,last=await meal(d['date'],'lunch',t,last,75);events+=lunch_events;lunch=True
             if last:
                 opts=routes.get((last['id'],p['id']),[])
-                if not opts and last.get('kind')=='food':opts=await route_options(last,p)
+                if not opts and (preview or last.get('kind')=='food'):opts=await route_options(last,p)
                 chosen=choose_route(opts,r)
                 if chosen:
                     base_buffer=15 if r.get('pace')=='relaxed' else 10
@@ -320,7 +348,7 @@ async def _generate(w, progress):
             last=p
         if base and last and last['id']!=base['id']:
             opts=routes.get((last['id'],base['id']),[])
-            if not opts and last.get('kind')=='food':opts=await route_options(last,base)
+            if not opts and (preview or last.get('kind')=='food'):opts=await route_options(last,base)
             chosen=choose_route(opts,r)
             if chosen:
                 events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+round_up(chosen['minutes']+15)),
@@ -337,9 +365,9 @@ async def _generate(w, progress):
         if any(x.get('period')=='evening' for x in d['items']):
             end_limit=max(end_limit,22*60);warnings.append(d['date']+'包含晚间游览建议，当日结束按22:00预留；请核实出游当天夜间开放并确认体力。')
         if return_time and d['date']==return_time.date().isoformat():
-            deadline=(return_time.hour*60+return_time.minute-120)//5*5
+            deadline=(return_time.hour*60+return_time.minute-transport_links.offset(w,'return'))//5*5
             end_limit=min(end_limit,max(0,deadline))
-            warnings.append(f"{d['date']} 所选返程 {return_time.strftime('%H:%M')}，暂按提前120分钟结束游览；机场/车站接驳、安检耗时尚未完整核实。")
+            warnings.append(f"{d['date']} 所选返程 {return_time.strftime('%H:%M')}，预留{transport_links.offset(w,'return')}分钟接驳准备；实际出入口、候车或安检等待仍需确认。")
             if t>end_limit:raise DataError(d['date']+'的活动与返程冲突：预计结束于'+clock(t)+'，返程'+return_time.strftime('%H:%M')+'需暂按'+clock(end_limit)+'开始接驳准备。请调整这一天的顺序、游玩日期或返程班次后重排。',{'date':d['date'],'direction':'return','candidate_ids':[x['candidate_id'] for x in d['items']],'view':'spot','deadline':clock(end_limit)})
         if end_limit>=18*60 and t<=end_limit-60:
             dinner_start=max(t,17*60)
@@ -359,18 +387,24 @@ async def _generate(w, progress):
                            'note':'尚未安排具体活动，可休息或继续挑选体验；返程未确定时不能视为全部可用'})
             t=end_limit
         if return_time and d['date']==return_time.date().isoformat():
-            events.append({'kind':'transfer_plan','name':'前往车站或机场，预留候车与安检时间','start':clock(end_limit),'end':return_time.strftime('%H:%M'),'note':'这是提前120分钟的准备建议，具体接驳路线与耗时请确认。'})
+            back_links=transport_links.events(w,'return',return_time.hour*60+return_time.minute)
+            if back_links:events+=back_links
+            else:events.append({'kind':'transfer_plan','name':'前往车站或机场，预留候车与安检时间','start':clock(end_limit),'end':return_time.strftime('%H:%M'),'note':'接驳道路尚未核实，具体路线、候车与安检耗时请确认。'})
             back=w['selected_return'];finish=back.get('arrival','')[-5:] if back.get('arrival','')[:10]==d['date'] else '23:59'
             events.append({'kind':'transport','name':'乘坐'+back.get('name','返程班次')+'返程','start':return_time.strftime('%H:%M'),'end':finish,'note':'请注意核实返程最终时刻、车站或机场及席别，提前准备身份证件。','source':back.get('source')})
         computed.append({'date':d['date'],'theme':d.get('theme','当日行程'),'events':events,'end':clock(t)})
     plan={'title':draft.get('title') or r['city']+'旅行计划','summary':'','days':computed,'created':now(),
           'packing':draft.get('packing',[]),'todos':draft.get('todos',[]),'guides':guides,'warnings':warnings,'stale':False,'usage':usage}
+    plan['parent_coverage']=hierarchy['parent_coverage'];plan['warnings']+=notes(w)
+    plan['transfer_links']=(transport_links.current(w) or {}).get('links',{})
+    if return_time and return_time.hour*60+return_time.minute<transport_links.offset(w,'return'):
+        plan['warnings'].append('返程接驳与候车准备需要提前到返程日期之前开始；请确认前一晚的退房、夜间交通及具体出发时刻，不能假设返程当日才准备即可。')
     plan['planning_issues']=draft.get('planning_issues',[])
     for d in computed:
         group=next(g for g in groups if g['date']==d['date'])
         limit=minute(r.get('day_end','18:30'))
         if any(i.get('period')=='evening' for i in group['items']):limit=max(limit,22*60)
-        finish=max([minute(e['end']) for e in d['events'] if e.get('kind') not in ('transport','arrival','transfer_plan','free')]+[0])
+        finish=max([minute(e['end']) for e in d['events'] if e.get('kind') not in ('transport','arrival','transfer_plan','free') and not e.get('route_scope')]+[0])
         if finish>limit:
             plan['planning_issues'].append({'code':'revision_day_end','level':'warning','view':'spot','date':d['date'],
                 'candidate_ids':[i['candidate_id'] for i in group['items']],
@@ -412,6 +446,9 @@ async def _generate(w, progress):
     budget_limit=r.get('budget')
     if budget_limit and plan['budget']['hotel_reference'] is not None and plan['budget']['hotel_reference']>float(budget_limit):
         plan['warnings'].append('仅住宿起价参考已超出总预算，需重新选择；其他费用尚未计入。')
+    if preview:
+        plan['preview']=True;plan['review']={'status':'not_run','summary':'时间轴预览，尚未生成或审核正式计划书。'}
+        return plan
     progress('审核助手正在复核用户要求、来源和计划书遗漏')
     try:
         review_prompt=('你是独立审核助手。检查给定旅游草稿是否遗漏用户要求、是否不当地把建议当事实、是否存在时间/位置风险。'

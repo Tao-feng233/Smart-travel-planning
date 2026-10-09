@@ -29,6 +29,8 @@ def refine(w, text, intent):
 
 def context(w, instruction, conflict=None):
     """Road geometries/media are omitted; their measured times and sources stay."""
+    from .travel_preview import current
+    route_preview=current(w)
     return model_facts({
         'user_request': instruction, 'current_plan': w.get('plan'),
         'reported_conflict': conflict or w.get('ui', {}).get('conflict') or w.get('last_plan_conflict'),
@@ -41,6 +43,7 @@ def context(w, instruction, conflict=None):
         'meal_mode': w.get('meal_mode'), 'selected_transport': w.get('selected_transport'),
         'selected_return': w.get('selected_return'), 'tickets': w.get('tickets', {}),
         'weather': w.get('weather'), 'weather_note': w.get('weather_note'),
+        'route_preview':route_preview,
         'official_guides': w.get('rag_results', []),
         'editable': ['灵活景点的游玩日和顺序', '建议时长与游览范围', '建议时段', '游玩说明'],
         'fixed': ['用户明确日期、时段、顺序', '已选景点、住宿、餐厅', '已选车票机票',
@@ -49,7 +52,9 @@ def context(w, instruction, conflict=None):
 
 
 def check(w, plan):
-    issues=[]; seen=[]
+    from .spot_hierarchy import state
+    hierarchy=state(w)
+    issues=list(hierarchy['issues']); seen=[]
     for day in plan.get('days', []):
         dt=day.get('date', ''); previous=-1
         for event in day.get('events', []):
@@ -62,7 +67,7 @@ def check(w, plan):
             if event.get('kind') in ('spot','spot_continue'):
                 cid=event.get('candidate_id')
                 if event.get('kind')=='spot':seen.append(cid)
-                pin=w.get('visit_requests', {}).get(cid, {})
+                pin=hierarchy['visit_requests'].get(cid, {})
                 if pin.get('date') and pin['date']!=dt or (
                     pin.get('period')=='morning' and end>720 or
                     pin.get('period')=='afternoon' and (begin<780 or end>1080) or
@@ -72,7 +77,7 @@ def check(w, plan):
         high=schedule.day_end(w,dt)
         if any(e.get('kind') in ('spot','spot_continue') and schedule.minutes(e.get('end'))>high for e in day.get('events', [])):
             issues.append(diagnostics.issue('revision_day_end', dt+'的建议游玩超过当前每日结束时间。可调整节奏或查看带警告的草稿；当前结束时刻不会自动延后。',dt=dt,level='warning'))
-    if len(seen)!=len(set(seen)) or set(seen)!=set(w.get('selected_spots', [])):
+    if len(seen)!=len(set(seen)) or set(seen)!=set(hierarchy['active_ids']):
         issues.append(diagnostics.issue('model_output', '修订没有完整保留全部已选景点，旧计划已保留，可重试。',view='plan',retry=True))
     for key, choice in w.get('meal_choices', {}).items():
         if choice.get('mode')!='chosen':continue

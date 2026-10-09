@@ -47,13 +47,14 @@ def page_info(w):
             'has_more':False}
 
 def groups(w):
+    from .spot_hierarchy import ancestors
     catalog=w.get('catalog',{});ids=visible(w);result=[];by={}
     prefixes={}
     for cid in ids:
         p=catalog[cid];name=p.get('name','');parts=re.split('[·•]',name,maxsplit=1)
         if len(parts)==2 and len(parts[0])>=3:prefixes.setdefault(parts[0],[]).append(cid)
     for cid in ids:
-        p=catalog[cid];parent=p.get('parent_id');name=p.get('name','');prefix=re.split('[·•]',name,maxsplit=1)[0]
+        p=catalog[cid];chain=ancestors(catalog,cid);parent=chain[-1] if chain else None;name=p.get('name','');prefix=re.split('[·•]',name,maxsplit=1)[0]
         if parent:
             key=parent;title=catalog.get(parent,{}).get('name') or prefix;basis='地图父子关系'
         elif len(prefixes.get(prefix,[]))>=2:key='name:'+prefix;title=prefix;basis='名称关联，所属关系待核实'
@@ -61,6 +62,10 @@ def groups(w):
         if key not in by:
             item={'key':key,'title':title,'parent_id':parent if parent in catalog else cid if not basis else None,'ids':[],'basis':basis};by[key]=item;result.append(item)
         by[key]['ids'].append(cid)
+        if parent:by[key]['basis']='地图父子关系'
+    for g in result:
+        g['ids']=list(dict.fromkeys(g['ids']))
+        if g['parent_id'] in w.get('rejected_spots',[]):g['parent_id']=None
     return result
 
 async def fetch(w,keywords,page_num):
@@ -94,6 +99,8 @@ async def search(w,args,progress,recommend):
     if not items:raise DataError('未找到新的景点候选，请调整兴趣或搜索名称。')
     items=items[:MAX_RECOMMENDATIONS]
     w['catalog'].update({p['id']:p for p in items});w['candidates']=items
+    from .spot_hierarchy import candidates
+    items=candidates(w['catalog'],items)
     w['spot_search']={'city':city,'keywords':keywords,'ids':[p['id'] for p in items],'page':1,'provider_page':page,'history_ids':history,'exhausted':True}
     w['discovery_mode']=False
     progress('基础景点资料已到达，正在补充推荐与通行核对')

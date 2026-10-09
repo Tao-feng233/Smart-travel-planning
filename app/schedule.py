@@ -21,14 +21,15 @@ def transport_time(p,key):
  except (ValueError,TypeError):return None
 
 def windows(w,dt):
+ from .transport_links import offset
  arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure')
  start=0;end=1440
  if arrival:
   if dt<arrival.date().isoformat():return 1440,0
-  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+90
+  if dt==arrival.date().isoformat():start=arrival.hour*60+arrival.minute+offset(w,'outbound')
  if back:
   if dt>back.date().isoformat():return 1440,0
-  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-120)
+  if dt==back.date().isoformat():end=max(0,back.hour*60+back.minute-offset(w,'return'))
  return start,end
 
 def day_end(w,dt):
@@ -50,7 +51,9 @@ def point(w,cid):return w.get('catalog',{}).get(cid)
 def provisional(w):
  from . import visit_analysis
  from . import pacing
- ds=visits.dates(w);cat=w.get('catalog',{});pins=w.get('visit_requests',{});hotel=w.get('hotel');selected=[cat[i] for i in w.get('selected_spots',[]) if i in cat]
+ from .spot_hierarchy import state
+ hierarchy=state(w)
+ ds=visits.dates(w);cat=w.get('catalog',{});pins=hierarchy['visit_requests'];hotel=w.get('hotel');selected=visit_analysis.selected(w)
  if not ds:return []
  estimates={x['candidate_id']:x for x in visit_analysis.preview(w)}
  buckets={dt:[] for dt in ds}
@@ -99,29 +102,64 @@ def provisional(w):
   if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
  return rows
 
+def plan_rows(w,plan,provisional=False):
+ rows=[]
+ from .spot_hierarchy import state
+ pins=state(w)['visit_requests']
+ for d in plan.get('days',[]):
+  for i,e in enumerate(d.get('events',[])):
+   kind=e.get('kind')
+   if kind not in ('spot','spot_continue','meal','transport','arrival','route','unknown_route','transfer_plan') and e.get('rest_type')!='midday':continue
+   cid=e.get('candidate_id') or (e.get('food') or {}).get('id')
+   direction=None
+   if kind=='transport':
+    for slot,label in [('selected_transport','outbound'),('selected_return','return')]:
+     ticket=w.get(slot) or {}
+     depart=transport_time(ticket,'departure')
+     if depart and depart.date().isoformat()==d['date'] and depart.strftime('%H:%M')==e['start']:
+      direction=label;cid=ticket.get('id');break
+   period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if kind=='meal' else None
+   route=e.get('route') or {}
+   confirmed=bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))) if kind=='meal' else bool(pins.get(cid)) if provisional and kind in ('spot','spot_continue') else kind in ('spot','spot_continue','transport','arrival')
+   rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if kind=='spot_continue' else ''),
+                'date':d['date'],'time':e['start'],'end':e['end'],'kind':kind,'rest_type':e.get('rest_type'),
+                'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':confirmed,'estimated':provisional or kind in ('rest','unknown_route','transfer_plan'),
+                'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
+                'route_status':route.get('status') or ('waiting_estimate' if e.get('transfer_scope')=='waiting' else 'unknown' if kind in ('unknown_route','transfer_plan') else None),
+                'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
+ return rows
+
+
 def build(w):
- plan=w.get('plan');rows=[]
- if plan and not plan.get('stale'):
-  for d in plan.get('days',[]):
-   for i,e in enumerate(d.get('events',[])):
-    if e.get('kind') not in ('spot','spot_continue','meal','transport','arrival') and e.get('rest_type')!='midday':continue
-    cid=e.get('candidate_id') or (e.get('food') or {}).get('id')
-    period=next((k for k,(label,_,_) in PERIODS.items() if e.get('name','').startswith(label)),None) if e.get('kind')=='meal' else None
-    rows.append({'key':d['date']+'|'+(period or cid or str(i))+('|continue'+str(i) if e.get('kind')=='spot_continue' else ''),'date':d['date'],'time':e['start'],'end':e['end'],'kind':e['kind'],'rest_type':e.get('rest_type'),'candidate_id':cid,'period':period,'name':e.get('name',''),'confirmed':e.get('kind') not in ('meal','rest') or bool(w.get('meal_choices',{}).get(d['date']+'|'+str(period))),'estimated':e.get('kind')=='rest'})
+ from .spot_hierarchy import duplicate_plan
+ from .travel_preview import current
+ plan=w.get('plan');rows=[];checked=current(w)
+ formal=bool(plan and not plan.get('stale') and not duplicate_plan(w,plan))
+ if formal:rows=plan_rows(w,plan)
+ elif checked:rows=checked['entries']
  else:rows=provisional(w)
- # Include transport-only dates, outside the sightseeing period.
+ # Include transport-only dates outside the sightseeing period.
  for key,kind in [('selected_transport','去程'),('selected_return','返程')]:
   p=w.get(key);dt=transport_time(p,'departure')
   if p and dt and not any(x['kind']=='transport' and x['date']==dt.date().isoformat() and x['time']==dt.strftime('%H:%M') for x in rows):rows.append({'key':key,'date':dt.date().isoformat(),'time':dt.strftime('%H:%M'),'kind':'transport','candidate_id':p.get('id'),'direction':'return' if key=='selected_return' else 'outbound','name':kind+' · '+p.get('name','班次'),'confirmed':p.get('selection_status')=='confirmed','estimated':False})
- rows.sort(key=lambda x:(x['date'],x['time'],x['key']))
+ rows=sorted(rows,key=lambda x:(x['date'],x['time'],x['key']))
  slots=[x for x in rows if x['kind']=='meal']
+ from .locations import hotel_anchor
+ partial=not hotel_anchor(w) or any(x.get('route_status')=='unknown' for x in rows)
  from . import visit_analysis
+ from .travel_preview import signature
+ pending=w.get('travel_preview') or {}
+ pending=pending if pending.get('status')=='pending' and pending.get('signature')==signature(w) else {}
  analysis=visit_analysis.current(w)
- return {'entries':rows,'meal_slots':slots,'provisional':not bool(plan and not plan.get('stale')),'conflicts':conflicts(w),'analysis_status':analysis['status'] if analysis else 'initial','notices':visit_analysis.notices(w,visit_analysis.preview(w))}
+ return {'entries':rows,'meal_slots':slots,'provisional':not formal,'conflicts':conflicts(w),'analysis_status':analysis['status'] if analysis else 'initial',
+         'route_status':('partial' if partial else 'checked') if formal or checked else 'pending','route_message':pending.get('message'),'route_issues':pending.get('issues'),
+         'notices':visit_analysis.notices(w,visit_analysis.preview(w))}
 
 def conflicts(w):
- result=[];arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure');pins=w.get('visit_requests',{});ds=visits.dates(w)
- for cid in w.get('selected_spots',[]):
+ from .spot_hierarchy import state
+ hierarchy=state(w)
+ result=list(hierarchy['issues']);arrival=transport_time(w.get('selected_transport'),'arrival');back=transport_time(w.get('selected_return'),'departure');pins=hierarchy['visit_requests'];ds=visits.dates(w)
+ for cid in hierarchy['active_ids']:
   p=point(w,cid);pin=pins.get(cid,{})
   if not p or not pin.get('date'):continue
   if pin['date'] not in ds:
@@ -135,7 +173,7 @@ def conflicts(w):
    result.append({'code':'fixed_window','level':'error','date':dt,'candidate_ids':[cid],'direction':direction,'view':'spot','message':p['name']+'的指定游玩时段与'+('返程接驳准备' if direction=='return' else '去程到达时间')+'冲突，调整顺序也无法满足当前时段；请修改游玩日期/时段或班次。'})
  if ds and w.get('selected_spots'):
   capacity=sum(max(0,min(windows(w,d)[1],day_end(w,d))-max(windows(w,d)[0],minutes(w['requirements'].get('day_start','09:00')))) for d in ds)
-  if capacity<30*len(w['selected_spots']) and not result:
+  if capacity<30*len(hierarchy['active_ids']) and not result:
    direction='return' if back and back.date().isoformat()<=ds[-1] else 'outbound'
    result.append({'code':'minimum_capacity','level':'error','date':back.date().isoformat() if direction=='return' else arrival.date().isoformat() if arrival else ds[0],'candidate_ids':list(w['selected_spots']),'direction':direction,'view':'spot','message':'当前交通与每日游玩时段留下的总时间不足，即使每个景点只安排30分钟也无法容纳全部选择；请延长游玩日期、减少景点或调整班次。'})
  if w.get('meal_mode')!='self':
