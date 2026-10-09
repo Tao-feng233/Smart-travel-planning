@@ -61,11 +61,40 @@ def meal_window(w,dt,period):
  begin=min(begin,pacing.meal_time(w,dt,period))
  return max(begin,low),meal_latest_end(w,dt,period)
 
-def meal_start(w,dt,period,preferred=None):
- from . import pacing
- begin,end=meal_window(w,dt,period);at=pacing.meal_time(w,dt,period);duration=pacing.meal_duration(w,dt,period)
- if begin+duration>end:return None
- return max(begin,min(at if preferred is None else preferred,end-duration))
+def meal_start(w,dt,period,preferred=None,as_late=False):
+    """某餐次的开饭时刻。
+
+    as_late：尽量晚开饭（不早于默认时刻、不超出窗口、吃完仍赶得上）。
+    返程日用它——例如 11:00 发车时准备时刻是 09:00，早餐就从 08:00 推到 09:00，
+    吃完直接上车，而不是吃完再干等一小时。
+    """
+    from . import pacing
+    begin,end=meal_window(w,dt,period);at=pacing.meal_time(w,dt,period);duration=pacing.meal_duration(w,dt,period)
+    if begin+duration>end:return None
+    want=at if preferred is None else preferred
+    latest=end-duration
+    if as_late:
+        # 窗口内尽量靠后，但不能早于默认时刻（不能把早餐排到很早）
+        want=max(want,latest)
+    return max(begin,min(want,latest))
+
+def is_return_day(w,dt):
+    """当天是不是返程日：是的话餐次尽量往后排（吃完就上车）。"""
+    back=transport_time(w.get('selected_return'),'departure')
+    return bool(back and back.date().isoformat()==dt)
+
+def return_bounded(w,dt):
+    """当天的时间窗是否真的被返程班次压住。
+
+    只有这种情况才把餐次往后推：例如 11:00 发车、准备时刻 09:00 恰好落进早餐窗口，
+    就把早餐推到窗口内最晚（吃完直接上车）。
+    普通游玩日没有班次压着，晚餐不该被推到 19:00/20:00；返程之后的日期也不该被推。
+    """
+    if not is_return_day(w,dt):return False
+    # 返程之后的日期窗口是空的，不该被当成"被班次压住"。
+    back=transport_time(w.get('selected_return'),'departure')
+    if back and dt>back.date().isoformat():return False
+    return windows(w,dt)[1]<1440
 
 def point(w,cid):return w.get('catalog',{}).get(cid)
 
@@ -84,9 +113,11 @@ def provisional(w):
  for dt,places in buckets.items():
   hotel=stay_plan.hotel_for(w,dt,morning=True)
   floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
-  lunch_at=meal_start(w,dt,'lunch');rest_start=lunch_at+pacing.meal_duration(w,dt,'lunch') if lunch_at is not None else None
+  # 返程日餐次尽量往后（吃完就上车），但留够准备时间且不超出餐次窗口。
+  late=return_bounded(w,dt)
+  lunch_at=meal_start(w,dt,'lunch',as_late=late);rest_start=lunch_at+pacing.meal_duration(w,dt,'lunch') if lunch_at is not None else None
   rest_minutes=pacing.rest_length(w,dt,rest_start) if rest_start is not None else 0
-  breaks=sorted([(meal_start(w,dt,period),pacing.meal_duration(w,dt,period)) for period in PERIODS if meal_start(w,dt,period) is not None]+([(rest_start,rest_minutes)] if rest_minutes else []))
+  breaks=sorted([(meal_start(w,dt,period,as_late=late),pacing.meal_duration(w,dt,period)) for period in PERIODS if meal_start(w,dt,period,as_late=late) is not None]+([(rest_start,rest_minutes)] if rest_minutes else []))
   # Respect explicit periods and orders; within flexible groups use nearest
   # coordinates. Straight distance is never displayed as road travel time.
   while places:
@@ -112,7 +143,7 @@ def provisional(w):
                 'kind':'rest','rest_type':'midday','name':'午休与放松','estimated':True,'confirmed':False,
                 'reason':pacing.for_day(w,dt)['reason']})
   for period,(label,at,duration) in PERIODS.items():
-   at=meal_start(w,dt,period);duration=pacing.meal_duration(w,dt,period)
+   at=meal_start(w,dt,period,as_late=return_bounded(w,dt));duration=pacing.meal_duration(w,dt,period)
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
    if not choice and (w.get('meal_mode')=='self' or w.get('dining_reviewed')):choice={'mode':'self'}
