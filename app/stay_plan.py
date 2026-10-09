@@ -165,7 +165,16 @@ def day_closure(w, day):
     返回 (地点, 依据)。锚点不要求已有坐标：poiName 查询只用到名称，坐标仅用于
     额外核算通行距离，因此没有坐标的收尾景点仍是有效的锚点。
     当天没有活动时退回行程最后一个活动，而不是留空。
+    提前抵达日（去程早于开始游玩日）以抵达车站/机场为中心：那天人刚落地，
+    住宿与餐饮都该围着到达地点安排。
     """
+    from . import travel_review
+    if any(d.isoformat() == day for d in travel_review.pre_tour_days(w)):
+        anchor = travel_review.arrival_anchor(w)
+        if anchor:
+            point = dict(anchor)
+            point['_closure'] = 'station' if anchor.get('kind') == 'station' else 'hotel'
+            return point, anchor.get('basis') or '抵达地点'
     order = touring_days(w).get(day) or []
     for cid in reversed(order):
         p = (w.get('catalog') or {}).get(cid)
