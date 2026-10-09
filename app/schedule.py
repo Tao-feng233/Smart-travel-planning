@@ -69,6 +69,7 @@ def point(w,cid):return w.get('catalog',{}).get(cid)
 def provisional(w):
  from . import visit_analysis
  ds=visits.dates(w);cat=w.get('catalog',{});pins=w.get('visit_requests',{});hotel=w.get('hotel');selected=[cat[i] for i in w.get('selected_spots',[]) if i in cat]
+ back=transport_time(w.get('selected_return'),'departure')
  if not ds:return []
  estimates={x['candidate_id']:x for x in visit_analysis.preview(w)}
  buckets={dt:[] for dt in ds}
@@ -107,7 +108,15 @@ def provisional(w):
    anchor=(point(w,before[-1]['candidate_id']) if before else hotel) or (point(w,arranged[0]['candidate_id']) if arranged else None)
    if period=='breakfast' and hotel:anchor=hotel
    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'name':label+' · '+(p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
-  if hotel and end>=22*60 and floor<22*60:rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':hotel['id'],'name':hotel['name'],'confirmed':True,'estimated':True})
+  # 当晚住宿必须用逐晚分配结果，不能一律写主住宿：用户可能只给某一晚单独选了酒店，
+  # 也可能有几晚还没定。返程当天不留宿。
+  if back and back.date().isoformat()==dt:stay_entry=None
+  else:
+   from . import stay_plan
+   assigned=(stay_plan.assignment_view(w) or {}).get(dt) or {}
+   stay_entry=point(w,assigned.get('hotel_id'))
+  if stay_entry and end>=22*60 and floor<22*60:
+   rows.append({'key':dt+'|stay','date':dt,'time':'22:00','kind':'hotel','candidate_id':stay_entry['id'],'name':stay_entry['name'],'confirmed':True,'estimated':True})
  return rows
 
 def build(w):

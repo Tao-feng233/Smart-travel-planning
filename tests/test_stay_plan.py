@@ -214,6 +214,29 @@ def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
     assert all(cid in w['catalog'] for cid in still)
 
 
+def test_timeline_shows_each_nights_own_hotel(monkeypatch):
+    """时间轴的住宿条目必须逐晚取分配结果，不能一律写主住宿。
+
+    用户看到的问题：只给某一晚选了酒店，时间轴却把主住宿标到每一晚。
+    """
+    from app import schedule
+    w = workspace()
+    visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
+    w['catalog'].update({
+        'main': {'id': 'main', 'kind': 'hotel', 'name': '主酒店', 'location': '120.30,36.00'},
+        'only2': {'id': 'only2', 'kind': 'hotel', 'name': '第二晚酒店', 'location': '120.40,36.10'}})
+    w['hotel'] = dict(w['catalog']['main'])
+    stay_plan.assign(w, 'main')
+    stay_plan.assign(w, 'only2', [D2])
+    entries = [e for e in schedule.build(w)['entries'] if e['kind'] == 'hotel']
+    names = {e['date']: e['name'] for e in entries}
+    assert len(entries) == len(names), ('同一晚不能出现多条住宿', entries)
+    assert set(names) == {D1, D2, D3}, names
+    assert names[D1] == '主酒店', names
+    assert names[D2] == '第二晚酒店', names
+    assert names[D3] == '主酒店', names
+
+
 def test_choosing_a_hotel_for_one_night_does_not_overwrite_the_others(monkeypatch):
 
 
