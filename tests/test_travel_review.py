@@ -23,6 +23,41 @@ def workspace(arrival='2026-10-09 12:00', departure=D_OUT + ' 06:00',
             'stay_hotels': {}, 'messages': []}
 
 
+def test_return_day_meals_must_finish_two_hours_before_departure():
+    """返程日：必须在发车前 2 小时吃完；赶不上的餐次直接不安排，并给出原因。"""
+    def return_workspace(departure):
+        return {'requirements': {'city': '洛阳', 'start_date': D_TOUR, 'days': 1, 'adults': 2,
+                                 'day_start': '09:00', 'day_end': '18:30'},
+                'selected_return': {'id': 'b', 'kind': 'train', 'name': 'G1',
+                                    'departure': D_TOUR + ' ' + departure,
+                                    'arrival': D_TOUR + ' 23:30', 'selection_status': 'confirmed'},
+                'catalog': {}, 'selected_spots': [], 'meal_choices': {}, 'visit_requests': {}}
+
+    def arranged(departure, period):
+        w = return_workspace(departure)
+        return schedule.meal_start(w, D_TOUR, period)
+
+    # 太早发车：三顿都赶不上，直接不安排
+    for period in ('breakfast', 'lunch', 'dinner'):
+        assert arranged('08:00', period) is None, period
+        assert arranged('09:30', period) is None, period
+    # 11:00 发车：早餐还来得及，午晚餐赶不上
+    assert arranged('11:00', 'breakfast') is not None
+    assert arranged('11:00', 'lunch') is None
+    assert arranged('11:00', 'dinner') is None
+    # 19:00 发车：晚餐窗口被压到 0 分钟，不安排
+    assert arranged('19:00', 'dinner') is None
+    assert foods.infeasible(return_workspace('19:00'), D_TOUR, 'dinner')
+    # 20:00 起发车：晚餐可安排，且必须在 18:00 前吃完
+    dinner = arranged('20:00', 'dinner')
+    assert dinner is not None
+    window = schedule.meal_window(return_workspace('20:00'), D_TOUR, 'dinner')
+    assert window[1] <= schedule.minutes('18:00'), window
+    # 时间轴上跳过的那一餐不应出现
+    entries = [e for e in schedule.build(return_workspace('19:00'))['entries'] if e['kind'] == 'meal']
+    assert all(e['period'] != 'dinner' for e in entries), entries
+
+
 def test_dinner_window_is_not_capped_by_the_activity_day_end():
     """晚餐是当天最后一件事，不该被"活动结束时刻"卡住。
 
