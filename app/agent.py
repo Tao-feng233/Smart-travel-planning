@@ -380,7 +380,6 @@ async def understand(s):
     prompt+='往返车票机票是可选项。用户明确自驾或自行安排往返时，patch.intercity_mode为self_drive或self_arranged，自驾同时设置transport_mode=driving；不主动代选车票，也不要求购买车票才能生成。未提供抵达时间须保留首日可用时间未知。'
     prompt+='住宿只需选定酒店位置即可继续，具体房型属于可选项。一日游也可以查询当晚住宿、次日离开；游玩天数不限制住宿查询，入住与退房依据实际日期和已确认返程。用户确认住宿完成时使用complete_hotel，不要求补选房型，不自动加载或选择房型报价。用户明确选择具体房型时才保存房型。'
     prompt+='已选酒店的stale或quote_stale是原报价过期，不等于酒店位置失效；条件变化时保留酒店位置，提示房型和实际总价需要重新核实。抵达后默认先前往已选酒店，不假设已预订或可以立即入住。'
-    prompt+='选择住宿位置和日期不代表确定办理入住的时刻。不要默认晚上或22:00入住。入住时间未说明时，先询问用户自行安排还是希望结合抵达、行李和游玩给出建议；建议只在对话中说明，未确认不写入时间轴。用户明确自行安排或已有入住要求时保留原意到hard_constraints，不反复追问，不把未知时刻设为已确认；酒店最早可入住政策与用户计划到店时刻是不同信息。'
     prompt+='用户提到老人、儿童、行动能力或同行需求时，将原意保存在companion_notes；只按明确数字填写人数和儿童年龄，不根据称谓猜人数。推荐需要综合这些条件与有效日期的天气，没预报时不凭季节编造天气。对日期和人数缺项使用“请补充一下出游日期、成人数等相关信息，便于更精细地推荐”，不要说不补齐就不能推荐。'
     prompt+='用户希望重新分配、主动优化或修改时间轴时使用adjust_timeline，mission.mode=act；可给timeline_changes由工具核对后应用，或不填让排程助手查询现状后调用工具。不能仅回复冲突让用户自己改。'
     prompt+='用户询问当前时间轴是否合理、是否太赶但尚未授权修改时使用review_timeline并将mission设为query；只读审核提出建议，不擅自改期或生成计划。'
@@ -786,7 +785,13 @@ async def handle(w,action,args,progress):
             answer_extra='已把 '+('、'.join(assigned))+' 的住宿设为 '+p['name']+'。'
             w['stay_hotels']=w.get('stay_hotels') or {}
             w['stay_skipped']=False
-        elif p['kind'] in ('train','flight'):transport_select(w,p,args.get('replace',False))
+        elif p['kind'] in ('train','flight'):
+            transport_select(w,p,args.get('replace',False))
+            # 选定班次后自动审查：提前抵达日要吃住、返程过早则剔除当天住宿。
+            # 只说清结论与依据，不在这些天写死时刻。
+            from . import travel_review
+            review_notices,review_dropped=travel_review.apply(w)
+            answer_extra='\n'+'\n'.join('· '+x for x in review_notices) if review_notices else ''
         mark_stale(w)
         if p['kind']=='spot':answer=f'{"已取消选择" if removed else "已选择"}：{p["name"]}。当前已选{len(w["selected_spots"])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。'
         elif p['kind']=='hotel':
@@ -797,8 +802,7 @@ async def handle(w,action,args,progress):
             elif detail_error:answer=answer_extra+f'已选择住宿：{p["name"]}。房型与报价这次没有取到：{detail_error}可点该卡的“房型详情”重试。'
             else:answer=answer_extra+f'已选择住宿：{p["name"]}。可直接点击“完成住宿选择”继续；具体房型可选，也可稍后再定。选定仅用于规划，尚未预订。'
             if left:answer+='\n还有 '+str(len(left))+' 晚没有选住宿（'+'、'.join(left)+'）：在住宿编排里逐晚挑，没选就是还没选。'
-            answer+='\n入住时间尚未因选定酒店而确定。你打算自行安排，还是希望我结合抵达和游玩行程给出建议？'
-        else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'
+        else:answer=f'已选择{"返程" if p.get("direction")=="return" else "去程"}班次：{p["name"]}。可继续确认另一方向班次，或生成计划草稿。班次尚未预订。'+answer_extra
         if w.get('plan'):answer+='\n已有计划受选择变更影响，需要重新生成。'
         return answer
     if action=='hotel_detail':
