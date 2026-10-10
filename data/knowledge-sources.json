@@ -1,23 +1,23 @@
 [
   {
-    "id": "official-cd-dfct-tickets", "city": "成都", "title": "杜甫草堂博物馆购票须知",
+    "id": "official-cd-dfct-tickets", "city": "成都", "title": "杜甫草堂购票须知",
     "url": "https://www.cddfct.cn/go-c20.htm", "allowed_hosts": ["www.cddfct.cn"],
     "selector": ".page-info-box7 .box3", "stop_before": "Chengdu Du Fu",
-    "terms": ["购票", "门票"], "entity_names": ["成都杜甫草堂博物馆", "杜甫草堂"],
+    "terms": ["购票", "门票"], "entity_names": ["成都杜甫草堂博物馆"],
     "scope": "官方购票须知快照；节假日延时、实际价格及预约余量需按出游日期核实"
   },
   {
     "id": "official-cd-panda-hours", "city": "成都", "title": "成都大熊猫繁育研究基地开放时间",
     "url": "https://m.panda.org.cn/cn/service/opentime/", "allowed_hosts": ["m.panda.org.cn"],
     "selector": ".tab_content", "terms": ["基地开园时间", "清园"],
-    "entity_names": ["成都大熊猫繁育研究基地", "熊猫基地", "熊猫塔"],
+    "entity_names": ["成都大熊猫繁育研究基地"],
     "scope": "官方季节性开放规则快照；场馆临时关闭、天气和预约余量需另行核实"
   },
   {
     "id": "official-cd-panda-notice", "city": "成都", "title": "成都大熊猫繁育研究基地游客须知",
     "url": "https://m.panda.org.cn/yd/service/notice/", "allowed_hosts": ["m.panda.org.cn"],
     "selector": ".tab_content", "terms": ["游客", "熊猫"],
-    "entity_names": ["成都大熊猫繁育研究基地", "熊猫基地"],
+    "entity_names": ["成都大熊猫繁育研究基地"],
     "scope": "官方参观规则快照；部分场馆轮休及临时关闭仍应在出发前复查"
   },
   {
@@ -32,5 +32,110 @@
     "url": "https://qjxq.xa.gov.cn/zjqj/qyts/5df21c3a65cbd81235fc1bf1.html", "allowed_hosts": ["qjxq.xa.gov.cn"],
     "selector": "#article", "terms": ["城墙"], "entity_names": ["西安城墙"], "published_at": "2026-02-10",
     "source_kind": "background", "scope": "城墙背景资料，不作为运营时间、门票或客流证据"
+  },
+  {
+    "id": "official-cd-wuhouci-tickets", "city": "成都", "title": "武侯祠票务与开放时间",
+    "url": "https://wuhouci.net.cn/pwxx", "allowed_hosts": ["wuhouci.net.cn"],
+    "selector": ".boxes", "terms": ["武侯祠", "门票"], "entity_names": ["成都武侯祠博物馆"],
+    "source_kind": "official_snapshot",
+    "scope": "官方票务与开放时间快照；延时开放、实际票价及预约余量需按出游日期核实"
+  },
+  {
+    "id": "official-cd-wuhouci-info", "city": "成都", "title": "武侯祠景区实用信息",
+    "url": "http://daolan.wuhouci.net.cn/intro.html", "allowed_hosts": ["daolan.wuhouci.net.cn"],
+    "selector": ".content.self", "terms": ["武侯祠", "门票"], "entity_names": ["成都武侯祠博物馆"],
+    "source_kind": "official_snapshot",
+    "scope": "官方景区实用信息快照；交通接驳与开放安排可能调整，出游前需再核实"
+  },
+  {
+    "id": "official-cd-jinsha-tickets", "city": "成都", "title": "金沙遗址票务与开放时间",
+    "url": "https://www.jinshasitemuseum.com/info/694", "allowed_hosts": ["www.jinshasitemuseum.com"],
+    "selector": ".service-details", "terms": ["金沙遗址博物馆", "门票"], "entity_names": [],
+    "source_kind": "official_snapshot",
+    "scope": "官方购票须知快照；闭馆日、延时时段、实际票价及优惠范围需按出游日期核实"
+  },
+  {
+    "id": "official-cd-dfct-visit", "city": "成都", "title": "杜甫草堂参观须知",
+    "url": "https://www.cddfct.cn/go-c22.htm", "allowed_hosts": ["www.cddfct.cn"],
+    "selector": ".box3", "terms": ["杜甫草堂", "参观"], "entity_names": ["成都杜甫草堂博物馆"],
+    "source_kind": "official_snapshot",
+    "scope": "官方参观须知快照；寄存、讲解等配套服务以馆方实时公示为准"
+  },
+  {
+    "id": "official-cd-dfct-booking", "city": "成都", "title": "杜甫草堂预约参观",
+    "url": "https://www.cddfct.cn/go-c19.htm", "allowed_hosts": ["www.cddfct.cn"],
+    "selector": ".box3", "terms": ["杜甫草堂", "预约"], "entity_names": ["成都杜甫草堂博物馆"],
+    "source_kind": "official_snapshot",
+    "scope": "官方预约规则快照；可预约天数与放票时间可能调整，需按出游日期核实"
+  },
+  {
+    "id": "official-hz-parks-fee", "city": "杭州", "title": "杭州市收费公园名录及开放信息公示",
+    "url": "https://www.hangzhou.gov.cn/col/col1229063429/art/2026/art_07da041e962341a1b8cc75903ea05a9c.html", "allowed_hosts": ["www.hangzhou.gov.cn"],
+    "selector": "div.article", "terms": ["收费公园", "票价"], "entity_names": ["杭州西溪国家湿地公园", "雷峰塔景区"],
+    "published_at": "2026-05-15", "source_kind": "official_snapshot",
+    "scope": "市园林文物局收费公园名录公示快照；票价为现场价参考、开放时间随季节调整，需按出游日期核实"
+  },
+  {
+    "id": "official-hz-lingyin-free", "city": "杭州", "title": "灵隐飞来峰景区免票通告",
+    "url": "https://www.hangzhou.gov.cn/col/col812270/art/2025/art_3f21a2bfeab24902a07c9f3f23bee9d5.html", "allowed_hosts": ["www.hangzhou.gov.cn"],
+    "selector": "div.article", "terms": ["灵隐", "免票"], "entity_names": ["灵隐寺", "飞来峰"],
+    "published_at": "2025-11-20", "source_kind": "official_snapshot",
+    "scope": "免票与实名预约政策通告快照；预约名额、分时规则与开放时段可能调整，需按出游日期核实"
+  },
+  {
+    "id": "official-hz-xixi-intro", "city": "杭州", "title": "西溪国家湿地公园介绍",
+    "url": "https://wgly.hangzhou.gov.cn/art/2022/11/8/art_1229696389_58942207.html", "allowed_hosts": ["wgly.hangzhou.gov.cn"],
+    "selector": ".article_con", "terms": ["西溪", "湿地"], "entity_names": ["西溪国家湿地公园"],
+    "published_at": "2022-11-08", "source_kind": "background",
+    "scope": "市文旅局景区介绍资料；仅用于游览特色与民俗背景说明，不作为当前票价、开放时间或客流依据"
+  },
+  {
+    "id": "official-hz-xixi-water", "city": "杭州", "title": "西溪湿地保护与水域变迁背景",
+    "url": "https://ls.hangzhou.gov.cn/art/2024/9/26/art_1596533_59027417.html", "allowed_hosts": ["ls.hangzhou.gov.cn"],
+    "selector": "#zoom", "terms": ["西溪湿地", "湿地"], "entity_names": ["西溪国家湿地公园"],
+    "published_at": "2024-09-26", "source_kind": "background",
+    "scope": "市林水局水文化专栏报道；仅用于湿地历史与生态背景说明，不作为当前运营或票价依据"
+  },
+  {
+    "id": "official-hz-westlake-sights", "city": "杭州", "title": "西湖主要景观介绍",
+    "url": "https://wgly.hangzhou.gov.cn/art/2024/1/16/art_1229733900_58952647.html", "allowed_hosts": ["wgly.hangzhou.gov.cn"],
+    "selector": ".wap_article", "terms": ["西湖"], "entity_names": ["西湖", "雷峰塔", "飞来峰", "六和塔"],
+    "published_at": "2024-01-16", "source_kind": "background",
+    "scope": "市文旅局景观背景介绍；仅用于景观与文物特色说明，不作为当前票价、开放时间或客流依据"
+  },
+  {
+    "id": "official-xa-bmy-guide", "city": "西安", "title": "秦始皇帝陵博物院参观导览",
+    "url": "https://www.bmy.com.cn/guide/", "allowed_hosts": ["www.bmy.com.cn"],
+    "selector": ".horizontal-box-scroll", "terms": ["博物院", "开放时间"], "entity_names": ["秦始皇帝陵博物院"],
+    "source_kind": "official_snapshot",
+    "scope": "官方导览与开放时间快照；旺季淡季时段、每日承载量及实名预约规则需按出游日期核实"
+  },
+  {
+    "id": "official-xa-tangparadise-tickets", "city": "西安", "title": "大唐芙蓉园购票须知",
+    "url": "https://www.tangparadise.cn/ticket.html", "allowed_hosts": ["www.tangparadise.cn"],
+    "selector": ".danpian-con", "terms": ["大唐芙蓉园", "门票"], "entity_names": ["大唐芙蓉园"],
+    "source_kind": "official_snapshot",
+    "scope": "官方购票须知快照；免票人群、退票规则及实际票价需按出游日期核实"
+  },
+  {
+    "id": "official-xa-tangparadise-intro", "city": "西安", "title": "大唐芙蓉园景区介绍",
+    "url": "https://www.tangparadise.cn/about.html", "allowed_hosts": ["www.tangparadise.cn"],
+    "selector": ".jieshao1-con", "terms": ["大唐芙蓉园", "景区"], "entity_names": ["大唐芙蓉园"],
+    "source_kind": "background",
+    "scope": "官方景区介绍资料；仅用于园区特色与构成说明，不作为当前票价、开放时间或演出排期依据"
+  },
+  {
+    "id": "official-xa-qujiang-tangparadise", "city": "西安", "title": "大唐芙蓉园景区概况（曲江新区）",
+    "url": "https://qjxq.xa.gov.cn/zjqj/gyqj/tsqj/5df21c50f99d657750e6df47.html", "allowed_hosts": ["qjxq.xa.gov.cn"],
+    "selector": "#printContent", "stop_before": "分享：", "terms": ["大唐芙蓉园"], "entity_names": ["大唐芙蓉园"],
+    "published_at": "2025-01-16", "source_kind": "background",
+    "scope": "曲江新区管委会景区概况；仅用于园区历史与规模背景说明，不作为当前运营、票价或活动依据"
+  },
+  {
+    "id": "official-xa-qujiang-dayanta", "city": "西安", "title": "大雁塔北广场景区介绍",
+    "url": "https://qjxq.xa.gov.cn/zjqj/gyqj/tsqj/5df21c5c65cbd81235fc1faa.html", "allowed_hosts": ["qjxq.xa.gov.cn"],
+    "selector": "#article", "terms": ["大雁塔", "广场"], "entity_names": ["大雁塔北广场"],
+    "published_at": "2023-05-11", "source_kind": "background",
+    "scope": "曲江新区管委会景区介绍；仅用于景观与音乐喷泉背景说明，不作为当前演出时刻、票价或客流依据"
   }
 ]
