@@ -134,7 +134,7 @@
   {
     "id": "official-xa-qujiang-dayanta", "city": "西安", "title": "大雁塔北广场景区介绍",
     "url": "https://qjxq.xa.gov.cn/zjqj/gyqj/tsqj/5df21c5c65cbd81235fc1faa.html", "allowed_hosts": ["qjxq.xa.gov.cn"],
-    "selector": "#article", "terms": ["大雁塔", "广场"], "entity_names": ["大雁塔北广场"],
+    "selector": "#article", "terms": ["大雁塔", "广场"], "entity_names": ["大雁塔北广场", "大慈恩寺"],
     "published_at": "2023-05-11", "source_kind": "background",
     "scope": "曲江新区管委会景区介绍；仅用于景观与音乐喷泉背景说明，不作为当前演出时刻、票价或客流依据"
   }

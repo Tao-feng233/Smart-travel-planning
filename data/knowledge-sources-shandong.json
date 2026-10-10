@@ -30,7 +30,6 @@
       "天下第一泉",
       "趵突泉",
       "大明湖",
-      "黑虎泉",
       "五龙潭"
     ],
     "terms": [
@@ -100,9 +99,7 @@
     "published_at": null,
     "entity_names": [
       "千佛山",
-      "佛慧山",
-      "蚰蜒山",
-      "金鸡岭"
+      "蚰蜒山"
     ],
     "terms": [
       "千佛山",
@@ -125,9 +122,9 @@
     "published_at": "2024-01-02",
     "entity_names": [
       "泰山",
-      "中天门",
       "南天门",
-      "玉皇顶"
+      "玉皇顶",
+      "桃花峪"
     ],
     "terms": [
       "泰山",
@@ -174,7 +171,7 @@
       "岱庙",
       "东平湖",
       "太阳部落",
-      "泰山石敢当"
+      "天外村"
     ],
     "terms": [
       "泰山",
@@ -198,8 +195,7 @@
     "entity_names": [
       "蓬莱阁",
       "蓬莱水城",
-      "田横山",
-      "戚继光故里"
+      "田横山"
     ],
     "terms": [
       "蓬莱阁",
@@ -222,7 +218,7 @@
     "published_at": "2017-02-13",
     "entity_names": [
       "烟台山",
-      "冰心纪念馆"
+      "惹浪亭"
     ],
     "terms": [
       "烟台山",
@@ -245,7 +241,6 @@
     "published_at": "2017-02-13",
     "entity_names": [
       "长岛",
-      "九丈崖",
       "月牙湾"
     ],
     "terms": [
@@ -335,8 +330,6 @@
     "published_at": "2017-06-19",
     "entity_names": [
       "周村古商城",
-      "大街",
-      "丝市街",
       "银子市街"
     ],
     "terms": [
@@ -359,9 +352,7 @@
     "selector": ".v_news_content",
     "published_at": "2026-07-27",
     "entity_names": [
-      "萤火虫水洞",
-      "地下大峡谷",
-      "生态蝴蝶谷"
+      "萤火虫水洞"
     ],
     "terms": [
       "萤火虫水洞",
@@ -383,8 +374,7 @@
     "selector": ".v_news_content",
     "published_at": "2024-03-25",
     "entity_names": [
-      "沂蒙山",
-      "云蒙景区"
+      "沂蒙山"
     ],
     "terms": [
       "沂蒙山",
@@ -407,9 +397,7 @@
     "published_at": "2026-07-27",
     "entity_names": [
       "沂蒙云瀑洞天",
-      "指动石",
-      "天蒙湖",
-      "通天峡"
+      "天蒙湖"
     ],
     "terms": [
       "沂蒙云瀑洞天",
@@ -432,9 +420,6 @@
     "published_at": "2026-07-27",
     "entity_names": [
       "蒙山",
-      "龟蒙",
-      "云蒙",
-      "天蒙",
       "彩蒙"
     ],
     "terms": [
@@ -520,10 +505,7 @@
     ],
     "selector": ".article-cont",
     "published_at": "2022-04-25",
-    "entity_names": [
-      "平阴",
-      "玫瑰"
-    ],
+    "entity_names": [],
     "terms": [
       "平阴",
       "玫瑰"
@@ -545,8 +527,7 @@
     "selector": ".article-cont",
     "published_at": "2022-04-25",
     "entity_names": [
-      "费县",
-      "沂蒙"
+      "南天门"
     ],
     "terms": [
       "费县",
@@ -616,7 +597,7 @@
     "published_at": "2022-04-25",
     "entity_names": [
       "中国牡丹园",
-      "驴聪聪亲子农场"
+      "七里河湿地公园"
     ],
     "terms": [
       "中国牡丹园",
@@ -641,9 +622,8 @@
     "entity_names": [
       "乐陵影视城",
       "千年枣林",
-      "德百杂技蟋蟀谷",
       "德影城",
-      "华林园"
+      "冀鲁边区革命纪念园"
     ],
     "terms": [
       "乐陵影视城",
@@ -667,8 +647,7 @@
     "published_at": null,
     "entity_names": [
       "阿胶世界",
-      "东阿药王山",
-      "东阿阿胶城"
+      "东阿药王山"
     ],
     "terms": [
       "阿胶世界",
@@ -694,8 +673,6 @@
     "published_at": "2024-07-19",
     "entity_names": [
       "金山景区",
-      "前王庄石头寨",
-      "大汉不夜城",
       "永丰塔",
       "文庙"
     ],
@@ -746,7 +723,7 @@
     "selector": "#original-content",
     "published_at": null,
     "entity_names": [
-      "曹州牡丹园"
+      "牡丹广场"
     ],
     "terms": [
       "曹州牡丹园"
@@ -771,7 +748,8 @@
       "光岳楼",
       "山陕会馆",
       "海源阁",
-      "阳谷狮子楼"
+      "狮子楼",
+      "聊城铁塔"
     ],
     "terms": [
       "东昌湖",
@@ -803,5 +781,186 @@
     "city_aliases": [],
     "source_kind": "background",
     "scope": "官方或公共机构特色与历史资料；不作为当前开放、票价、公交、季节活动或客流依据"
+  },
+  {
+    "id": "sd-qd-a-level-list",
+    "city": "青岛",
+    "province": "山东",
+    "title": "青岛市A级旅游景区名单",
+    "url": "http://www.qingdao.gov.cn/zwgk/xxgk/whly/ywfl/202408/t20240828_8203870.shtml",
+    "allowed_hosts": [
+      "www.qingdao.gov.cn"
+    ],
+    "selector": ".content",
+    "published_at": "2024-08-28",
+    "entity_names": [
+      "青岛啤酒博物馆",
+      "石老人观光园",
+      "方特梦幻王国",
+      "青岛德国总督楼旧址博物馆",
+      "青岛山炮台遗址"
+    ],
+    "terms": [
+      "青岛啤酒博物馆",
+      "石老人观光园",
+      "方特梦幻王国",
+      "青岛德国总督楼旧址博物馆",
+      "青岛山炮台遗址"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方公开资料中的景区名单摘录；仅用于核对景区名称，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-jn-a-level-list",
+    "city": "济南",
+    "province": "山东",
+    "title": "济南市A级景区名录",
+    "url": "https://www.jinan.gov.cn/col/col118356/art/2026/art_617e080e4dac4060bf30d8fdd4250475.html",
+    "allowed_hosts": [
+      "www.jinan.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": null,
+    "entity_names": [
+      "红叶谷",
+      "朱家峪",
+      "灵岩寺",
+      "百脉泉酒文化旅游区",
+      "卧云铺景区"
+    ],
+    "terms": [
+      "红叶谷",
+      "朱家峪",
+      "灵岩寺",
+      "百脉泉酒文化旅游区",
+      "卧云铺景区"
+    ],
+    "city_aliases": [],
+    "source_kind": "official_snapshot",
+    "scope": "市文化和旅游部门发布的A级旅游景区名录快照；仅用于核对景区名称与等级，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-zb-a-level-list",
+    "city": "淄博",
+    "province": "山东",
+    "title": "淄博市A级旅游景区名单（截至2026年4月）",
+    "url": "https://wh.zibo.gov.cn/gongkai/channel_c_5f9fa491ab327f36e4c13060_n_1605682609.0203/doc_69ddd50b1aa498f7fce04d2c.html",
+    "allowed_hosts": [
+      "wh.zibo.gov.cn"
+    ],
+    "selector": "table",
+    "published_at": "2026-04-14",
+    "entity_names": [
+      "潭溪山旅游区",
+      "聊斋城景区"
+    ],
+    "terms": [
+      "潭溪山旅游区",
+      "聊斋城景区"
+    ],
+    "city_aliases": [],
+    "source_kind": "official_snapshot",
+    "scope": "市文化和旅游部门发布的A级旅游景区名录快照；仅用于核对景区名称与等级，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-yt-a-level-list",
+    "city": "烟台",
+    "province": "山东",
+    "title": "烟台市A级旅游景区名录（90家）",
+    "url": "https://whlyj.yantai.gov.cn/art/2025/7/25/art_42223_2904418.html",
+    "allowed_hosts": [
+      "whlyj.yantai.gov.cn"
+    ],
+    "selector": "#zoom",
+    "published_at": "2025-07-25",
+    "entity_names": [
+      "张裕酒文化博物馆",
+      "牟氏庄园"
+    ],
+    "terms": [
+      "张裕酒文化博物馆",
+      "牟氏庄园"
+    ],
+    "city_aliases": [],
+    "source_kind": "official_snapshot",
+    "scope": "市文化和旅游部门发布的A级旅游景区名录快照；仅用于核对景区名称与等级，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-hz-a-level-list",
+    "city": "菏泽",
+    "province": "山东",
+    "title": "菏泽市A级景区与旅游线路名单",
+    "url": "http://www.heze.gov.cn/0530/2c908088819842f701819a3d70290060/1566969006991081472.html",
+    "allowed_hosts": [
+      "www.heze.gov.cn"
+    ],
+    "selector": ".main",
+    "published_at": "2019-04-08",
+    "entity_names": [
+      "水浒好汉城",
+      "单县牌坊古城"
+    ],
+    "terms": [
+      "水浒好汉城",
+      "单县牌坊古城"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方公开资料中的景区名单摘录；仅用于核对景区名称，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-dz-a-level-list",
+    "city": "德州",
+    "province": "山东",
+    "title": "德州市文旅资源与A级景区索引",
+    "url": "http://whhlyj.dezhou.gov.cn/n3493486/index.html",
+    "allowed_hosts": [
+      "whhlyj.dezhou.gov.cn"
+    ],
+    "selector": "table",
+    "published_at": null,
+    "entity_names": [
+      "夏津黄河故道森林公园"
+    ],
+    "terms": [
+      "夏津黄河故道森林公园"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方公开资料中的景区名单摘录；仅用于核对景区名称，不作当前开放、票价、预约或客流依据"
+  },
+  {
+    "id": "sd-ly-scenic-intro",
+    "city": "临沂",
+    "province": "山东",
+    "title": "临沂市文旅景区资源介绍",
+    "url": "https://www.linyi.gov.cn/info/9317/375481.htm",
+    "allowed_hosts": [
+      "www.linyi.gov.cn"
+    ],
+    "selector": ".content",
+    "published_at": null,
+    "entity_names": [
+      "王羲之故居",
+      "银雀山汉墓竹简博物馆",
+      "琅琊古城",
+      "天马岛旅游区",
+      "孟良崮战役纪念馆",
+      "兰陵国家农业公园",
+      "皇山东夷文化园"
+    ],
+    "terms": [
+      "王羲之故居",
+      "银雀山汉墓竹简博物馆",
+      "琅琊古城",
+      "天马岛旅游区",
+      "孟良崮战役纪念馆",
+      "兰陵国家农业公园",
+      "皇山东夷文化园"
+    ],
+    "city_aliases": [],
+    "source_kind": "background",
+    "scope": "官方公开资料中的景区名单摘录；仅用于核对景区名称，不作当前开放、票价、预约或客流依据"
   }
 ]

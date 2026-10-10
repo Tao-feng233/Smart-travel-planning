@@ -21,8 +21,9 @@ def test_ranking_one_item_cannot_collapse_two_day_candidate_set(monkeypatch):
 
 def test_existing_official_background_entities_are_recognized():
     assert data_coverage.place_known('青岛','花石楼')
-    assert data_coverage.place_known('青岛','中山路')
-    assert data_coverage.place_known('青岛','青岛奥帆中心')
+    # 语料按高德登记名对齐：中山路→中山路历史文化街区、青岛奥帆中心→青岛奥帆海洋文化旅游区。
+    assert data_coverage.place_known('青岛','中山路历史文化街区')
+    assert data_coverage.place_known('青岛','青岛奥帆海洋文化旅游区')
     assert not data_coverage.place_known('青岛','凭空产生的景点')
 
 
