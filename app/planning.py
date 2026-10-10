@@ -248,7 +248,11 @@ async def _generate(w, progress, *, preview=False):
         except (KeyError,ValueError):warnings.append('所选返程班次的出发时刻需核实。')
     for d in groups:
         origin=stay_plan.anchor(w,d['date'],morning=True);target=stay_plan.anchor(w,d['date'])
-        if return_time and d['date']==return_time.date().isoformat():target=origin
+        # 返程日不再强制以住宿收尾：最后一个活动很可能本来就在去车站的方向上，
+        # 强制回住宿会先往反方向跑一趟（实测多耗约 70 分钟），
+        # 反而把当天的可用时间压得更短。改为以最后活动收尾；
+        # 当天确实没有活动时，才回落到住宿。
+        if return_time and d['date']==return_time.date().isoformat() and not d['items']:target=origin
         seq=([origin] if origin else [])+[catalog[x['candidate_id']] for x in d['items']]+([target] if target else [])
         for a,b in zip(seq,seq[1:]):all_pairs[(a['id'],b['id'])]=(a,b)
     sem=asyncio.Semaphore(3)
@@ -405,6 +409,25 @@ async def _generate(w, progress, *, preview=False):
                                    'note':'路线查询失败，暂留30分钟占位；实际是否足够待核实'})
                     t+=30
             duration=item['duration']
+            # 返程日：按"距必须出发还剩多少"收窄游览，避免硬排到撞车。
+            # 撞车会让整份计划书生成失败，用户反而无法调整；收窄并如实提醒更可执行。
+            if return_time and d['date']==return_time.date().isoformat():
+                _avail=end_limit-t
+                if 0<=_avail<duration:
+                    _cut=duration-_avail
+                    boundary_issues.append({'code':'return_day_trim','level':'warning','view':'spot',
+                        'date':d['date'],'candidate_ids':[p['id']],
+                        'overrun_minutes':_cut,'available_minutes':_avail,
+                        'message':(d['date']+' 当天需在 '+clock(end_limit)+' 前开始接驳准备（返程 '
+                            +return_time.strftime('%H:%M')+'），'+p['name']+'已由'+str(duration)
+                            +'分钟调整为约'+str(max(0,_avail))+'分钟。若希望玩满，可减少当天景点、'
+                            '提前返回，或改乘更晚的班次。')})
+                    duration=max(0,_avail)
+                elif _avail<0:
+                    raise DataError(d['date']+' 已没有可安排时间：'+clock(t)+' 时已超过需在 '
+                        +clock(end_limit)+' 前开始接驳准备的要求（返程 '+return_time.strftime('%H:%M')
+                        +'）。请减少当天安排或改乘更晚的班次。',
+                        {'date':d['date'],'view':'spot','direction':'return','candidate_ids':[p['id']]})
             # 景区开放时间约束：资料在手就不能把游客排在闭馆之后。
             # 先尝试推迟到开放时段内；若当天放不下，则如实记提醒并截断可游玩时长。
             from . import opening_hours as _oh
@@ -510,7 +533,8 @@ async def _generate(w, progress, *, preview=False):
         if any(x.get('period')=='evening' for x in d['items']):
             end_limit=max(end_limit,22*60);warnings.append(d['date']+'包含晚间游览建议，当日结束按22:00预留；请核实出游当天夜间开放并确认体力。')
         if return_time and d['date']==return_time.date().isoformat():
-            deadline=(return_time.hour*60+return_time.minute-transport_links.offset(w,'return'))//5*5
+            _off=transport_links.offset(w,'return')
+            deadline=(return_time.hour*60+return_time.minute-_off)//5*5
             end_limit=min(end_limit,max(0,deadline))
             warnings.append(f"{d['date']} 所选返程 {return_time.strftime('%H:%M')}，预留{transport_links.offset(w,'return')}分钟接驳准备；实际出入口、候车或安检等待仍需确认。")
             if t>end_limit:raise DataError(d['date']+'的活动与返程冲突：预计结束于'+clock(t)+'，返程'+return_time.strftime('%H:%M')+'需暂按'+clock(end_limit)+'开始接驳准备。请调整这一天的顺序、游玩日期或返程班次后重排。',{'date':d['date'],'direction':'return','candidate_ids':[x['candidate_id'] for x in d['items']],'view':'spot','deadline':clock(end_limit)})
@@ -527,10 +551,12 @@ async def _generate(w, progress, *, preview=False):
             if return_time and d['date']==return_time.date().isoformat() and t+allocation>end_limit:
                 # 冲突要把明细一次说全：结束时刻、返回耗时、准备截止、差多少。
                 _need=t+allocation-end_limit
-                raise DataError(d['date']+' '+last['name']+'游览到'+clock(t)+'结束，'
-                    '返回'+base['name']+'还需'+str(allocation)+'分钟（约'+clock(t+allocation)+'到），'
-                    '但为赶'+return_time.strftime('%H:%M')+'的返程，最晚需在'+clock(end_limit)+'前开始接驳准备，'
-                    '相差约'+str(_need)+'分钟。可缩短该项游览、减少当天景点、提前返回，或改乘更晚的班次。',
+                raise DataError(d['date']+' 时间不够：'+last['name']+'游览到'+clock(t)+'结束，'
+                    '返回'+base['name']+'取行李还需'+str(allocation)+'分钟（约'+clock(t+allocation)+'到），'
+                    '而 '+return_time.strftime('%H:%M')+' 的返程最晚需在'+clock(end_limit)+'前开始接驳准备，'
+                    '相差约'+str(_need)+'分钟。这一段回住宿的路程本身就占了大部分时间，'
+                    '单纯缩短游览通常补不回来；建议减少当天的景点或活动、提前返回住宿，'
+                    '或改乘更晚的班次。',
                     {'date':d['date'],'view':'spot','direction':'return',
                      'candidate_ids':[last['id'],base['id']],
                      'deadline':clock(end_limit),'overrun_minutes':_need,
