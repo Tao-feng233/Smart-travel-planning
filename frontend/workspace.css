@@ -120,7 +120,15 @@ header{height:60px;min-height:60px;padding:10px 20px;box-sizing:border-box}
 @media print{.history-sidebar,.trip-overview,.workflow,.workspace-head{display:none!important}#application main,#application.history-open main{display:block;height:auto;min-height:0}.workspace{height:auto;min-height:0;display:block;border:0}#content{overflow:visible;min-height:0}.tabs,.chat-panel,.footer-note{display:none!important}}
 .history-body .site-footer{display:block;padding:9px 0 0;font-size:10px;margin:0}.history-body .site-footer>span{display:none}.history-body .site-footer>div{display:flex;gap:5px;flex-wrap:wrap}.history-body .site-footer button{padding:2px;font-size:10px}
 /* Reading, selection feedback and overlay workbench. */
-.message .bubble{white-space:normal}.message .bubble p{margin:0 0 10px;line-height:1.8}.message .bubble h3{font-size:18px;margin:14px 0 9px;line-height:1.5;font-weight:600}.message .bubble strong{font-weight:650;color:#174f44}.message .bubble ul{padding-left:20px;margin:10px 0;line-height:1.85}.message .bubble li{margin:7px 0}.message.user .bubble p:last-child{margin-bottom:0}
+.message .bubble{white-space:normal}.message .bubble p{margin:0 0 10px;line-height:1.8}.message .bubble h3{font-size:18px;margin:14px 0 9px;line-height:1.5;font-weight:600}.message .bubble strong{font-weight:650;color:#174f44}.message .bubble ul{padding-left:20px;margin:10px 0;line-height:1.85}.message .bubble li{margin:7px 0}
+/* 首次使用引导：输入示例 chips */
+.prompt-examples{margin-top:14px;padding-top:12px;border-top:1px dashed #c8d6cf}
+.prompt-hint{font-size:12px;color:#7d8a8f;margin:0 0 8px}
+.prompt-chips{display:flex;flex-wrap:wrap;gap:8px}
+.prompt-chip{font-size:13px;padding:7px 14px;background:#fff;border:1px solid #d0ddd6;border-radius:20px;color:#3657b5;cursor:pointer;transition:all .2s}
+.prompt-chip:hover{background:#3657b5;color:#fff;border-color:#3657b5}
+.prompt-chip:active{transform:scale(.96)}
+.message.user .bubble p:last-child{margin-bottom:0}
 .process-details{font-size:11px;color:var(--muted);margin:0 0 12px}.process-details summary{cursor:pointer;user-select:none}.process-details ul{padding-left:18px;font-size:11px;line-height:1.8}.streaming:after{content:'▎';color:var(--green);animation:pulse 1s infinite}.scene-feedback{display:none!important}
 .selection-indicator{display:flex;align-items:center;justify-content:space-between;width:min(880px,calc(100% - 48px));box-sizing:border-box;align-self:center;padding:7px 12px;margin:0 0 2px;border:1px solid #dce8e2;background:#f4f8f6;border-radius:8px;font-size:12px}.selection-indicator[hidden]{display:none}.selection-indicator button{font-size:11px;padding:4px}.selection-indicator strong{color:var(--green)}
 #application{position:relative}#application main{grid-template-columns:48px minmax(0,1fr) clamp(390px,29vw,560px)}#application.history-open main{grid-template-columns:260px minmax(0,1fr) clamp(390px,29vw,560px)}
