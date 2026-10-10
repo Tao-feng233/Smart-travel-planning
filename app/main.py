@@ -125,7 +125,40 @@ def present(w):
     stay=stay_plan.merge_plan(w,stay_plan.plan(w),w.get('stay_plan'))
     stay.update(assignments=stay_plan.assignment_view(w),unassigned=stay_plan.unassigned(w))
     from .timeline_review import current as current_review
-    return {**w,'timeline_review':current_review(w),'stay_plan':stay,'spot_coverage':state(w),'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
+    # 预算按当前代码与当前选择重算后下发：旧计划的快照里可能已有被移除或
+    # 已修口径的条目（例如早已删除的"打车/自驾油费与停车费"），不重算会让
+    # 用户以为改动没生效。不写回 w['plan']，避免覆盖已发布内容。
+    _plan_out=w.get('plan')
+    if _plan_out:
+        try:
+            import copy as _copy
+            from .planning import fill_budget as _fill_budget
+            _old_budget=dict(_plan_out.get('budget') or {})
+            _plan_out=_copy.deepcopy(_plan_out)
+            _plan_out['budget']={}
+            _fill_budget(_plan_out,w)
+            _new_budget=_plan_out.get('budget') or {}
+            # 房价有效期是按生成时刻判断的：展示时重算会因报价过期把住宿起价清空，
+            # 等于用户什么都没做数字却变差。此处沿用原有住宿起价与逐晚明细。
+            if _new_budget.get('hotel_reference') is None and _old_budget.get('hotel_reference') is not None:
+                _new_budget['hotel_reference']=_old_budget.get('hotel_reference')
+                _new_budget['nights']=_old_budget.get('nights')
+                _new_budget['nights_priced']=_old_budget.get('nights_priced')
+                _new_budget['nightly_reference']=_old_budget.get('nightly_reference')
+                if _old_budget.get('basis') and not _new_budget.get('basis'):
+                    _new_budget['basis']=_old_budget.get('basis')
+            if _old_budget.get('selected_room_quote') and not _new_budget.get('selected_room_quote'):
+                _new_budget['selected_room_quote']=_old_budget.get('selected_room_quote')
+            if _new_budget.get('hotel_reference') is not None:
+                _new_budget['unknown']=[x for x in (_new_budget.get('unknown') or [])
+                                        if str(x).strip()!='住宿']
+            _known=sum(v.get('amount') or 0 for v in (_new_budget.get('items') or {}).values())
+            if _new_budget.get('hotel_reference') is not None:_known+=_new_budget['hotel_reference']
+            _new_budget['known_subtotal']=_known
+            _plan_out['budget']=_new_budget
+        except Exception:
+            _plan_out=w.get('plan')
+    return {**w,'plan':_plan_out,'timeline_review':current_review(w),'stay_plan':stay,'spot_coverage':state(w),'timeline':build(w),'active_job':active,'next_step':next_step(w),'selection_assessment':selection_assessment(w),'local_trip':is_local(w['requirements']),**({'spot_page':discovery.page_info(w),'spot_groups':discovery.groups(w)} if w.get('spot_search') else {})}
 
 @app.get('/api/workspaces/{wid}/map-image')
 async def workspace_map(wid:str,day:str='',focus:str='',zoom:int|None=Query(None,ge=1,le=17),lng:float|None=Query(None,ge=-180,le=180),lat:float|None=Query(None,ge=-85,le=85),base:bool=False,user=Depends(auth.current_user)):
