@@ -81,3 +81,17 @@ def test_zero_priced_route_is_still_counted():
     b = planning.fill_budget(pl, workspace())
     assert b['items']['市内交通']['amount'] == 5.0
     assert len(b['items']['市内交通']['detail']) == 2
+
+
+def test_taxi_and_transit_are_mutually_exclusive_per_leg():
+    # 每条路线只按一种方式计费：打车取 taxi_cost，公交取 fare，不会两者相加
+    pl = plan()
+    pl['days'][0]['events'] = [
+        {'kind': 'route', 'name': '打车段', 'route': {'mode': 'taxi', 'taxi_cost': 38.0, 'fare': 4.0}},
+        {'kind': 'route', 'name': '公交段', 'route': {'mode': 'transit', 'fare': 5.0}},
+    ]
+    b = planning.fill_budget(pl, workspace())
+    # 38（打车，忽略同段的 fare 4）+ 5（公交）= 43
+    assert b['items']['市内交通']['amount'] == 43.0
+    kinds = [d['price_kind'] for d in b['items']['市内交通']['detail']]
+    assert kinds == ['打车预估', '公交/地铁票价']

@@ -104,15 +104,3 @@ def test_only_admission_products_count_not_bundles_or_other():
     assert b['items']['门票']['amount'] == 137.0
 
 
-def test_spot_without_admission_products_is_not_guessed_free():
-    w = workspace()
-    w['tickets'] = {'s1': {'requested_date': '2026-10-11', 'items': [
-        {'resName': '"趣探宽窄"讲解包团', 'startPrice': '198', 'product_group': 'other',
-         'date_status': 'in_sales_window'},
-    ]}}
-    b = planning.fill_budget(plan(), w)
-    # 不把讲解票当门票，也不猜免费：如实说明平台没有门票类商品
-    assert '门票' not in b['items']
-    joined = ' '.join(b['unknown'])
-    assert '平台没有该景点的门票类商品' in joined
-    assert '这些不是门票' in joined

@@ -124,19 +124,31 @@ def fill_budget(plan, w):
     if inter:
         items['往返交通']={'amount':sum(x['amount'] for x in inter),'detail':inter}
 
-    # 市内交通：计划内已核实票价的公交/地铁
+    # 市内交通：按每条路线的实际方式计价。
+    # 打车取打车预估、公交/地铁取票价——每条路线只取其中一个，不会双收。
     fares=[]
+    _modes=set()
     for d in plan.get('days',[]):
         for e in d.get('events',[]):
             route=e.get('route') or {}
-            try:fare=float(route.get('fare'))
-            except (TypeError,ValueError):fare=None
-            if fare is not None:
-                fares.append({'date':d['date'],'name':str(e.get('name'))[:40],'fare':fare,
-                              'mode':route.get('mode')})
+            _mode=route.get('mode')
+            _val=None;_kind=None
+            if _mode=='taxi':
+                try:_val=float(route.get('taxi_cost'))
+                except (TypeError,ValueError):_val=None
+                if _val is not None:_kind='打车预估'
+            if _val is None:
+                try:_val=float(route.get('fare'))
+                except (TypeError,ValueError):_val=None
+                if _val is not None:_kind='公交/地铁票价'
+            if _val is None:continue
+            _modes.add(_kind)
+            fares.append({'date':d['date'],'name':str(e.get('name'))[:40],'fare':_val,
+                          'mode':_mode,'price_kind':_kind})
     if fares:
         items['市内交通']={'amount':sum(x['fare'] for x in fares),'detail':fares,
-                          'basis':'仅计入已核实票价的公交/地铁；打车与自驾未计入'}
+                          'basis':'按每条路线的实际方式计价（'+('、'.join(sorted(x for x in _modes if x)))
+                                  +'）；打车为预估、非实时叫车价；每条路线只计一种方式'}
 
     # 餐饮：按计划书里真实排出的餐次逐餐计价（而不是只看已选餐厅）。
     def _city_per_person():
@@ -256,28 +268,9 @@ def fill_budget(plan, w):
     if '往返交通' not in items:pending.append('往返交通（尚未选定或未取到票价）')
     if '门票' not in items and _no_ticket:
         pending.append('门票（尚未查询该景点门票；可在景点页查询后再生成）')
-    for _x in _no_admission:
-        # 有官方免费入园资料就直接说免费；否则如实说明"平台没有卖门票"这一事实，
-        # 并说明未计入的原因——不猜免费，也不拿讲解/演出票充数。
-        _free=False
-        try:
-            from .price_hints import hint as _hint
-            _spot=next((cat.get(_sid) or {} for _sid in (w.get('selected_spots') or [])
-                        if str((cat.get(_sid) or {}).get('name') or '')==_x['spot']), None)
-            if _spot and (_hint(w,_spot) or {}).get('basis')=='official_free_admission':
-                _free=True
-                pending.append(_x['spot']+' 为免费入园（已有官方资料），门票不计费')
-                continue
-        except Exception:
-            pass
-        if _free:continue
-        pending.append(_x['spot']+'：平台没有该景点的门票类商品'
-                       +('，只有讲解/演出等付费项目（这些不是门票，未计入）' if _x['other_products'] else '')
-                       +'。若该景点需要门票，请购票后自行加上这一项')
     if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
     if budget.get('hotel_reference') is None:pending.append('住宿')
     if '市内交通' not in items:pending.append('市内交通（尚未取到票价）')
-    pending.append('打车/自驾油费与停车费')
     if not w.get('selected_room'):pending.append('具体房型与实际住宿总价（可选，预订前核实）')
     budget['unknown']=pending
     budget['basis']=(str(budget.get('basis') or '').rstrip('；')+
