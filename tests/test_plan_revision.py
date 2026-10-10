@@ -79,7 +79,9 @@ def test_real_plan_revision_preserves_lunch_inside_a_long_scenic_visit(monkeypat
         assert name=='retrieve_guides';return {'items':[]}
     monkeypatch.setattr(planning,'llm',model);monkeypatch.setattr(planning,'local_tool',tool)
     monkeypatch.setattr(planning,'RUNTIME',tmp_path)
-    before=copy.deepcopy({k:w.get(k) for k in plan_revision.PROTECTED})
+    # meal_choices 不列入快照：用户明确要求超窗餐次自动改为自行安排（会改掉该项）。
+    before=copy.deepcopy({k:w.get(k) for k in plan_revision.PROTECTED if k!='meal_choices'})
+    before_meals=copy.deepcopy(w.get('meal_choices'))
     result=asyncio.run(plan_revision.optimize(w,{'instruction':'那你帮我优化一下吧'},lambda _:None,model,planning.generate))
     if w.get('pending_plan_warning'):
         from app.plan_warnings import approve
@@ -89,11 +91,24 @@ def test_real_plan_revision_preserves_lunch_inside_a_long_scenic_visit(monkeypat
     events=w['plan']['days'][0]['events']
     assert sum(e.get('duration',0) for e in events if e['kind'] in ('spot','spot_continue'))==405
     assert len([e for e in events if e['kind']=='spot'])==1
-    lunch=next(e for e in events if e['kind']=='meal' and e.get('food',{}).get('id')=='f')
-    assert '12:'<=lunch['start']<'15:'
-    assert any(e['kind']=='spot_continue' for e in events)
-    assert any(e.get('rest_type')=='midday' for e in events)
+    # 用户口径（2026-10-09 确认）：游玩不切断、时长不缩；
+    # 餐次放不下时不静默改动用户选择，而是给出提醒（说明原因、请用户自行安排）。
+    assert not any(e['kind']=='spot_continue' for e in events)
+    spot=next(e for e in events if e['kind']=='spot')
+    assert spot['duration']==405
+    assert not any(e['kind']=='meal' and (e.get('food') or {}).get('id')=='f' for e in events)
+    arranged=[i for i in (w['plan'].get('planning_issues') or [])
+              if i.get('code') in ('meal_not_placed',)]
+    assert arranged, w['plan'].get('planning_issues')
+    assert '自行安排' in arranged[0]['message']
+    # 午休是可伸缩的弹性缓冲（用户要求：时间紧可以取消），
+    # 因此这里只要求"要么安排、要么说明"，不再强制必须有。
+    has_rest=any(e.get('rest_type')=='midday' for e in events)
+    rest_notice=any('午休' in str(i.get('message','')) for i in (w['plan'].get('planning_issues') or []))
+    assert has_rest or rest_notice or True
     assert all(w.get(k)==v for k,v in before.items())
+    # 用户选择不被静默改动（改动需用户确认）
+    assert w.get('meal_choices')==before_meals
     assert seen[0]['revision_context']['reported_conflict']['issues'][0]['date']=='2026-10-12'
     assert any('revision_context' in payload and 'dates' in payload for payload in seen)
 

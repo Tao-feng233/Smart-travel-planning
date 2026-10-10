@@ -187,6 +187,8 @@ async def _generate(w, progress, *, preview=False):
     routes={} if preview else dict(await asyncio.gather(*(pair(k,v) for k,v in all_pairs.items())))
     computed=[]
     boundary_issues=[]
+    offered=[]
+    meal_unplaced=[]
     scheduled_meals=set()
     async def meal(dt,period,t,last,duration):
         p=foods.choice(w,dt,period);events=[]
@@ -248,7 +250,7 @@ async def _generate(w, progress, *, preview=False):
         d['items'].sort(key=lambda item:{'morning':0,'any':1,'afternoon':2,'evening':3}.get(item.get('period','any'),1))
         origin=stay_plan.anchor(w,d['date'],morning=True);base=stay_plan.anchor(w,d['date'])
         if return_time and d['date']==return_time.date().isoformat():base=origin
-        t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=origin; lunch=False
+        t=round_up(minute(r.get('day_start','09:00'))); events=[]; last=origin; lunch=False; inside_periods=set()
         if 'stay_hotels' in w and not base and d['date'] in stay_plan.nights(w):warnings.append(d['date']+'当晚尚未指定可用于算路的住宿，未假设沿用最近选定酒店。')
         changing_hotel=bool(origin and base and not stay_plan.same_hotel(origin,base))
         if changing_hotel:warnings.append(d['date']+'更换住宿，需要携带行李转场；退房暂预留15分钟，寄存与入住条件待核实。')
@@ -309,10 +311,10 @@ async def _generate(w, progress, *, preview=False):
             t=max(t,round_up(bt))
         for i,item in enumerate(d['items']):
             p=catalog[item['candidate_id']]
-            if item.get('period') in ('afternoon','evening') and t<pacing.meal_time(w,d['date'],'lunch') and not lunch:
+            if item.get('period') in ('afternoon','evening') and t<pacing.meal_time(w,d['date'],'lunch') and not lunch and 'lunch' not in inside_periods:
                 events.append({'kind':'free','name':'自由活动与休息','start':clock(t),'end':clock(pacing.meal_time(w,d['date'],'lunch')),'note':'为午餐及后续游玩时段保留弹性时间。'})
                 lunch_events,t,last=await meal(d['date'],'lunch',pacing.meal_time(w,d['date'],'lunch'),last,pacing.meal_duration(w,d['date'],'lunch'));events+=lunch_events;lunch=True
-            if t>=pacing.meal_time(w,d['date'],'lunch') and not lunch:
+            if t>=pacing.meal_time(w,d['date'],'lunch') and not lunch and 'lunch' not in inside_periods:
                 lunch_events,t,last=await meal(d['date'],'lunch',t,last,pacing.meal_duration(w,d['date'],'lunch'));events+=lunch_events;lunch=True
             if last:
                 opts=routes.get((last['id'],p['id']),[])
@@ -375,46 +377,46 @@ async def _generate(w, progress, *, preview=False):
             # Preserve the total sightseeing duration; meals/transfers add their
             # own time and the same final deadlines still apply.
             lunch_at=pacing.meal_time(w,d['date'],'lunch');before_lunch=lunch_at-t
-            if not lunch and 0<before_lunch<duration and period not in ('afternoon','evening'):
-                if before_lunch>=30:
-                    events.append({'kind':'spot','candidate_id':p['id'],'name':p['name'],'start':clock(t),'end':clock(lunch_at),
-                                   'duration':before_lunch,'total_visit_duration':duration,'note':note+'；午餐后继续游览。','poi':p,'evidence':evidence})
-                    remaining=duration-before_lunch;t=lunch_at;continuing=True
-                else:
-                    # A tiny fragment is less useful than starting after lunch.
-                    events.append({'kind':'free','name':'午餐前休息','start':clock(t),'end':clock(lunch_at),'note':'避免将景区游览拆成过短的片段。'})
-                    remaining=duration;t=lunch_at;continuing=False
-                meal_events,t,meal_last=await meal(d['date'],'lunch',t,p,pacing.meal_duration(w,d['date'],'lunch'))
-                events+=meal_events;lunch=True
-                if meal_last and meal_last['id']!=p['id']:
-                    options=await route_options(meal_last,p);chosen=choose_route(options,r)
-                    if not chosen:
-                        raise DataError('从'+meal_last['name']+'返回'+p['name']+'继续游览的路线尚未核实，请核对本餐位置。',
-                                        {'date':d['date'],'meal_period':'lunch','candidate_ids':[meal_last['id'],p['id']],'view':'food','phase':'route'})
-                    allocation=round_up(chosen['minutes']+15)
-                    events.append({'kind':'route','name':'午餐后返回'+p['name'],'start':clock(t),'end':clock(t+allocation),
-                                   'route':chosen,'options':[chosen],'buffer':allocation-chosen['minutes'],'note':'返回景区继续游览，具体入口与二次入园条件待核实。'})
-                    t+=allocation
-                if t+remaining>24*60:raise DataError('游览加午餐及往返路线已超出当天，请调整可变安排。',{'date':d['date'],'candidate_ids':[p['id']],'view':'spot'})
-                # 继续游览同样受开放时间约束：闭馆后不能接着逛。
-                _cok,_cwhy,_climit=_oh.check(p.get('opening'),p.get('name'),t,remaining)
-                if not _cok:
-                    _ccap=_climit if _climit is not None else 24*60
-                    _cusable=max(0,_ccap-t)
-                    boundary_issues.append({'code':'opening_hours','level':'warning','view':'spot','date':d['date'],
-                        'candidate_ids':[p['id']],'overrun_minutes':max(0,remaining-_cusable),
-                        'available_minutes':_cusable,
-                        'message':d['date']+' '+p['name']+'（午餐后继续游览）：'+_cwhy+'。已按开放资料截断（可用约 '+str(_cusable)+' 分钟），建议缩短上午段或改到开放时段。'})
-                    remaining=max(0,_cusable)
-                    if remaining<15:continue
-                events.append({'kind':'spot_continue' if continuing else 'spot','candidate_id':p['id'],
-                               'name':p['name']+(' · 继续游览' if continuing else ''),'start':clock(t),'end':clock(t+remaining),
-                               'duration':remaining,'note':note+'；用餐地点、景区内移动和二次入园条件需出发前核实。','poi':p,'evidence':evidence})
-                t+=remaining
-            else:
-                events.append({'kind':'spot','candidate_id':p['id'],'name':p['name'],'start':clock(t),'end':clock(t+duration),
-                               'duration':duration,'note':note,'poi':p,'evidence':evidence})
-                t+=duration
+            # 用户口径：游玩不切断、时长不缩短；跨过饭点就让用餐发生在游玩过程中，
+            # 游程时段 = 游玩 + 用餐（相应延长）。若窗口已放不下，则不排该餐，只在提醒里说明。
+            _inside=[]
+            from .schedule import meal_inside as _meal_inside, meal_window as _mw2
+            for _period in ('lunch','dinner'):
+                if _period=='lunch' and lunch:continue
+                # 已选定具体餐厅：单独出行（让用户在计划书里看到那家店）。
+                # 但若游玩结束已明显超出该餐窗口，就不再硬排——改为自行安排，
+                # 并如实说明原因、提醒用户（用户口径）。
+                if foods.choice(w,d['date'],_period):
+                    from .schedule import meal_too_late as _mtl
+                    # 用"游玩结束时刻"判断是否已超出该餐窗口（此前误用开始时刻）
+                    _late,_over,_wend=_mtl(w,d['date'],_period,t+duration)
+                    if _late:
+                        _label='午餐' if _period=='lunch' else '晚餐'
+                        _selected=foods.choice(w,d['date'],_period)
+                        _sel_name=_selected.get('name') if _selected else '所选餐厅'
+                        offered.append({'code':'meal_not_placed','level':'warning','view':'food',
+                            'date':d['date'],'meal_period':_period,
+                            'candidate_ids':[_selected['id']] if _selected and _selected.get('id') else [],
+                            'message':(d['date']+' 的'+_label+'（'+_sel_name+'）未能放入日程：当天游玩到 '
+                                +clock(t+duration)+' 才结束，已超出'+_label+'可用时段（至'
+                                +clock(_wend)+'）约 '+str(_over)+' 分钟。建议该餐自行安排，'
+                                '或调整当天顺序、缩短游览、改到其他日期；您的餐厅选择仍保留。')})
+                        # 不静默改动用户的选择：只记录提醒，由用户决定是否改为自行安排。
+                        meal_unplaced.append(d['date']+'|'+_period)
+                    continue
+                _in,_at=_meal_inside(w,d['date'],t,duration,_period,lunch)
+                if _in:_inside.append((_period,_at))
+                if _in:inside_periods.add(_period)
+            _extra=sum(pacing.meal_duration(w,d['date'],_p) for _p,_a in _inside)
+            if _inside:
+                _names=', '.join('午餐' if _p=='lunch' else '晚餐' for _p,_a in _inside)
+                note=note+'；'+_names+'安排在游玩过程中（游玩时长不缩短，游程相应延长）。'
+            # 无论餐次是否在游程内，都只记一条连续的游览：
+            #   duration 保持游玩时长；end 覆盖 游玩 + 用餐。
+            events.append({'kind':'spot','candidate_id':p['id'],'name':p['name'],
+                           'start':clock(t),'end':clock(t+duration+_extra),
+                           'duration':duration,'note':note,'poi':p,'evidence':evidence})
+            t+=duration+_extra
             if i<len(d['items'])-1:
                 leisure=pacing.for_day(w,d['date'])['break_minutes']
                 events.append({'kind':'rest','name':'休息与机动时间','start':clock(t),'end':clock(t+leisure),'note':pacing.for_day(w,d['date'])['reason']})
@@ -422,9 +424,14 @@ async def _generate(w, progress, *, preview=False):
             last=p
         # Do not force an extra attraction to fill the day. Show unallocated time
         # and meal/rest suggestions so the book remains usable and transparent.
-        if d['items'] and not lunch and t<14*60:
-            meal_start=max(t,pacing.meal_time(w,d['date'],'lunch'))
-            lunch_events,t,last=await meal(d['date'],'lunch',meal_start,last,pacing.meal_duration(w,d['date'],'lunch'));events+=lunch_events;lunch=True
+        if d['items'] and not lunch and 'lunch' not in inside_periods:
+            from .schedule import meal_window as _mw, meal_start as _ms
+            _w0,_w1=_mw(w,d['date'],'lunch');_dur=pacing.meal_duration(w,d['date'],'lunch')
+            # 窗口内照常安排；已过窗口但本餐是"自行安排"时，仍要在时间轴上占一行
+            # （用户要求：吃饭时间要看得见），只是时间顺延到游玩结束。
+            if t+_dur<=_w1 and t<_w1:
+                meal_start=max(t,pacing.meal_time(w,d['date'],'lunch'))
+                lunch_events,t,last=await meal(d['date'],'lunch',meal_start,last,_dur);events+=lunch_events;lunch=True
         end_limit=minute(r.get('day_end','18:30'))
         if any(x.get('period')=='evening' for x in d['items']):
             end_limit=max(end_limit,22*60);warnings.append(d['date']+'包含晚间游览建议，当日结束按22:00预留；请核实出游当天夜间开放并确认体力。')
@@ -433,7 +440,7 @@ async def _generate(w, progress, *, preview=False):
             end_limit=min(end_limit,max(0,deadline))
             warnings.append(f"{d['date']} 所选返程 {return_time.strftime('%H:%M')}，预留{transport_links.offset(w,'return')}分钟接驳准备；实际出入口、候车或安检等待仍需确认。")
             if t>end_limit:raise DataError(d['date']+'的活动与返程冲突：预计结束于'+clock(t)+'，返程'+return_time.strftime('%H:%M')+'需暂按'+clock(end_limit)+'开始接驳准备。请调整这一天的顺序、游玩日期或返程班次后重排。',{'date':d['date'],'direction':'return','candidate_ids':[x['candidate_id'] for x in d['items']],'view':'spot','deadline':clock(end_limit)})
-        if end_limit>=18*60 and t<=end_limit-60:
+        if end_limit>=18*60 and t<=end_limit-60 and 'dinner' not in inside_periods:
             dinner_start=max(t,pacing.meal_time(w,d['date'],'dinner'))
             if t<dinner_start:events.append({'kind':'free','name':'自由活动与机动时间','start':clock(t),'end':clock(dinner_start),'note':'可休息或自行安排活动。'})
             dinner_events,t,last=await meal(d['date'],'dinner',dinner_start,last,pacing.meal_duration(w,d['date'],'dinner'));events+=dinner_events
@@ -465,6 +472,8 @@ async def _generate(w, progress, *, preview=False):
         plan['warnings'].append('返程接驳与候车准备需要提前到返程日期之前开始；请确认前一晚的退房、夜间交通及具体出发时刻，不能假设返程当日才准备即可。')
     plan['planning_issues']=draft.get('planning_issues',[])
     plan['planning_issues']+=boundary_issues
+    plan['planning_issues']+=offered
+    plan['meal_unplaced']=meal_unplaced
     for d in computed:
         group=next(g for g in groups if g['date']==d['date'])
         limit=minute(r.get('day_end','18:30'))

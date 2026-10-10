@@ -78,6 +78,19 @@ def meal_start(w,dt,period,preferred=None,as_late=False):
         want=max(want,latest)
     return max(begin,min(want,latest))
 
+def planned_meals(w,dt):
+    """当天时间轴里实际排定的餐次 → {period: 开饭时刻(分钟)}。
+
+    作为规划阶段与预览的唯一口径：provisional 里没有的餐次就不该被正式计划书补排。
+    """
+    out={}
+    for e in provisional(w):
+        if e.get('date')!=dt or e.get('kind')!='meal':continue
+        period=e.get('period')
+        if period:out[period]=minutes(e.get('time'))
+    return out
+
+
 def is_return_day(w,dt):
     """当天是不是返程日：是的话餐次尽量往后排（吃完就上车）。"""
     back=transport_time(w.get('selected_return'),'departure')
@@ -118,6 +131,63 @@ def last_meal_before_return(w,dt):
         if latest+duration<=departure:candidates.append((period,latest))
     return candidates[-1][0] if candidates else None
 
+def meal_too_late(w,dt,period,start,tolerance=5):
+    """该餐的开饭时刻是否已超出餐次窗口（默认容差 5 分钟）。
+
+    返回 (是否过多, 超出分钟数, 窗口结束时刻)。
+    """
+    if start is None:return False,0,None
+    end_window=meal_window(w,dt,period)[1]
+    over=start-end_window
+    return over>=tolerance,over,end_window
+
+
+def chosen_meal_fit(w,dt,start,duration,period):
+    """已选餐厅时，给出"把这一餐放回窗口内"所需的最长游玩时长。
+
+    返回 (可用的游玩时长, 是否需要缩减)。窗口已过则返回 (duration, False)，
+    交由上层提醒用户自行安排。
+    """
+    from . import pacing
+    end_window=meal_window(w,dt,period)[1]
+    need=pacing.meal_duration(w,dt,period)
+    latest_start=end_window-need
+    if start>=latest_start:return duration,False          # 窗口已过，无法硬塞
+    budget=latest_start-start
+    if budget>=duration:return duration,False
+    return max(0,budget),True
+
+
+def meal_inside(w,dt,start,duration,period,lunch_used=False):
+    """判断某餐是否应"在游玩过程中"解决。
+
+    返回 (是否在游程内, 用餐时刻或 None)。
+    口径（用户确定）：游玩不切断也不缩短；吃饭与休息发生在游玩过程中，
+    所以游程时段 = 游玩 + 用餐 + 休息。窗口已过则不排餐，交由提醒说明。
+    """
+    from . import pacing
+    if period=='lunch' and lunch_used:return False,None
+    at=pacing.meal_time(w,dt,period)
+    duration_meal=pacing.meal_duration(w,dt,period)
+    end_of_window=meal_window(w,dt,period)[1]
+    if start+duration_meal>end_of_window:return False,None       # 窗口放不下这一餐
+    if start<=at<start+duration:return True,at                   # 游玩跨过饭点 → 游程内解决
+    return False,None
+
+
+def clip_visit(w,dt,start,duration,period,lunch_used):
+    """按当天约束给出该景点可用的最长时长（必要时缩减）。
+
+    约束优先级：返程/日程硬边界 → 午餐窗口前收尾 → 保留原时长。
+    """
+    from . import pacing
+    hard=min(windows(w,dt)[1],day_end(w,dt),24*60)
+    budget=hard-start
+    if budget>=duration:return duration
+    # 只有真的超出当天边界才缩减（返程准备、日程结束或跨日）
+    return max(0,budget)
+
+
 def point(w,cid):return w.get('catalog',{}).get(cid)
 
 def provisional(w):
@@ -134,7 +204,8 @@ def provisional(w):
  rows=[];order={cid:i for i,cid in enumerate(w.get('visit_order',[]))}
  for dt,places in buckets.items():
   hotel=stay_plan.hotel_for(w,dt,morning=True)
-  floor,end=windows(w,dt);t=max(minutes(w['requirements'].get('day_start','09:00')),floor);last=hotel;arranged=[]
+  floor,end=windows(w,dt);_floor_base=max(minutes(w['requirements'].get('day_start','09:00')),floor)
+  t=_floor_base;last=hotel;arranged=[]
   # 返程日餐次尽量往后（吃完就上车），但留够准备时间且不超出餐次窗口。
   # 只优化最靠近返程的那一餐（其余餐次保持默认时刻）
   last_meal=last_meal_before_return(w,dt)
@@ -142,7 +213,8 @@ def provisional(w):
 
   lunch_at=meal_start(w,dt,'lunch',as_late=_late('lunch'));rest_start=lunch_at+pacing.meal_duration(w,dt,'lunch') if lunch_at is not None else None
   rest_minutes=pacing.rest_length(w,dt,rest_start) if rest_start is not None else 0
-  breaks=sorted([(meal_start(w,dt,period,as_late=_late(period)),pacing.meal_duration(w,dt,period)) for period in PERIODS if meal_start(w,dt,period,as_late=_late(period)) is not None]+([(rest_start,rest_minutes)] if rest_minutes else []))
+  # 餐次与午休不再作为"障碍物"插进景点之间——那会把长时景区切成碎片。
+  # 景点先连续排定，餐次时刻随后跟随（见下方 meal_flow.resolve_meals）。
   # Respect explicit periods and orders; within flexible groups use nearest
   # coordinates. Straight distance is never displayed as road travel time.
   while places:
@@ -151,24 +223,83 @@ def provisional(w):
     return ({'morning':0,'any':1,'afternoon':2,'evening':3}.get(period,1),order.get(p['id'],9999),estimates[p['id']].get('sequence',9999),coordinate_distance(last,p) if last and last.get('location') and p.get('location') else 0)
    p=min(places,key=rank);places.remove(p);estimate=estimates[p['id']];period=estimate.get('period','any');duration=estimate['duration']
    t=max(t,{'afternoon':13*60,'evening':18*60}.get(period,0),minutes(estimate.get('not_before')))
-   # A long visit can span lunch with a labelled meal pause. Do not move a
-   # whole half-day visit into the afternoon just because it crosses noon.
-   for at,length in breaks:
-    if at<=t<at+length:t=at+length
-   finish=t+duration
-   for at,length in breaks:
-    if t<at<finish:finish+=length
+   # 餐次不再参与景点摆位：长时景点跨过饭点就连续玩完，那一餐随后顺延。
+   # 但午休仍是边界——被钉在下午/晚上的活动应从午休结束后开始。
+   if rest_minutes and rest_start is not None and period in ('afternoon','evening') and t<rest_start+rest_minutes:
+    t=rest_start+rest_minutes
+   # 游玩时长不缩短（用户口径）：若游玩跨过饭点，则把用餐放进游程内，
+   # 游程时段相应延长；窗口已过则不排这一餐，交由提醒说明。
+   _inside=[]
+   for _period in ('lunch','dinner'):
+    _in,_at=meal_inside(w,dt,t,duration,_period,any(x.get('period')=='lunch' for x in arranged))
+    if _in:_inside.append((_period,_at))
+   _extra=sum(pacing.meal_duration(w,dt,_p) for _p,_a in _inside)
+   finish=t+duration+_extra
    pin_period=pins.get(p['id'],{}).get('period')
    over=finish>min(end,day_end(w,dt)) or pin_period in ('morning','afternoon') and finish>{'morning':720,'afternoon':1080}[pin_period]
-   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'not_before':estimate.get('not_before'),'sequence':estimate.get('sequence'),'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':finish-t>duration,'over_capacity':over})
+   arranged.append({'key':dt+'|'+p['id'],'date':dt,'time':clock(t),'end':clock(finish),'duration':duration,'not_before':estimate.get('not_before'),'sequence':estimate.get('sequence'),'kind':'spot','candidate_id':p['id'],'name':p['name'],'period':period,'confirmed':bool(pins.get(p['id'])),'estimated':True,'estimate_basis':estimate['basis'],'reason':estimate['reason'],'includes_meal_break':bool(_inside),'inside_meals':_inside,'over_capacity':over})
    t=finish+pacing.for_day(w,dt)['break_minutes'];last=p
   rows+=arranged
+  _visits=[(minutes(x['time']),minutes(x['end'])) for x in arranged if x.get('time') and x.get('end')]
+  # 餐次时刻跟随景点与午休（长时景点跨过饭点时，那一餐顺延到结束后）。
+  # preferred 与原先 meal_start 的口径一致，只有真正重叠时才顺延。
+  # floor 取最后一个景点的结束时刻：餐次不该早于活动结束，
+  # 也不该被"结束后的机动时间"往后推（那会造成无意义的空档）。
+  _floor=max([minutes(x['end']) for x in arranged if x.get('end')] or [_floor_base])
+  preferred={}
+  for _p in PERIODS:
+   _at=meal_start(w,dt,_p,as_late=_late(_p))
+   if _at is None:continue
+   if _p!='dinner':
+    _at=max(_at,_floor)
+   _lo,_hi=meal_window(w,dt,_p)
+   preferred[_p]=min(_at,_hi-pacing.meal_duration(w,dt,_p))
+  from . import meal_flow as _meal_flow
+  # 午休不参与餐次解析：它是可伸缩的余量，先让景点与餐次各就各位。
+  _inside_periods={p for x in arranged for p,_a in (x.get('inside_meals') or [])}
+  for _p in _inside_periods:preferred.pop(_p,None)
+  resolved=_meal_flow.resolve_meals(w,dt,_visits,preferred)
+
+  # 午休是可伸缩的弹性余量，不是固定占用：
+  #   用户可明确取消（requirements.cancel_rest）；
+  #   在景点与餐次都定好之后，找一段真正空着的时段放它；放不下就取消。
+  if rest_minutes and w['requirements'].get('cancel_rest'):
+   rest_minutes=0
+  if rest_minutes:
+   _busy=sorted([(minutes(x['time']),minutes(x['end'])) for x in arranged if x.get('end') and x.get('time')]
+                +[(at,at+pacing.meal_duration(w,dt,p)) for p,at in resolved.items() if at is not None])
+   _limit=min(windows(w,dt)[1],24*60)
+   _probe=max(rest_start or 0,minutes(w['requirements'].get('day_start','09:00')))
+   for _a,_b in _busy:
+    if _probe<_b and _a<_probe+rest_minutes:_probe=_b
+   if any(_probe<_b and _a<_probe+rest_minutes for _a,_b in _busy):
+    _probe=max([b for _a,b in _busy if b>_probe] or [_probe])
+   if _probe+rest_minutes>_limit:
+    rest_minutes=0
+   else:
+    rest_start=_probe
   if rest_minutes:
    rows.append({'key':dt+'|midday_rest','date':dt,'time':clock(rest_start),'end':clock(rest_start+rest_minutes),
                 'kind':'rest','rest_type':'midday','name':'午休与放松','estimated':True,'confirmed':False,
                 'reason':pacing.for_day(w,dt)['reason']})
+  # 餐次时刻跟随景点与午休（长时景点跨过饭点时，那一餐顺延到结束后）。
+  # preferred 与原先 meal_start 的口径一致，只有真正重叠时才顺延。
+  # floor 取最后一个景点的结束时刻：餐次不该早于活动结束，
+  # 也不该被"结束后的机动时间"往后推（那会造成无意义的空档）。
+  _floor=max([minutes(x['end']) for x in arranged if x.get('end')] or [_floor_base])
+  preferred={}
+  for _p in PERIODS:
+   _at=meal_start(w,dt,_p,as_late=_late(_p))
+   if _at is None:continue
+   if _p!='dinner':
+    _at=max(_at,_floor)
+   _lo,_hi=meal_window(w,dt,_p)
+   preferred[_p]=min(_at,_hi-pacing.meal_duration(w,dt,_p))
+  from . import meal_flow as _meal_flow
+  # 午休不参与餐次解析：它是可伸缩的余量，先让景点与餐次各就各位。
   for period,(label,at,duration) in PERIODS.items():
-   at=meal_start(w,dt,period,as_late=period==last_meal_before_return(w,dt));duration=pacing.meal_duration(w,dt,period)
+   at=resolved.get(period)
+   duration=pacing.meal_duration(w,dt,period)
    if at is None:continue
    choice=(w.get('meal_choices') or {}).get(dt+'|'+period,{})
    if not choice and (w.get('meal_mode')=='self' or w.get('dining_reviewed')):choice={'mode':'self'}

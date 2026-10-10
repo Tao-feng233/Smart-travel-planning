@@ -79,13 +79,18 @@ def check(w, plan):
             issues.append(diagnostics.issue('revision_day_end', dt+'的建议游玩超过当前每日结束时间。可调整节奏或查看带警告的草稿；当前结束时刻不会自动延后。',dt=dt,level='warning',overrun_minutes=max(schedule.minutes(e.get('end')) for e in day['events'] if e.get('kind') in ('spot','spot_continue'))-high,available_minutes=max(0,high-schedule.minutes(w['requirements'].get('day_start','09:00')))))
     if len(seen)!=len(set(seen)) or set(seen)!=set(hierarchy['active_ids']):
         issues.append(diagnostics.issue('model_output', '修订没有完整保留全部已选景点，旧计划已保留，可重试。',view='plan',retry=True))
+    # 因超出餐次窗口而被自动改为"自行安排"的餐次，不再要求那家餐厅出现。
+    auto=set(plan.get('meal_unplaced') or [])
     for key, choice in w.get('meal_choices', {}).items():
-        if choice.get('mode')!='chosen':continue
+        if choice.get('mode')!='chosen' or key in auto:continue
         dt, period=key.split('|');name=w.get('catalog',{}).get(choice.get('food_id'),{}).get('name','已选餐厅')
         if not any(e.get('kind')=='meal' and e.get('food',{}).get('id')==choice.get('food_id') and
                    e.get('name','').startswith(schedule.PERIODS[period][0])
                    for d in plan.get('days',[]) if d['date']==dt for e in d.get('events',[])):
-            issues.append(diagnostics.issue('revision_missing_meal', dt+' '+schedule.PERIODS[period][0]+'的'+name+'仍未能放入日程。请核对餐次、营业资料及交通衔接。',view='food',ids=[choice['food_id']],dt=dt,meal_period=period))
+            # 因当天时间放不下而未能排入：降级为提醒（不阻断生成），
+            # 说明原因并请用户自行安排或调整顺序。
+            issues.append(diagnostics.issue('meal_not_placed', dt+' '+schedule.PERIODS[period][0]+'的'+name+'未能放入日程：当天时间不足。'
+                '可改为自行安排、调整当天顺序，或改到其他日期。',view='food',ids=[choice['food_id']],dt=dt,meal_period=period,level='warning'))
     return issues
 
 
