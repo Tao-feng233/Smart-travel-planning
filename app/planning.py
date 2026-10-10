@@ -220,9 +220,23 @@ def fill_budget(plan, w):
     if '门票' not in items and _no_ticket:
         pending.append('门票（尚未查询该景点门票；可在景点页查询后再生成）')
     for _x in _no_admission:
-        pending.append(_x['spot']+' 未查到门票类产品'
-                       +('（该景点可能免费开放，或仅有讲解/演出等付费项目）' if _x['other_products'] else '')
-                       +'，未计入预算')
+        # 有官方免费入园资料就直接说免费；否则如实说明"平台没有卖门票"这一事实，
+        # 并说明未计入的原因——不猜免费，也不拿讲解/演出票充数。
+        _free=False
+        try:
+            from .price_hints import hint as _hint
+            _spot=next((cat.get(_sid) or {} for _sid in (w.get('selected_spots') or [])
+                        if str((cat.get(_sid) or {}).get('name') or '')==_x['spot']), None)
+            if _spot and (_hint(w,_spot) or {}).get('basis')=='official_free_admission':
+                _free=True
+                pending.append(_x['spot']+' 为免费入园（已有官方资料），门票不计费')
+                continue
+        except Exception:
+            pass
+        if _free:continue
+        pending.append(_x['spot']+'：平台没有该景点的门票类商品'
+                       +('，只有讲解/演出等付费项目（这些不是门票，未计入）' if _x['other_products'] else '')
+                       +'。若该景点需要门票，请购票后自行加上这一项')
     pending.append('门票实际日期及适用票种需以购票页为准')
     if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
     if budget.get('hotel_reference') is None:pending.append('住宿')

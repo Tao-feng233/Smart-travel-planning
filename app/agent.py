@@ -203,7 +203,7 @@ async def load_ticket_snapshot(w,p,progress=None):
             d=unwrap(result['data']);rows=d.get('tickets',[]) if isinstance(d,dict) else []
             if not isinstance(rows,list):raise DataError('门票接口未返回可用产品列表。')
             if rows:break
-    except DataError:
+    except Exception:
         w.setdefault('tickets',{}).setdefault(p['id'],{'items':[]}).update(
             status='query_failed',attempted_date=requested,checked_at=now())
         return None
@@ -229,7 +229,12 @@ async def autoload_tickets(w,progress,limit=6):
             skipped.extend(str(x.get('name') or '') for _,x in pending[checked:])
             break
         if progress:progress('途牛 MCP 正在查询'+str(p.get('name') or '该景点')+'的门票')
-        snap=await load_ticket_snapshot(w,p,progress)
+        try:
+            snap=await load_ticket_snapshot(w,p,progress)
+        except Exception:
+            # 门票查询属于补充信息：任何失败（含工具服务未连接）都只记录，
+            # 绝不因此打断计划书生成。
+            snap=None
         if snap is None:skipped.append(str(p.get('name') or ''))
         else:checked+=1
     return checked,skipped

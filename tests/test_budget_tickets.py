@@ -107,8 +107,8 @@ def test_spot_without_admission_products_is_not_guessed_free():
          'date_status': 'in_sales_window'},
     ]}}
     b = planning.fill_budget(plan(), w)
-    # 不把讲解票当门票，也不猜免费：列为未查到门票类产品
+    # 不把讲解票当门票，也不猜免费：如实说明平台没有门票类商品
     assert '门票' not in b['items']
     joined = ' '.join(b['unknown'])
-    assert '未查到门票类产品' in joined
-    assert '免费开放' in joined
+    assert '平台没有该景点的门票类商品' in joined
+    assert '这些不是门票' in joined
