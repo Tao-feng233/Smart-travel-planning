@@ -63,7 +63,7 @@ const assistanceFinishJob=finishJob;finishJob=function(j,name,args={}){
 };
 document.addEventListener('click',e=>{
  const jump=e.target.closest('[data-diagnostic-candidate]');if(jump&&!busy){const id=jump.dataset.diagnosticCandidate,p=workspace.catalog[id];if(!p)return;if(p.kind==='food'&&jump.dataset.diagnosticDate){mealDate=jump.dataset.diagnosticDate;mealPeriod=jump.dataset.diagnosticPeriod||mealPeriod;// 切到餐饮页并锁定这一餐，避免被"自动进入下一餐"顶掉
-if(typeof suppressMealAdvance!=='undefined')suppressMealAdvance=2;if(typeof switchTab==='function'&&sceneNames&&sceneNames.food)switchTab('food');}focusCandidate(id,true);return}
+if(typeof suppressMealAdvance!=='undefined')suppressMealAdvance=1;if(typeof switchTab==='function'&&sceneNames&&sceneNames.food)switchTab('food');}focusCandidate(id,true);return}
  if(e.target.closest('[data-show-diagnostics]')){
   // 1) 聊天里已有诊断块：直接滚过去
   const blocks=[...document.querySelectorAll('#messages .planning-diagnostics')];
