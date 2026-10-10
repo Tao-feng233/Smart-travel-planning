@@ -40,8 +40,12 @@ def create(client):
 def submit(client,w,action='requirements',args=None,request_id=None):
     return client.post('/api/workspaces/'+w['id']+'/actions',json={'revision':w['revision'],'action':action,'args':args or {},'request_id':request_id or str(uuid.uuid4())})
 
-def wait(client,jid):
-    for _ in range(100):
+def wait(client,jid,timeout=20.0):
+    # 原写法是 100 次 × 0.01 秒（约 1 秒）的固定轮询上限；全量测试时 CPU 争用
+    # 会让同一个任务偶尔超过 1 秒而误报”任务未完成“（任务本身通常 0.4 秒内完成）。
+    # 改为按挂钟预算等待：任务真失败仍会很快返回，任务偏慢也不会误判。
+    deadline=time.time()+timeout
+    while time.time()<deadline:
         j=client.get('/api/jobs/'+jid).json()
         if j['status']!='running':return j
         time.sleep(.01)
