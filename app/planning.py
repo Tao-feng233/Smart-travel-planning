@@ -133,7 +133,9 @@ def fill_budget(plan, w):
             route=e.get('route') or {}
             _mode=route.get('mode')
             _val=None;_kind=None
-            if _mode=='taxi':
+            # 高德把打车/自驾都返回为 driving，其 taxi_cost 即打车预估；
+            # 只在 mode=='taxi' 时读取会漏掉 driving 这类。
+            if _mode in ('taxi','driving'):
                 try:_val=float(route.get('taxi_cost'))
                 except (TypeError,ValueError):_val=None
                 if _val is not None:_kind='打车预估'

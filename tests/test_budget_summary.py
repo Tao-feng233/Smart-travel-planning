@@ -95,3 +95,14 @@ def test_taxi_and_transit_are_mutually_exclusive_per_leg():
     assert b['items']['市内交通']['amount'] == 43.0
     kinds = [d['price_kind'] for d in b['items']['市内交通']['detail']]
     assert kinds == ['打车预估', '公交/地铁票价']
+
+def test_driving_mode_taxi_cost_is_counted():
+    # 高德把打车/自驾返回为 driving，其 taxi_cost 是打车预估；只认 'taxi' 会漏掉
+    pl = plan()
+    pl['days'][0]['events'] = [
+        {'kind': 'route', 'name': '前往景区', 'route': {'mode': 'driving', 'taxi_cost': 33.0}},
+        {'kind': 'route', 'name': '步行段', 'route': {'mode': 'walking'}},
+    ]
+    b = planning.fill_budget(pl, workspace())
+    assert b['items']['市内交通']['amount'] == 33.0
+    assert b['items']['市内交通']['detail'][0]['price_kind'] == '打车预估'
