@@ -262,10 +262,15 @@ async def resolve_station(w, transport, mode, city, tool):
     if city:
         _text=str(name)
         _kind='airport' if '机场' in _text else 'station'
-        # 班次记录里的站名常是城市名（如"青岛"），补一个"站"更容易命中主干站。
-        _tries=[_text]
+        # 班次记录里的站名常是城市名（如"青岛"）。这种只有城市名的情况，
+        # 直接按"城市名+站"查一次（'青岛'会返回青岛站/西站/北站/机场站四条，
+        # 而'青岛站'直接命中主干站）；查不到再退回原名称。
+        _inferred=False
         if _kind=='station' and not _text.endswith('站'):
-            _tries.append(_text+'站')
+            _tries=[_text+'站',_text]
+            _inferred=True
+        else:
+            _tries=[_text]
         for _kw in _tries:
             try:
                 items=await tool('search_transport_places',{'city':city,'keywords':_kw,'kind':_kind})
@@ -289,6 +294,7 @@ async def resolve_station(w, transport, mode, city, tool):
                 candidate={'id':p.get('id'),'name':p.get('name'),'location':coordinate(p.get('location')),
                            'endpoint_scope':p.get('endpoint_scope'),'match_status':p.get('match_status'),
                            'terminal_confirmed':bool(p.get('terminal_confirmed')),
+                           'station_inferred_from':_text if _inferred else None,
                            'source':p.get('source')}
                 break
     transport[prefix+'_station_candidate']=candidate

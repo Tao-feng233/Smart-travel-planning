@@ -242,8 +242,14 @@ def day_closure(w, day):
         if st:
             point = between_anchor(last_spot, st, bias=0.5)
             if point:
+                _st_name=str((st or {}).get('name') or '')
+                _note=''
+                if (st or {}).get('station_inferred_from'):
+                    _note='（出发站按城市名推定为'+_st_name+'，请核对车票上的车站）'
+                elif _st_name:
+                    _note='（出发站：'+_st_name+'）'
                 return point, ('次日 ' + str((w.get('selected_return') or {}).get('departure') or '')[:10]
-                               + ' 返程，最后一晚安排在当天最后的活动与出发站之间')
+                               + ' 返程，最后一晚安排在当天最后的活动与出发站之间' + _note)
         return last_spot, '当天最后一个活动'
     dinner = dinner_for(w, day)
     if dinner:
@@ -373,6 +379,8 @@ def plan(w):
                 anchor = dict(station)
                 anchor['_closure'] = 'station'
                 basis = '次日 ' + back_day.isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
+                if station.get('station_inferred_from'):
+                    basis += '（出发站按城市名推定为'+str(station.get('name'))+'，请核对车票上的车站）'
         # 住宿只按晚指定：没有显式指定就是"还没选"，不再由任何主住宿兜底。
         # 赶车前一晚同样如此，界面上如实显示未选，由用户决定住哪。
         unsuitable = bool(station and station.get('name') and not stays.get(day))
