@@ -260,19 +260,36 @@ async def resolve_station(w, transport, mode, city, tool):
     from .providers import DataError
     candidate=None
     if city:
-        try:
-            items=await tool('search_transport_places',{'city':city,'keywords':str(name),
-                                                       'kind':'airport' if '机场' in str(name) else 'station'})
+        _text=str(name)
+        _kind='airport' if '机场' in _text else 'station'
+        # 班次记录里的站名常是城市名（如"青岛"），补一个"站"更容易命中主干站。
+        _tries=[_text]
+        if _kind=='station' and not _text.endswith('站'):
+            _tries.append(_text+'站')
+        for _kw in _tries:
+            try:
+                items=await tool('search_transport_places',{'city':city,'keywords':_kw,'kind':_kind})
+            except DataError:
+                continue
             rows=[p for p in (items or {}).get('items',[])
                   if isinstance(p,dict) and coordinate(p.get('location'))]
-            # 同名候选可能多个（不同站场/航站楼）：只取唯一候选，多个就交回业务层确认。
+            if not rows:continue
+            if len(rows)>1:
+                exact=[p for p in rows if str(p.get('name') or '').strip()==_kw]
+                if len(exact)==1:
+                    rows=exact
+                else:
+                    # 排除分站（东/西/南/北站、机场站）：只留主干站。
+                    main=[p for p in rows
+                          if not any(t in str(p.get('name') or '') for t in ('东站','西站','南站','北站','机场'))]
+                    rows=main
+            # 仍不唯一就交回业务层确认，不硬选。
             if len(rows)==1:
                 p=rows[0]
                 candidate={'id':p.get('id'),'name':p.get('name'),'location':coordinate(p.get('location')),
                            'endpoint_scope':p.get('endpoint_scope'),'match_status':p.get('match_status'),
                            'terminal_confirmed':bool(p.get('terminal_confirmed')),
                            'source':p.get('source')}
-        except DataError:
-            candidate=None
+                break
     transport[prefix+'_station_candidate']=candidate
     return candidate
