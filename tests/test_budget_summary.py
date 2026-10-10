@@ -24,6 +24,8 @@ def plan():
         {'kind': 'route', 'name': 'A→B', 'route': {'mode': 'transit', 'fare': 4.0}},
         {'kind': 'route', 'name': 'B→C', 'route': {'mode': 'transit', 'fare': 5.0}},
         {'kind': 'route', 'name': 'C→D', 'route': {'mode': 'walking'}},
+        {'kind': 'meal', 'name': '午餐 · 面馆', 'food': {'id': 'f1', 'name': '面馆', 'cost': '37.00'}},
+        {'kind': 'meal', 'name': '晚餐 · 酒家', 'food': {'id': 'f2', 'name': '酒家', 'cost': '87.00'}},
     ]}], 'budget': {'hotel_reference': 431.0, 'nights': 2, 'nights_priced': 2}}
 
 
@@ -46,22 +48,21 @@ def test_unknown_only_lists_items_without_data():
     # 有数据的项不应出现在待核实里
     assert '往返交通' not in joined
     assert '市内交通' not in joined
-    # 门票确实没有数据 → 仍在待核实
-    assert '门票' in joined
-
+    # 有已选景点但未查询门票 → 仍在待核实，且提示可去查\n    w2 = workspace()\n    w2['selected_spots'] = ['s1']\n    b2 = planning.fill_budget(plan(), w2)\n    assert '门票' in ' '.join(b2['unknown'])\n
 
 def test_missing_prices_fall_back_to_unknown_without_guessing():
     w = workspace()
     w.pop('selected_transport')
     w.pop('selected_return')
     w.pop('meal_choices')
-    b = planning.fill_budget(plan(), w)
+    # 计划书里没有任何餐次事件时，餐饮无数据可算 → 待核实
+    b = planning.fill_budget({'days': [], 'budget': {}}, w)
     assert '往返交通' not in b['items']
     assert '餐饮' not in b['items']
     joined = ' '.join(b['unknown'])
     assert '往返交通' in joined and '餐饮' in joined
     # 未知项不按零计入
-    assert b['known_subtotal'] == 9.0 + 431.0
+    assert b['known_subtotal'] == 0.0
 
 
 def test_one_direction_only_still_counts_that_direction():

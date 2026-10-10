@@ -138,23 +138,59 @@ def fill_budget(plan, w):
         items['市内交通']={'amount':sum(x['fare'] for x in fares),'detail':fares,
                           'basis':'仅计入已核实票价的公交/地铁；打车与自驾未计入'}
 
-    # 餐饮：已选餐厅的参考人均 × 成人数 × 人数餐次
-    meals=[]
-    for key,choice in (w.get('meal_choices') or {}).items():
-        if (choice or {}).get('mode')!='chosen':continue
-        food=cat.get((choice or {}).get('food_id')) or {}
-        try:cost=float(food.get('cost'))
-        except (TypeError,ValueError):cost=None
-        if cost is None:continue
-        dt,_,period=key.partition('|')
-        meals.append({'key':key,'name':str(food.get('name') or '')[:30],'per_person':cost,
-                      'adults':adults,'children':0,'amount':cost*adults})
-    if meals:
-        items['餐饮']={'amount':sum(x['amount'] for x in meals),'detail':meals,
-                      'basis':'已选餐厅的地图参考人均 × 成人数（儿童不计入）；非实际消费，未选餐次不计'}
+    # 餐饮：按计划书里真实排出的餐次逐餐计价（而不是只看已选餐厅）。
+    def _city_per_person():
+        """本地同类餐厅参考人均的中位数，用于估算"自行安排"的餐次。
 
+        排除酒店内餐厅（早餐价常达一两百元，会明显拉高）与离群高价，
+        避免用少数贵价餐厅污染整体估算。"""
+        vals=[]
+        for _p in cat.values():
+            if not isinstance(_p,dict) or _p.get('kind')!='food':continue
+            _nm=str(_p.get('name') or '')
+            if '酒店' in _nm or '民宿' in _nm:continue
+            try:_v=float(_p.get('cost'))
+            except (TypeError,ValueError):continue
+            if _v>0:vals.append(_v)
+        if not vals:return None
+        vals.sort()
+        mid=vals[len(vals)//2]
+        vals=[v for v in vals if v<=mid*4] or vals
+        return vals[len(vals)//2]
+    _fallback=_city_per_person()
+    meals=[]
+    for _day in (plan.get('days') or []):
+        for _e in (_day.get('events') or []):
+            if _e.get('kind')!='meal':continue
+            _nm=str(_e.get('name') or '')
+            _period=('breakfast' if _nm.startswith('早餐') else
+                     'lunch' if _nm.startswith('午餐') else
+                     'dinner' if _nm.startswith('晚餐') else None)
+            if not _period:continue
+            _food=_e.get('food') or {}
+            try:_cost=float(_food.get('cost'))
+            except (TypeError,ValueError):_cost=None
+            if _cost is not None and _cost>0:
+                meals.append({'date':_day.get('date'),'period':_period,
+                              'name':str(_food.get('name') or _nm)[:30],
+                              'per_person':_cost,'adults':adults,
+                              'amount':_cost*adults,'basis':'chosen'})
+            elif _fallback is not None:
+                meals.append({'date':_day.get('date'),'period':_period,
+                              'name':_nm[:30],'per_person':_fallback,'adults':adults,
+                              'amount':_fallback*adults,'basis':'estimate'})
+    if meals:
+        _chosen=[x for x in meals if x['basis']=='chosen']
+        _est=[x for x in meals if x['basis']=='estimate']
+        _basis='按计划书内的餐次逐餐计价：已选餐厅用人均参考价（'+str(len(_chosen))+' 餐）'
+        if _est:
+            _basis+=('；未选餐厅（自行安排）按本地参考人均中位数约 ¥'
+                     +format(_fallback,'.0f')+' 估算（'+str(len(_est))+' 餐），属估算值')
+        _basis+='。只计成人（儿童不计入），非实际消费。'
+        items['餐饮']={'amount':sum(x['amount'] for x in meals),'detail':meals,'basis':_basis}
     # 门票：成人按成人票、儿童按儿童票分别乘人数后合计。
-    # 资料来自门票快照 w['tickets']（用户查询过才存在）；没有就列为待核实，不猜。
+    # 资料来自门票快照 w['tickets']（用户查询过或生成时自动查询才有）；
+    # 没有就列为待核实，不猜、不按零计入。
     children=int(r.get('children') or 0)
     ticket_lines=[]
     _no_admission=[]
@@ -200,16 +236,17 @@ def fill_budget(plan, w):
                              'amount':_amt,'queried_date':_snap.get('requested_date')})
     if ticket_lines:
         items['门票']={'amount':sum(x['amount'] for x in ticket_lines),'detail':ticket_lines,
-                      'basis':'已查门票的票面起价：成人票×成人数'+(('、儿童票×儿童数') if children else '')+\
-                              '；票面起价可能对应其他日期，学生/老人票不作为成人票使用'}
+                      'basis':'已查门票的票面起价：成人票×成人数'
+                              +(('、儿童票×儿童数') if children else '')
+                              +'；票面起价可能对应其他日期，学生/老人票不作为成人票使用'}
     _no_ticket=[str((cat.get(_sid) or {}).get('name') or '')[:20]
                 for _sid in (w.get('selected_spots') or [])
                 if not ((w.get('tickets') or {}).get(_sid) or {}).get('tickets')
                 and not ((w.get('tickets') or {}).get(_sid) or {}).get('items')]
-    if children and ('门票' in items or _no_ticket):
-        budget['child_note']=('儿童 '+str(children)+' 人'+
-            ('（年龄 '+str(r.get('children_ages'))+'）' if r.get('children_ages') else '')+
-            '：多数景区按身高或年龄免票/半价，实际票种与价格请在购票时核对。')
+    if children and ('门票' in items or _no_admission or _no_ticket):
+        budget['child_note']=('儿童 '+str(children)+' 人'
+            +('（年龄 '+str(r.get('children_ages'))+'）' if r.get('children_ages') else '')
+            +'：多数景区按身高或年龄免票/半价，实际票种与价格请在购票时核对。')
     budget['items']=items
     known=sum(v['amount'] for v in items.values())
     if budget.get('hotel_reference') is not None:known+=budget['hotel_reference']
@@ -237,7 +274,6 @@ def fill_budget(plan, w):
         pending.append(_x['spot']+'：平台没有该景点的门票类商品'
                        +('，只有讲解/演出等付费项目（这些不是门票，未计入）' if _x['other_products'] else '')
                        +'。若该景点需要门票，请购票后自行加上这一项')
-    pending.append('门票实际日期及适用票种需以购票页为准')
     if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
     if budget.get('hotel_reference') is None:pending.append('住宿')
     if '市内交通' not in items:pending.append('市内交通（尚未取到票价）')

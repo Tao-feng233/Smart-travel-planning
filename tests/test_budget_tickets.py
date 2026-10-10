@@ -31,7 +31,10 @@ def workspace(**req):
 
 
 def plan():
-    return {'days': [], 'budget': {'hotel_reference': 100.0, 'nights': 1, 'nights_priced': 1}}
+    # 餐饮按计划书里的餐次计价，因此夹具带上当天的午餐事件
+    return {'days': [{'date': '2026-10-11', 'events': [
+        {'kind': 'meal', 'name': '午餐 · 面馆', 'food': {'id': 'f1', 'name': '面馆', 'cost': '30.00'}},
+    ]}], 'budget': {'hotel_reference': 100.0, 'nights': 1, 'nights_priced': 1}}
 
 
 def test_ticket_amount_splits_adults_and_children():
@@ -47,7 +50,8 @@ def test_meals_count_only_adults():
     b = planning.fill_budget(plan(), workspace())
     # 餐饮只按成人：30 × 2 = 60（儿童不计）
     assert b['items']['餐饮']['amount'] == 60.0
-    assert b['items']['餐饮']['detail'][0]['children'] == 0
+    line = b['items']['餐饮']['detail'][0]
+    assert line['adults'] == 2 and line['basis'] == 'chosen'
     assert '儿童不计入' in b['items']['餐饮']['basis']
 
 
