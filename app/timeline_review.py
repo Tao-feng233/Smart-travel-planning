@@ -41,9 +41,15 @@ def checks(w,timeline):
                 'candidate_ids':list(dict.fromkeys(x['candidate_id'] for x in spots)),
                 **({'optimize':True} if planned else {}),
                 'overrun_minutes':max(load-capacity,finish-end),'available_minutes':capacity,
-                'message':(day+'活动、已列交通与休息预计占用约'+str(load)+'分钟，可安排窗口约'+str(capacity)+'分钟，当前时间轴偏紧。建议调整可移动景点的日期或顺序；建议时长未被强行压缩，也未删除已选地点。'
+                'message':((day+'活动、已列交通与休息预计占用约'+str(load)+'分钟，可安排窗口约'
+                             +str(capacity)+'分钟（'+schedule.clock(start)+'–'+schedule.clock(end)+'），'
+                             +'超出约'+str(max(load-capacity,finish-end))+'分钟，预计结束约'+schedule.clock(finish)+'。'
+                             +'建议调整可移动景点的日期或顺序；建议时长未被强行压缩，也未删除已选地点。')
                            if planned else
-                           day+'安排可能偏紧：预计占用约'+str(load)+'分钟、可安排窗口约'+str(capacity)+'分钟。生成计划书时会统一调整；建议时长未被压缩，也未删除已选地点。')})
+                           (day+'安排可能偏紧：预计占用约'+str(load)+'分钟、可安排窗口约'+str(capacity)+'分钟（'
+                             +schedule.clock(start)+'–'+schedule.clock(end)+'），超出约'
+                             +str(max(load-capacity,finish-end))+'分钟。生成计划书时会统一调整；'
+                             +'建议时长未被压缩，也未删除已选地点。'))})
     arrival=schedule.transport_time(w.get('selected_transport'),'arrival')
     if arrival and (w.get('selected_transport') or {}).get('selection_status')=='confirmed':
         day=arrival.date().isoformat();low,high=schedule.windows(w,day)

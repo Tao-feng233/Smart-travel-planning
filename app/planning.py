@@ -524,7 +524,17 @@ async def _generate(w, progress, *, preview=False):
             if not chosen:raise DataError('从'+last['name']+'返回'+base['name']+'的路线尚未核实，请更新位置或重试，也可调整用餐安排。',
                                          {'date':d['date'],'candidate_ids':[last['id'],base['id']],'view':'food','phase':'route','route_options':opts})
             allocation=round_up(chosen['minutes']+15)
-            if return_time and d['date']==return_time.date().isoformat() and t+allocation>end_limit:raise DataError('活动后返回住宿与返程接驳冲突，请调整这一天的安排。',{'date':d['date'],'view':'spot','direction':'return','candidate_ids':[last['id'],base['id']]})
+            if return_time and d['date']==return_time.date().isoformat() and t+allocation>end_limit:
+                # 冲突要把明细一次说全：结束时刻、返回耗时、准备截止、差多少。
+                _need=t+allocation-end_limit
+                raise DataError(d['date']+' '+last['name']+'游览到'+clock(t)+'结束，'
+                    '返回'+base['name']+'还需'+str(allocation)+'分钟（约'+clock(t+allocation)+'到），'
+                    '但为赶'+return_time.strftime('%H:%M')+'的返程，最晚需在'+clock(end_limit)+'前开始接驳准备，'
+                    '相差约'+str(_need)+'分钟。可缩短该项游览、减少当天景点、提前返回，或改乘更晚的班次。',
+                    {'date':d['date'],'view':'spot','direction':'return',
+                     'candidate_ids':[last['id'],base['id']],
+                     'deadline':clock(end_limit),'overrun_minutes':_need,
+                     'available_minutes':max(0,end_limit-t),'needed_minutes':allocation})
             events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':opts,'buffer':allocation-chosen['minutes'],'note':'活动后前往当晚住宿或返程前的行李寄存地点，含规划缓冲；寄存及入住条件待核实。'})
             t+=allocation;last=base
             # 用户要求：最晚到达住宿 23:30。

@@ -393,6 +393,8 @@ async def understand(s):
     prompt+='用户让助手自动选择景点、住宿、餐饮、补齐剩余或重新配置时，使用request_auto_selection和auto_mode/auto_categories，先等待弹窗确认，不输出select_ids/remove_ids，不在确认前代选。车票和机票只能查询推荐，必须由用户明确选择，不自动确认班次。'
     prompt+='用户要求优化每日分配、分析游玩时长或均衡安排但尚不需要计划书时使用analyze_visits。该动作会分析全部已选景点并更新临时时间轴，不要把它误称为已生成正式计划。'
     prompt+='用户要求调整先后顺序时使用visit_schedule和visit_order，记录真实已选ID；要求按位置自动优化并重排时使用plan，保留已选班次、餐厅和明确日期时段。给用户说明具体冲突的日期和相关地点，不能把返程次日误当成最后游玩日。'
+    prompt+='说明冲突或提醒时，必须一次把系统给出的具体数值讲全（日期、地点、时刻、相差多少分钟），不要让用户追问才给明细。'
+    prompt+='这些数值只能用系统在提醒里给出的原文，禁止自己重新计算或估算；若提醒只给了占用与可用分钟数，就照抄两者，不要相减另报一个超出量。'
     prompt+='mission必须按整体语义、上下文和用户目标填写，不靠特定措辞。用户要求一份完整方案、不想逐项挑选、把未定细节交给助手等属于delegate，确认前不能擅自选择。查询或解释不要求每步确认。multi_step只用于需要综合多个查询或依据结果继续处理的目标；简单单项请求不要增加无关调用。工作台阶段是参考，不覆盖用户目标。'
     visible_ids=list(discovery.page_info(w)['ids'])+list((w.get('hotel_query') or {}).get('ids',[]))+list((w.get('food_query') or {}).get('ids',[]))+[p['id'] for p in (w.get('transport') or {}).get('items',[])]+w['selected_spots']
     visible_ids+= [p['id'] for p in (w.get('hotel'),w.get('selected_transport'),w.get('selected_return')) if p and p.get('id')]
