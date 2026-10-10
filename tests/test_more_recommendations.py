@@ -29,7 +29,7 @@ def test_no_new_candidates_is_a_normal_result_with_old_batch_kept(monkeypatch):
     async def tool(*args):return {'items':[w['catalog']['old']]}
     monkeypatch.setattr(discovery,'local_tool',tool)
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,None))
-    assert '暂未找到新的' in result and w['spot_search']['ids']==['old']
+    assert '保留原有' in result and w['spot_search']['ids']==['old']
 
 
 def test_chat_paging_at_end_requests_more_instead_of_failing(monkeypatch):

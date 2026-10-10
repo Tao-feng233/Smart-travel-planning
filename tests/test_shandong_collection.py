@@ -122,4 +122,7 @@ def test_status_reports_actual_corpus_coverage():
     from app.main import status
     result=status(user={'id':'test'})
     assert len(result['knowledge_cities'])==19 and '日照' in result['knowledge_cities']
-    assert result['knowledge_records']==90
+    # 记录数随采集增长（新增成都官方来源后 90 → 105）。这里与语料实际数量比对，
+    # 不写死数字，避免每次扩采都要改测试。
+    from app.rag import corpus
+    assert result['knowledge_records']==corpus()['records']

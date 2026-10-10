@@ -78,8 +78,17 @@ async def search(w,args,progress,recommend):
     expanding=args.get('expand_spots') is True;previous=w.get('spot_search') or {}
     history=list(dict.fromkeys(previous.get('history_ids',[])+previous.get('ids',[]))) if previous.get('city')==city else []
     if args.get('reject_current'):
-        for cid in page_info(w)['ids']:
-            if cid not in w['selected_spots']:reject_one(w,cid)
+        # 只拒绝当前页里尚未选中的景点：已选景点应由用户自己取消。
+        # reject_one 对已选景点会直接报错，那会让整个动作失败、界面毫无反应
+        # （用户"想再多选几个"时点了这个按钮，看到的却是按钮没反应）。
+        _page=[cid for cid in page_info(w)['ids'] if cid not in w['selected_spots']]
+        if not _page:
+            _n=len(page_info(w)['ids'])
+            return ('本轮 ' + str(_n) + ' 个候选都已选择，没有更多可换的景点；'
+                    '已选与候选均保留。如需别的方向，可换目的地、'
+                    '在对话里说明偏好，或先取消某个已选景点再点重新筛选。')
+        for cid in _page:
+            reject_one(w,cid)
     excluded_ids=list(dict.fromkeys(w.get('rejected_spots',[])+w.get('selected_spots',[])+(history if expanding else [])))
     excluded_names=list(w.get('rejected_spot_names',[]))+[w['catalog'][i]['name'] for i in excluded_ids if i in w['catalog']]
     keywords=[str(x)[:40] for x in (args.get('keywords') or (previous.get('keywords') if expanding else None) or classic[:3])[:4]]
@@ -101,6 +110,13 @@ async def search(w,args,progress,recommend):
         if advanced:offset=next_offset
         if len(items)>=minimum or source_exhausted or not advanced:break
     if not items:
+        # 换不到新候选时不要把界面清空：恢复上一轮的可见候选。
+        _prev_ids=previous.get('ids') or []
+        if previous.get('city')==city and _prev_ids:
+            w['spot_search']=previous
+            return ('本轮没有可替换的新景点，已保留原有 ' + str(len(_prev_ids))
+                    + ' 个候选。该城市已收录的景点已全部展示或核实完毕；'
+                    '可换目的地，或在对话里说明具体景点名称。')
         if expanding:return '本轮暂未找到新的相关景点，已有推荐与选择已保留。已有资料的候选已查到末尾或位置暂未核实，可以更换主题或地区；不会重复推荐已看过的地点。'
         return '本次已有资料中的景点暂未取得可用地图候选，当前选择保留。可以稍后重试；不会以背景介绍代替已核对的地点。'
     page=1
