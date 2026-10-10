@@ -105,11 +105,12 @@ def stay_rows(w):
         _next=ordered[_i+1][1] if _i+1<len(ordered) else None
         if _next==_cid:continue
         _out=(date.fromisoformat(_dt)+timedelta(days=1)).isoformat()
-        rows.append({'key':_out+'|checkout','date':_out,'time':'12:00','end':'12:00','kind':'checkout',
-            'candidate_id':_cid,'name':'退房并寄存行李（多数酒店 12:00 前，具体以酒店为准）',
+        rows.append({'key':_out+'|checkout','date':_out,'time':'','end':'','kind':'checkout',
+            'candidate_id':_cid,
+            'name':'退房（当天 12 点前；多数酒店如此，具体以酒店为准）',
             'confirmed':False,'estimated':True,
-            'note':'多数酒店退房时间为 12:00 前，具体以酒店确认为准（平台资料未提供退房时间）；'
-                   '换住处当天可先寄存行李再开始游览。',
+            'note':'退房是当天的截止要求：多数酒店需在 12 点前办理（平台资料未提供退房时间，'
+                   '请以酒店告知为准）。退房后可寄存行李再安排当天行程。',
             'reason':'退房时间以酒店确认为准'})
     return rows
 

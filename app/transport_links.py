@@ -92,6 +92,10 @@ def events(w,direction,moment):
     if moment<offset(w,'return'):return []
     begin=max(0,moment-offset(w,'return'));start=begin+15;finish=start+allocation
     if finish>=moment:return []
-    return [{'kind':'arrival','candidate_id':h['id'],'name':'退房与出发准备','start':clock(begin),'end':clock(start),'note':'暂预留15分钟，退房及行李条件待核实。'},
+    # 这里只是"回到住宿取寄存行李、然后出发去车站"，不是退房本身——
+    # 退房通常在当天 12:00 前完成（时间轴上单独有一行）。原先把它命名为
+    # "退房与出发准备"，会让用户以为要到 16:24 才退房。
+    return [{'kind':'arrival','candidate_id':h['id'],'name':'返回住宿取行李并出发','start':clock(begin),'end':clock(start),'note':'多数酒店退房时间为 12:00 前；此处为返回住宿取寄存行李并出发，'
+           '具体寄存与取件条件待核实。'},
             {'kind':'route','route_scope':'return_transfer','name':'从'+h['name']+'前往'+link['point']['name'],'start':clock(start),'end':clock(finish),'route':route,'options':[route],'buffer':allocation-route['minutes'],'note':link['note']},
             {'kind':'transfer_plan','transfer_scope':'waiting','name':'候车或值机、安检准备','start':clock(finish),'end':clock(moment),'note':'具体出入口、航站楼与安检等待时间仍需确认。'}]
