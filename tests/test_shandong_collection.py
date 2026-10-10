@@ -98,7 +98,7 @@ def test_shandong_catalogue_is_source_backed_and_keeps_existing_destinations():
     cities={'济南','青岛','淄博','枣庄','东营','烟台','潍坊','济宁','泰安','威海','日照','临沂','德州','聊城','滨州','菏泽'}
     assert cities <= {d['name'] for d in items}
     assert {'成都','杭州','西安'} <= {d['name'] for d in items}
-    assert len(items)==len({d['id'] for d in items})==19
+    assert len(items)==len({d['id'] for d in items})==20
     assert discovery.classic_names('济南市')==['趵突泉','大明湖','千佛山','九如山']
     original=json.loads((ROOT/'data/catalog/destinations.json').read_text('utf-8'))
     assert next(d for d in items if d['name']=='青岛')==original[0]
@@ -121,7 +121,8 @@ def test_directory_city_override_is_explicit_and_does_not_invent_an_introduction
 def test_status_reports_actual_corpus_coverage():
     from app.main import status
     result=status(user={'id':'test'})
-    assert len(result['knowledge_cities'])==19 and '日照' in result['knowledge_cities']
+    # 目的地新增洛阳（河南）后 19 → 20 个城市。
+    assert len(result['knowledge_cities'])==20 and '日照' in result['knowledge_cities']
     # 记录数随采集增长（新增成都官方来源后 90 → 105）。这里与语料实际数量比对，
     # 不写死数字，避免每次扩采都要改测试。
     from app.rag import corpus

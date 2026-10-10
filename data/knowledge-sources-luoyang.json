@@ -1,0 +1,36 @@
+[
+  {
+    "id": "official-ly-city-profile", "city": "洛阳", "title": "洛阳旅游名城概况",
+    "url": "https://www.ly.gov.cn/mlly/lymc/", "allowed_hosts": ["www.ly.gov.cn"],
+    "selector": "div.list_min.w_1200.cl", "terms": ["洛阳", "景区"],
+    "entity_names": ["老君山", "白云山", "鸡冠洞", "重渡沟", "应天门", "黛眉山",
+                     "隋唐洛阳城国家遗址公园"],
+    "source_kind": "background",
+    "scope": "市政府旅游名城概况介绍；仅用于城市特色与景区分布说明，不作为当前票价、开放时间或客流依据"
+  },
+  {
+    "id": "official-ly-annual-pass", "city": "洛阳", "title": "洛阳旅游年票适用景区公示",
+    "url": "https://www.ly.gov.cn/2025/07-24/713918.html", "allowed_hosts": ["www.ly.gov.cn"],
+    "selector": "div.main3", "terms": ["年票", "景区"],
+    "entity_names": ["龙门石窟", "白马寺", "关林", "明堂天堂", "应天门", "丽景门",
+                     "白云山", "龙潭大峡谷", "鸡冠洞", "木札岭", "黛眉山", "青要山"],
+    "published_at": "2025-07-24", "source_kind": "official_snapshot",
+    "scope": "市政府年票答疑公示快照；适用景区名单与免票规则可能调整，需按出游日期核实"
+  },
+  {
+    "id": "official-ly-luanchuan-4a", "city": "洛阳", "title": "栾川县4A级以上景区基本情况",
+    "url": "https://www.ly.gov.cn/public-jc/2025/11-11/16844.html", "allowed_hosts": ["www.ly.gov.cn"],
+    "selector": "div.content-txt", "terms": ["栾川", "景区"],
+    "entity_names": ["老君山", "鸡冠洞", "重渡沟"],
+    "published_at": "2025-11-11", "source_kind": "official_snapshot",
+    "scope": "栾川县基层政务公开快照；景区等级与票价以官方最新公示为准，不作为实时票价依据"
+  },
+  {
+    "id": "official-ly-laojunshan-geo", "city": "洛阳", "title": "河洛地理：寻迹老君山",
+    "url": "https://wwj.ly.gov.cn/2025/06-18/571061.html", "allowed_hosts": ["wwj.ly.gov.cn"],
+    "selector": "div.MainTable.MainDivTable", "terms": ["老君山", "洛阳"],
+    "entity_names": ["老君山"],
+    "published_at": "2025-06-18", "source_kind": "background",
+    "scope": "市文物局河洛地理栏目报道；仅用于老君山历史与地理背景说明，不作为运营、票价或客流依据"
+  }
+]

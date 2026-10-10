@@ -6,16 +6,17 @@ from app import data_coverage,agent,discovery
 
 def test_directory_is_finite_and_tied_to_saved_corpus():
     rows=discovery.destinations();names=[x['name'] for x in rows]
-    assert len(names)==len(set(names))==19
-    assert '洛阳' not in names and '青岛' in names
+    # 目的地目录新增洛阳（河南）后 19 → 20；负例城市改用仍未覆盖的苏州。
+    assert len(names)==len(set(names))==20
+    assert '苏州' not in names and '青岛' in names
     assert data_coverage.canonical_city('山东省青岛市')=='青岛'
 
 
 def test_unsupported_destination_fails_before_mutating_selections():
     w={'requirements':{'city':'青岛'},'catalog':{'a':{'id':'a'}},'selected_spots':['a'],'hotel':{'id':'h'},'plan':{'stale':False}}
     original=copy.deepcopy(w)
-    with pytest.raises(agent.DataError,match='数据库暂时缺失.*洛阳.*请选择其他地区'):
-        agent.update_requirements(w,{'city':'洛阳'})
+    with pytest.raises(agent.DataError,match='数据库暂时缺失.*苏州.*请选择其他地区'):
+        agent.update_requirements(w,{'city':'苏州'})
     assert w==original
 
 
