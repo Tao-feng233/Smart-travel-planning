@@ -246,7 +246,7 @@ def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
 
 
 def test_nightly_hotels_remain_assigned_without_invented_checkin_times():
-    """逐晚住宿选择保留在住宿编排，未询问确认时不生成定时入住。"""
+    """逐晚住宿选择保留在住宿编排，并在时间轴上可见；但不生成未确认的定时入住。"""
     from app import schedule
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
@@ -255,7 +255,9 @@ def test_nightly_hotels_remain_assigned_without_invented_checkin_times():
         'only2': {'id': 'only2', 'kind': 'hotel', 'name': '第二晚酒店', 'location': '120.40,36.10'}})
     stay_plan.assign(w, 'main', [D1])
     stay_plan.assign(w, 'only2', [D2])
-    assert not any(e['kind'] == 'hotel' for e in schedule.build(w)['entries'])
+    # 住宿要出现在时间轴上（用户要求看得见），但不得带编造的入住时刻
+    _stays=[e for e in schedule.build(w)['entries'] if e['kind'] == 'hotel']
+    assert _stays and all(not e.get('time') for e in _stays), _stays
     assert stay_plan.hotel_for(w, D1)['name'] == '第一晚酒店'
     assert stay_plan.hotel_for(w, D2)['name'] == '第二晚酒店'
     assert stay_plan.hotel_for(w, D3) is None

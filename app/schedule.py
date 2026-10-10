@@ -78,6 +78,41 @@ def meal_start(w,dt,period,preferred=None,as_late=False):
         want=max(want,latest)
     return max(begin,min(want,latest))
 
+def stay_rows(w):
+    """住宿与退房行：如实呈现，不编造入住时刻。
+
+    * 每住一晚一行，不带具体时刻，注明"入住时间以酒店确认为准"；
+    * 退房行落在该晚住宿的**次日**，标"一般 12:00 前"并注明以酒店确认为准；
+      续住同一家时不重复提示。
+    """
+    rows=[]
+    # 以实际分配为准：assignment_view 与 stay_hotels 的键合并（
+    # nights() 可能不含用户后来选定的那一晚，不能作为唯一依据）。
+    _assigned=dict(stay_plan.assignment_view(w) or {})
+    for _d,_cid in (w.get('stay_hotels') or {}).items():
+        if _cid:_assigned.setdefault(_d,{'hotel_id':_cid,'source':'explicit'})
+        elif _d not in _assigned:_assigned[_d]={'hotel_id':None,'source':'unset'}
+    ordered=[(d,v.get('hotel_id')) for d,v in sorted(_assigned.items()) if v.get('hotel_id')]
+    for _dt,_cid in ordered:
+        h=w.get('catalog',{}).get(_cid) or (w.get('hotel') if (w.get('hotel') or {}).get('id')==_cid else None)
+        if not h:continue
+        rows.append({'key':_dt+'|stay','date':_dt,'time':'','end':'','kind':'hotel',
+            'candidate_id':h.get('id'),'name':'当晚住宿：'+str(h.get('name') or '已选住宿'),
+            'confirmed':False,'estimated':True,'stay_date':_dt,
+            'note':'入住时间以酒店确认为准；如需确认办理入住或加早，请与酒店核实。',
+            'reason':'入住时间以酒店确认为准'})
+    for _i,(_dt,_cid) in enumerate(ordered):
+        _next=ordered[_i+1][1] if _i+1<len(ordered) else None
+        if _next==_cid:continue
+        _out=(date.fromisoformat(_dt)+timedelta(days=1)).isoformat()
+        rows.append({'key':_out+'|checkout','date':_out,'time':'12:00','end':'12:00','kind':'checkout',
+            'candidate_id':_cid,'name':'退房并寄存行李（一般 12:00 前）',
+            'confirmed':False,'estimated':True,
+            'note':'多数酒店退房时间为 12:00 前，具体以酒店确认为准；换住处当天可先寄存行李再开始游览。',
+            'reason':'退房时间以酒店确认为准'})
+    return rows
+
+
 def planned_meals(w,dt):
     """当天时间轴里实际排定的餐次 → {period: 开饭时刻(分钟)}。
 
@@ -310,6 +345,8 @@ def provisional(w):
    if period=='breakfast' and hotel:anchor=hotel
    rows.append({'key':dt+'|'+period,'date':dt,'time':clock(at),'end':clock(at+duration),'kind':'meal','period':period,'included_in_room':included['included'],'name':label+' · '+('酒店含早（'+included['note']+'）' if included['included'] else p['name'] if p else '自行安排' if choice.get('mode')=='self' else '待选择'),'candidate_id':p['id'] if p else None,'anchor_id':anchor['id'] if anchor else None,'confirmed':bool(choice),'estimated':True})
   hotel=stay_plan.hotel_for(w,dt)
+ # 住宿与退房也要出现在预览时间轴上（用户要求看得见）。
+ rows+=stay_rows(w)
  return rows
 
 def pending_legs(w,rows):
@@ -363,8 +400,7 @@ def plan_rows(w,plan,provisional=False):
                  'mode':route.get('mode'),'route_minutes':route.get('minutes'),'route_distance':route.get('distance'),'buffer_minutes':e.get('buffer'),'direction':direction,
                 'route_status':route.get('status') or ('waiting_estimate' if e.get('transfer_scope')=='waiting' else 'unknown' if kind in ('unknown_route','transfer_plan') else None),
                 'source':route.get('source') or e.get('source'),'reason':e.get('note','')})
- for dt,cid in stay_plan.assignment_map(w).items():
-  h=w.get('catalog',{}).get(cid) or (w.get('hotel') if (w.get('hotel') or {}).get('id')==cid else None)
+ rows+=stay_rows(w)
  return rows
 
 
