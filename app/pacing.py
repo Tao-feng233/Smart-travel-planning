@@ -16,7 +16,7 @@ def normalize(row):
         h,m=map(int,value.split(':'));at=h*60+m
         if not low<=at<=high:raise ValueError('建议餐次时间超出可调整窗口')
         out[key]=value
-    for key,default,low,high in [('breakfast_minutes',45,30,60),('lunch_minutes',75,45,90),('dinner_minutes',60,45,90)]:
+    for key,default,low,high in [('breakfast_minutes',40,30,60),('lunch_minutes',75,45,90),('dinner_minutes',60,45,90)]:
         value=row.get(key,default)
         if isinstance(value,bool) or not isinstance(value,int) or not low<=value<=high:raise ValueError('用餐时长无效')
         out[key]=value
@@ -53,6 +53,7 @@ def reserved(w,dt,low,high):
 
 
 def meal_time(w,dt,period):
+        # 早餐固定 08:00 开始（用户口径：不推断起床/睡眠）；午餐 12:00、晚餐 17:00 为默认值。
     defaults={'breakfast':480,'lunch':720,'dinner':1020}
     value=for_day(w,dt).get(period+'_time')
     if not value:return defaults[period]

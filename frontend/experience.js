@@ -157,6 +157,8 @@ const experienceFinishJob=finishJob;finishJob=function(j,name,args={}){
  if(j.error&&j.ui?.conflict){$('#error').innerHTML=conflictHTML({...j.ui.conflict,message:j.error})}
  const performed=(name||j.action)==='chat'?workspace?.last_action:(name||j.action);
  if(j.status!=='completed')return;
+ // 用户刚从提醒跳过来改这一餐时，不要立刻把他顶到下一餐。
+ if(suppressMealAdvance>0){suppressMealAdvance-=1;return}
  if(performed==='meal_choice'&&args.mode!=='remove'&&(args.meal_mode!=='self'||args.meal_date)){
   const before=JSON.parse(previousMeals),changed=Object.keys(workspace.meal_choices||{}).find(key=>JSON.stringify(before[key])!==JSON.stringify(workspace.meal_choices[key]));const chosenKey=args.meal_date&&args.meal_period?args.meal_date+'|'+args.meal_period:changed||previousSlot;
   const next=nextMealSlot(chosenKey);clearTimeout(mealAdvanceTimer);clearTimeout(foodRefreshTimer);

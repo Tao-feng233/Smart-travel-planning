@@ -396,6 +396,7 @@ async def _generate(w, progress, *, preview=False):
                         _sel_name=_selected.get('name') if _selected else '所选餐厅'
                         offered.append({'code':'meal_not_placed','level':'warning','view':'food',
                             'date':d['date'],'meal_period':_period,
+                            # 带上餐厅候选，前端据此生成"到餐饮页自行修改"的跳转入口
                             'candidate_ids':[_selected['id']] if _selected and _selected.get('id') else [],
                             'message':(d['date']+' 的'+_label+'（'+_sel_name+'）未能放入日程：当天游玩到 '
                                 +clock(t+duration)+' 才结束，已超出'+_label+'可用时段（至'
@@ -453,6 +454,28 @@ async def _generate(w, progress, *, preview=False):
             if return_time and d['date']==return_time.date().isoformat() and t+allocation>end_limit:raise DataError('活动后返回住宿与返程接驳冲突，请调整这一天的安排。',{'date':d['date'],'view':'spot','direction':'return','candidate_ids':[last['id'],base['id']]})
             events.append({'kind':'route','name':'从'+last['name']+'返回'+base['name'],'start':clock(t),'end':clock(t+allocation),'route':chosen,'options':opts,'buffer':allocation-chosen['minutes'],'note':'活动后前往当晚住宿或返程前的行李寄存地点，含规划缓冲；寄存及入住条件待核实。'})
             t+=allocation;last=base
+            # 用户要求：最晚到达住宿 23:30。
+            # 越限时先从后往前压缩可伸缩的空档（自由活动/机动），
+            # 使到达时刻回到限额内；确实压不动则如实提醒，不默默排到次日。
+            _cap=23*60+30
+            if t>_cap:
+                _cut=t-_cap
+                for _e in reversed([x for x in events if x.get('kind')=='free' and not x.get('poi')]):
+                    if _cut<=0:break
+                    _len=max(0,minute(_e.get('end'))-minute(_e.get('start')))
+                    if _len<=0:continue
+                    _take=min(_len,_cut)
+                    _e['end']=clock(minute(_e.get('end'))-_take)
+                    _e['note']=(_e.get('note') or '')+'（为满足最晚 23:30 到达住宿已压缩）'
+                    _cut-=_take
+                if _cut>0:
+                    boundary_issues.append({'code':'late_checkin','level':'warning','view':'hotel',
+                        'date':d['date'],'candidate_ids':[base['id']] if base.get('id') else [],
+                        'overrun_minutes':_cut,'available_minutes':_cap,
+                        'message':d['date']+' 按当前安排约 '+clock(t-_cut)+' 才到达住宿，'
+                            '已超过最晚 23:30 约 '+str(_cut)+' 分钟。建议减少当天景点、'
+                            '提前返回或调整班次，以免行程跨到次日。'})
+                t=t-_cut
         if t+30<end_limit:
             events.append({'kind':'free','name':'自由活动与机动时间','start':clock(t),'end':clock(end_limit),
                            'note':'尚未安排具体活动，可休息或继续挑选体验；返程未确定时不能视为全部可用'})

@@ -1,7 +1,7 @@
 """抵达日与返程日审查回归；并锁住房型餐食文本按真实承运方写法解析。"""
 import pytest
 
-from app import foods, schedule, stay_plan, travel_review as tr
+from app import pacing, foods, schedule, stay_plan, travel_review as tr
 
 D_OUT, D_TOUR, D_RET = '2026-10-09', '2026-10-10', '2026-10-12'
 
@@ -44,7 +44,8 @@ def test_only_the_meal_closest_to_the_return_is_shifted():
     # 11:00 发车：只有早餐被优化，午晚餐都赶不上
     got, last = starts('11:00')
     assert last == 'breakfast', last
-    assert got['breakfast'] == 8 * 60 + 15
+    # 早餐尽量晚：吃完即上车（窗口上界 09:00 − 早餐时长）
+    assert got['breakfast'] == 9 * 60 - pacing.meal_duration(return_workspace('11:00'), D_TOUR, 'breakfast')
     assert got['lunch'] is None and got['dinner'] is None
 
     # 20:00 发车：只有晚餐被优化，早餐与午餐保持默认
@@ -82,17 +83,18 @@ def test_return_day_meals_move_as_late_as_the_window_allows():
                                     'arrival': return_day + ' 23:30', 'selection_status': 'confirmed'},
                 'catalog': {}, 'selected_spots': [], 'meal_choices': {}, 'visit_requests': {}}
 
-    # 11:00 发车：准备时刻 09:00 就是早餐窗口上界，早餐贴到最晚（08:15 开饭，09:00 吃完）
+    # 11:00 发车：准备时刻 09:00 就是早餐窗口上界，早餐贴到最晚（吃完即上车）
     w = return_workspace('11:00')
     assert schedule.return_bounded(w, D_TOUR) is True
     start = schedule.meal_start(w, D_TOUR, 'breakfast', as_late=True)
     window = schedule.meal_window(w, D_TOUR, 'breakfast')
-    assert start == window[1] - 45, (start, window)
+    assert start == window[1] - pacing.meal_duration(w, D_TOUR, 'breakfast'), (start, window)
     assert start > 8 * 60, '应比默认 08:00 更晚'
     assert start >= window[0]
-    # 13:00 发车：早餐推到 09:15（窗口上界 10:00 减 45 分钟）
+    # 13:00 发车：早餐推到窗口内最晚（窗口上界 10:00 减早餐时长）
     later = return_workspace('13:00')
-    assert schedule.meal_start(later, D_TOUR, 'breakfast', as_late=True) == 9 * 60 + 15
+    assert schedule.meal_start(later, D_TOUR, 'breakfast', as_late=True) == \
+        10 * 60 - pacing.meal_duration(later, D_TOUR, 'breakfast')
     # 若抵达太晚导致当天早餐窗口本身为空，则不安排（而不是硬塞）
     too_late = return_workspace('11:00', arrival=D_TOUR + ' 10:00')
     assert schedule.meal_window(too_late, D_TOUR, 'breakfast')[1] < schedule.meal_window(too_late, D_TOUR, 'breakfast')[0]
