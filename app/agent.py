@@ -33,9 +33,8 @@ async def search_hotels(w,args,progress,recommend):
         return await search_hotels_by_keyword(w,args,progress,recommend)
     chosen=[w['catalog'][i] for i in w['selected_spots'] if i in w.get('catalog',{})]
     if not chosen:raise DataError('先选择景点，我再按每天最后一个活动的位置推荐住宿。也可以明确告诉我想先查哪个住宿区域。')
-    # 先把去程/返程的站点坐标查好：最后一晚的住宿锚点要用它
-    # （赶早班要靠近出发站；否则放在最后活动与出发站之间）。
-    # resolve_station 会记录"查过"，不会重复消耗查询额度。
+    # 先把去程/返程的站点坐标查好：赶早班那条规则要用它判断最后一晚是否靠近出发站。
+    # resolve_station 会记录"查过"，不重复消耗查询额度。
     from . import time_policy as _tp
     _city=(w.get('requirements') or {}).get('city') or ''
     for _mode, _key in (('arrival','selected_transport'),('return','selected_return')):

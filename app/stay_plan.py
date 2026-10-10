@@ -162,55 +162,6 @@ def trip_closure(w, before_day=None):
     return None, '行程还没有可参照的活动地点'
 
 
-def between_anchor(spot, station, bias=0.5):
-    """取两点之间、偏向车站一侧的参考点。
-
-    bias=0 为景点端、1 为车站端；默认取中间略偏车站，便于次日赶车。
-    缺少坐标时返回 None，由调用方回落到原锚点（不猜）。
-    """
-    def xy(point):
-        loc = str((point or {}).get('location') or '')
-        if ',' not in loc:
-            return None
-        try:
-            x, y = [float(t) for t in loc.split(',')[:2]]
-        except ValueError:
-            return None
-        return x, y
-    a, b = xy(spot), xy(station)
-    if not a or not b:
-        return None
-    x = a[0] + (b[0] - a[0]) * bias
-    y = a[1] + (b[1] - a[1]) * bias
-    name = str((spot or {}).get('name') or '最后一个活动')
-    st = str((station or {}).get('name') or '返程车站')
-    return {'id': None, 'kind': 'stay_between', 'name': name + '与' + st + '之间',
-            'location': '%.6f,%.6f' % (x, y), '_closure': 'between'}
-
-
-def return_station_for(w, day):
-    """该晚次日若为返程日，返回返程车站地点（含坐标）；否则 None。
-
-    车站优先取班次自带的候选地点，其次按名称在目录里找同名站点。
-    """
-    back_day, _ = _return_departure(w)
-    if not back_day:
-        return None
-    if back_day.isoformat() != (date.fromisoformat(day) + timedelta(days=1)).isoformat():
-        return None
-    ret = w.get('selected_return') or {}
-    cand = ret.get('departure_station_candidate')
-    if cand and cand.get('location'):
-        return cand
-    name = str(ret.get('departure_station') or '').strip()
-    if not name:
-        return None
-    for p in (w.get('catalog') or {}).values():
-        if p.get('location') and str(p.get('name') or '').strip() == name:
-            return p
-    return None
-
-
 def day_closure(w, day):
     """某天用于定位住宿的收尾地点：先最后一个活动景点，再顺路晚餐餐厅。
 
@@ -228,29 +179,12 @@ def day_closure(w, day):
             point['_closure'] = 'station' if anchor.get('kind') == 'station' else 'hotel'
             return point, anchor.get('basis') or '抵达地点'
     order = touring_days(w).get(day) or []
-    last_spot = None
     for cid in reversed(order):
         p = (w.get('catalog') or {}).get(cid)
         if p:
-            last_spot = dict(p)
-            last_spot['_closure'] = 'spot'
-            break
-    if last_spot:
-        # 次日就是返程日：最后一晚放在"当天最后活动 ↔ 返程车站"之间，
-        # 既照顾当晚就近，也避免次日先折返住宿再去车站。
-        st = return_station_for(w, day)
-        if st:
-            point = between_anchor(last_spot, st, bias=0.5)
-            if point:
-                _st_name=str((st or {}).get('name') or '')
-                _note=''
-                if (st or {}).get('station_inferred_from'):
-                    _note='（出发站按城市名推定为'+_st_name+'，请核对车票上的车站）'
-                elif _st_name:
-                    _note='（出发站：'+_st_name+'）'
-                return point, ('次日 ' + str((w.get('selected_return') or {}).get('departure') or '')[:10]
-                               + ' 返程，最后一晚安排在当天最后的活动与出发站之间' + _note)
-        return last_spot, '当天最后一个活动'
+            p = dict(p)
+            p['_closure'] = 'spot'
+            return p, '当天最后一个活动'
     dinner = dinner_for(w, day)
     if dinner:
         return dinner, '当天已选晚餐餐厅（当天以用餐收尾）'
@@ -379,8 +313,6 @@ def plan(w):
                 anchor = dict(station)
                 anchor['_closure'] = 'station'
                 basis = '次日 ' + back_day.isoformat() + ' 需赶返程班次，最后一晚靠近出发站'
-                if station.get('station_inferred_from'):
-                    basis += '（出发站按城市名推定为'+str(station.get('name'))+'，请核对车票上的车站）'
         # 住宿只按晚指定：没有显式指定就是"还没选"，不再由任何主住宿兜底。
         # 赶车前一晚同样如此，界面上如实显示未选，由用户决定住哪。
         unsuitable = bool(station and station.get('name') and not stays.get(day))

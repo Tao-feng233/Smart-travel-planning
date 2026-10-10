@@ -262,40 +262,31 @@ async def resolve_station(w, transport, mode, city, tool):
     if city:
         _text=str(name)
         _kind='airport' if '机场' in _text else 'station'
-        # 班次记录里的站名常是城市名（如"青岛"）。这种只有城市名的情况，
-        # 直接按"城市名+站"查一次（'青岛'会返回青岛站/西站/北站/机场站四条，
-        # 而'青岛站'直接命中主干站）；查不到再退回原名称。
-        _inferred=False
+        # 原名称查不到时，站名不带"站"就补一个再查（如"青岛"→"青岛站"）。
+        # 不改变优先顺序：先按原名称查，避免把明确的站名改掉。
+        _tries=[_text]
         if _kind=='station' and not _text.endswith('站'):
-            _tries=[_text+'站',_text]
-            _inferred=True
-        else:
-            _tries=[_text]
+            _tries.append(_text+'站')
+        rows=[]
         for _kw in _tries:
             try:
                 items=await tool('search_transport_places',{'city':city,'keywords':_kw,'kind':_kind})
             except DataError:
                 continue
-            rows=[p for p in (items or {}).get('items',[])
+            _got=[p for p in (items or {}).get('items',[])
                   if isinstance(p,dict) and coordinate(p.get('location'))]
-            if not rows:continue
-            if len(rows)>1:
-                exact=[p for p in rows if str(p.get('name') or '').strip()==_kw]
-                if len(exact)==1:
-                    rows=exact
-                else:
-                    # 排除分站（东/西/南/北站、机场站）：只留主干站。
-                    main=[p for p in rows
-                          if not any(t in str(p.get('name') or '') for t in ('东站','西站','南站','北站','机场'))]
-                    rows=main
-            # 仍不唯一就交回业务层确认，不硬选。
+            if _got:
+                rows=_got
+                break
+        try:
+            # 同名候选可能多个（不同站场/航站楼）：只取唯一候选，多个就交回业务层确认。
             if len(rows)==1:
                 p=rows[0]
                 candidate={'id':p.get('id'),'name':p.get('name'),'location':coordinate(p.get('location')),
                            'endpoint_scope':p.get('endpoint_scope'),'match_status':p.get('match_status'),
                            'terminal_confirmed':bool(p.get('terminal_confirmed')),
-                           'station_inferred_from':_text if _inferred else None,
                            'source':p.get('source')}
-                break
+        except DataError:
+            candidate=None
     transport[prefix+'_station_candidate']=candidate
     return candidate
