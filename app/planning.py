@@ -148,11 +148,50 @@ def fill_budget(plan, w):
         if cost is None:continue
         dt,_,period=key.partition('|')
         meals.append({'key':key,'name':str(food.get('name') or '')[:30],'per_person':cost,
-                      'adults':adults,'amount':cost*adults})
+                      'adults':adults,'children':0,'amount':cost*adults})
     if meals:
         items['餐饮']={'amount':sum(x['amount'] for x in meals),'detail':meals,
-                      'basis':'已选餐厅的地图参考人均 × 成人数；非实际消费，未选餐次不计'}
+                      'basis':'已选餐厅的地图参考人均 × 成人数（儿童不计入）；非实际消费，未选餐次不计'}
 
+    # 门票：成人按成人票、儿童按儿童票分别乘人数后合计。
+    # 资料来自门票快照 w['tickets']（用户查询过才存在）；没有就列为待核实，不猜。
+    children=int(r.get('children') or 0)
+    ticket_lines=[]
+    for _sid in (w.get('selected_spots') or []):
+        _spot=cat.get(_sid) or {}
+        _snap=(w.get('tickets') or {}).get(_sid) or {}
+        _rows=_snap.get('tickets') or _snap.get('items') or []
+        _adult=_child=None
+        for _row in _rows:
+            if not isinstance(_row,dict):continue
+            _blob=str(_row.get('name') or '')+str(_row.get('ticketTypeName') or '')+str(_row.get('personTypeName') or '')
+            try:_pr=float(_row.get('startPrice'))
+            except (TypeError,ValueError):continue
+            if _pr<=0:continue
+            # 儿童票只认"儿童/小孩"：学生票、老人票、优待票既不是成人票，
+            # 也不能当儿童票用（否则会用更低的票价压低预算）。
+            if '儿童' in _blob or '小孩' in _blob:
+                if _child is None or _pr<_child:_child=_pr
+            elif any(_w in _blob for _w in ('成人',)):
+                if _adult is None or _pr<_adult:_adult=_pr
+        if _adult is None and _child is None:continue
+        _amt=(_adult or 0)*adults+(_child or 0)*children
+        ticket_lines.append({'spot':str(_spot.get('name') or '')[:28],
+                             'adult_unit':_adult,'adults':adults if _adult is not None else 0,
+                             'child_unit':_child,'children':children if _child is not None else 0,
+                             'amount':_amt,'queried_date':_snap.get('requested_date')})
+    if ticket_lines:
+        items['门票']={'amount':sum(x['amount'] for x in ticket_lines),'detail':ticket_lines,
+                      'basis':'已查门票的票面起价：成人票×成人数'+(('、儿童票×儿童数') if children else '')+\
+                              '；票面起价可能对应其他日期，学生/老人票不作为成人票使用'}
+    _no_ticket=[str((cat.get(_sid) or {}).get('name') or '')[:20]
+                for _sid in (w.get('selected_spots') or [])
+                if not ((w.get('tickets') or {}).get(_sid) or {}).get('tickets')
+                and not ((w.get('tickets') or {}).get(_sid) or {}).get('items')]
+    if children and ('门票' in items or _no_ticket):
+        budget['child_note']=('儿童 '+str(children)+' 人'+
+            ('（年龄 '+str(r.get('children_ages'))+'）' if r.get('children_ages') else '')+
+            '：多数景区按身高或年龄免票/半价，实际票种与价格请在购票时核对。')
     budget['items']=items
     known=sum(v['amount'] for v in items.values())
     if budget.get('hotel_reference') is not None:known+=budget['hotel_reference']
@@ -160,7 +199,9 @@ def fill_budget(plan, w):
     # 待核实项：只保留真的没有数据的
     pending=[]
     if '往返交通' not in items:pending.append('往返交通（尚未选定或未取到票价）')
-    pending.append('门票实际日期及适用票种（平台未提供票价资料）')
+    if '门票' not in items:
+        pending.append('门票（尚未查询该景点门票；可在景点页查询后再生成）')
+    pending.append('门票实际日期及适用票种需以购票页为准')
     if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
     if budget.get('hotel_reference') is None:pending.append('住宿')
     if '市内交通' not in items:pending.append('市内交通（尚未取到票价）')
