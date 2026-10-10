@@ -301,13 +301,16 @@ async def _generate(w, progress, *, preview=False):
             continue
         if (not arrival or d['date']>arrival.date().isoformat()) and (not events or minute(events[0]['start'])>=9*60):
             breakfast_at=pacing.meal_time(w,d['date'],'breakfast')
-            checkout_first=changing_hotel and bool(foods.choice(w,d['date'],'breakfast'))
-            if checkout_first:events.append({'kind':'arrival','name':'换酒店前退房与行李准备','start':clock(breakfast_at-15),'end':clock(breakfast_at),'candidate_id':origin['id'],'note':'建议预留，随后携带行李前往早餐店；寄存条件需确认。'})
+            # 换酒店当天：退房固定在早餐前办妥（用户口径）。退房是当天 12 点前的
+            # 截止要求，提前办理没有限制；这样之后可安心寄存行李再开始行程。
+            if changing_hotel:
+                events.append({'kind':'arrival','name':'退房（当天 12 点前；在早餐前办妥）并寄存行李',
+                               'start':clock(breakfast_at-15),'end':clock(breakfast_at),
+                               'candidate_id':origin['id'],
+                               'note':'多数酒店要求当天 12 点前退房（具体以酒店为准），提前办理即可；'
+                                      '退房后把行李寄存在酒店，再前往用餐与游览。'})
             breakfast,bt,last=await meal(d['date'],'breakfast',breakfast_at,last,pacing.meal_duration(w,d['date'],'breakfast'))
             events+=breakfast
-            if changing_hotel and not checkout_first:
-                events.append({'kind':'arrival','name':'换酒店前退房与行李准备','start':clock(bt),'end':clock(bt+15),'candidate_id':origin['id'],'note':'建议预留，寄存和入住条件需确认。'})
-                bt+=15
             t=max(t,round_up(bt))
         for i,item in enumerate(d['items']):
             p=catalog[item['candidate_id']]
