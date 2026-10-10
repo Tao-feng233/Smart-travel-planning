@@ -70,9 +70,17 @@ def nights(w):
     r = w.get('requirements') or {}
     from . import visits
     start = _d(r.get('start_date'))
+    # 去程日期是"从出发地动身"的那天，通常早于开始游玩日（如 10 号出发、11 号开玩）。
+    # 那晚要在目的地过夜，因此住宿起点必须跟着提前。
+    outbound = _d(r.get('outbound_date'))
     arrival = w.get('selected_transport') or {}
-    arrived = _d(arrival.get('arrival')) if arrival.get('selection_status') == 'confirmed' else None
-    if start and arrived: start = min(start, arrived)
+    # 已选班次即可（recommended 只表示尚未最终确认，不代表当晚不住）；
+    # 此前只认 confirmed，导致"选了班次却选不了抵达当晚住宿"。
+    arrived = _d(arrival.get('arrival')) if arrival.get('arrival') else None
+    earlier = [x for x in (arrived, outbound) if x]
+    if earlier:
+        base = min(earlier)
+        start = base if start is None else min(start, base)
     tour = [_d(x) for x in (visits.dates(w) or [])]
     tour = [x for x in tour if x]
     if not start:
