@@ -102,6 +102,76 @@ async def generate(w, progress):
         progress('时间衔接未通过，正在保留已选班次与明确安排、调整可变顺序后重新核对')
         return await _generate({**w,'planning_feedback':str(e)},progress)
 
+def fill_budget(plan, w):
+    """把已有数据能算出的费用如实汇总进 plan['budget']，算不出的才列为待核实。"""
+    r=w.get('requirements') or {}
+    adults=int(r.get('adults') or 1)
+    rooms=int(r.get('rooms') or 1)
+    cat=w.get('catalog') or {}
+    budget=plan.setdefault('budget', {})
+    items={}
+
+    # 往返交通：单人席别参考票价 × 成人数
+    inter=[]
+    for label,key in (('去程','selected_transport'),('返程','selected_return')):
+        t=w.get(key) or {}
+        try:price=float(t.get('price'))
+        except (TypeError,ValueError):price=None
+        if price is not None:
+            inter.append({'label':label+' '+str(t.get('name') or ''),'seat':t.get('seat_type'),
+                          'unit':price,'adults':adults,'amount':price*adults,
+                          'basis':'单人席别参考票价；成人/儿童规则需核实'})
+    if inter:
+        items['往返交通']={'amount':sum(x['amount'] for x in inter),'detail':inter}
+
+    # 市内交通：计划内已核实票价的公交/地铁
+    fares=[]
+    for d in plan.get('days',[]):
+        for e in d.get('events',[]):
+            route=e.get('route') or {}
+            try:fare=float(route.get('fare'))
+            except (TypeError,ValueError):fare=None
+            if fare is not None:
+                fares.append({'date':d['date'],'name':str(e.get('name'))[:40],'fare':fare,
+                              'mode':route.get('mode')})
+    if fares:
+        items['市内交通']={'amount':sum(x['fare'] for x in fares),'detail':fares,
+                          'basis':'仅计入已核实票价的公交/地铁；打车与自驾未计入'}
+
+    # 餐饮：已选餐厅的参考人均 × 成人数 × 人数餐次
+    meals=[]
+    for key,choice in (w.get('meal_choices') or {}).items():
+        if (choice or {}).get('mode')!='chosen':continue
+        food=cat.get((choice or {}).get('food_id')) or {}
+        try:cost=float(food.get('cost'))
+        except (TypeError,ValueError):cost=None
+        if cost is None:continue
+        dt,_,period=key.partition('|')
+        meals.append({'key':key,'name':str(food.get('name') or '')[:30],'per_person':cost,
+                      'adults':adults,'amount':cost*adults})
+    if meals:
+        items['餐饮']={'amount':sum(x['amount'] for x in meals),'detail':meals,
+                      'basis':'已选餐厅的地图参考人均 × 成人数；非实际消费，未选餐次不计'}
+
+    budget['items']=items
+    known=sum(v['amount'] for v in items.values())
+    if budget.get('hotel_reference') is not None:known+=budget['hotel_reference']
+    budget['known_subtotal']=known
+    # 待核实项：只保留真的没有数据的
+    pending=[]
+    if '往返交通' not in items:pending.append('往返交通（尚未选定或未取到票价）')
+    pending.append('门票实际日期及适用票种（平台未提供票价资料）')
+    if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
+    if budget.get('hotel_reference') is None:pending.append('住宿')
+    if '市内交通' not in items:pending.append('市内交通（尚未取到票价）')
+    pending.append('打车/自驾油费与停车费')
+    if not w.get('selected_room'):pending.append('具体房型与实际住宿总价（可选，预订前核实）')
+    budget['unknown']=pending
+    budget['basis']=(str(budget.get('basis') or '').rstrip('；')+
+        '；已按现有资料汇总可确认部分（'+str(round(known))+' 元），未取得资料的项仍列为待核实，不按零计入')
+    return budget
+
+
 async def _generate(w, progress, *, preview=False):
     from .spot_hierarchy import state,notes,parent_facts
     hierarchy=state(w)
@@ -544,6 +614,7 @@ async def _generate(w, progress, *, preview=False):
             'basis':'各晚有效列表起价参考分别汇总（仅计入已给出价格的 ' + str(len(priced)) + ' 晚），非已确认房费；未知项未按零计算',
             'nightly_reference':refs,
             'unknown':unknown+['往返交通','门票实际日期及适用票种','餐饮','市内交通','房型与实际住宿总价']}
+    fill_budget(plan, w)
     plan['selected_room']=w.get('selected_room')
     if hotel and not w.get('selected_room'):
         plan['budget']['unknown'].append('具体房型及住宿实际总价（可选，预订前核实）')
