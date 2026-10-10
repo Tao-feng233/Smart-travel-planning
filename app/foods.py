@@ -356,6 +356,11 @@ def meal_slots(w):
         return []
 
 
+def _pacing_duration(w,dt,period):
+    from . import pacing
+    return pacing.meal_duration(w,dt,period)
+
+
 def prune_unavailable(w):
     """移除时间轴已排不下的就餐选择。
 
@@ -365,11 +370,18 @@ def prune_unavailable(w):
     """
     choices=dict(w.get('meal_choices') or {})
     if not choices:return []
-    slots=set(meal_slots(w))
-    if not slots:return []
+    from .schedule import meal_window as _mw
     removed=[]
     for key in list(choices):
-        if key in slots:continue
+        # 只要该餐在当天窗口内仍放得下就保留：折进游程的餐次不会出现在
+        # meal_slots 里，但它是被正常安排的，不能因此删除用户的选择。
+        try:
+            dt,_,period=key.partition('|')
+            lo,hi=_mw(w,dt,period)
+            dur=_pacing_duration(w,dt,period)
+            if lo+dur<=hi:continue
+        except Exception:
+            continue
         choices.pop(key,None)
         dt,_,period=key.partition('|')
         removed.append(dt+' '+(PERIODS.get(period) or period))
