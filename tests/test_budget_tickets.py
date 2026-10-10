@@ -15,10 +15,17 @@ def workspace(**req):
         'selected_spots': ['s1', 's2'],
         'meal_choices': {'2026-10-11|lunch': {'mode': 'chosen', 'food_id': 'f1'}},
         # 已查询门票：成人 55、儿童 27
-        'tickets': {'s1': {'requested_date': '2026-10-11', 'tickets': [
-            {'name': '成人票', 'startPrice': '55'},
-            {'name': '儿童票', 'startPrice': '27'},
-            {'name': '学生票', 'startPrice': '20'},
+        'tickets': {'s1': {'requested_date': '2026-10-11', 'items': [
+            {'resName': '成都门票成人票_下午票', 'personTypeName': '成人票', 'startPrice': '55',
+             'product_group': 'admission', 'date_status': 'in_sales_window'},
+            {'resName': '儿童票', 'personTypeName': '儿童票', 'startPrice': '27',
+             'product_group': 'admission', 'date_status': 'in_sales_window'},
+            {'resName': '学生票', 'personTypeName': '学生票', 'startPrice': '20',
+             'product_group': 'admission', 'date_status': 'in_sales_window'},
+            {'resName': '门票+观光车票成人票', 'personTypeName': '成人票', 'startPrice': '85',
+             'product_group': 'admission', 'date_status': 'in_sales_window'},
+            {'resName': '非遗川剧变脸演出票', 'personTypeName': '成人票', 'startPrice': '10',
+             'product_group': 'other', 'date_status': 'in_sales_window'},
         ]}},
     }
 
@@ -76,9 +83,32 @@ def test_hotel_reference_is_also_counted_in_subtotal():
 def test_student_and_senior_tickets_are_not_used_as_adult_or_child():
     w = workspace()
     # 只有学生票和老人票、没有成人票与儿童票时，不能拿低价票凑数
-    w['tickets'] = {'s1': {'requested_date': '2026-10-11', 'tickets': [
-        {'name': '学生票', 'startPrice': '20'},
-        {'name': '老人票', 'startPrice': '0'},
+    w['tickets'] = {'s1': {'requested_date': '2026-10-11', 'items': [
+        {'resName': '学生票', 'startPrice': '20', 'product_group': 'admission', 'date_status': 'in_sales_window'},
+        {'resName': '老人票', 'startPrice': '0', 'product_group': 'admission', 'date_status': 'in_sales_window'},
     ]}}
     b = planning.fill_budget(plan(), w)
     assert '门票' not in b['items']
+
+
+def test_only_admission_products_count_not_bundles_or_other():
+    w = workspace()
+    # 基础门票 55；捆绑「门票+观光车」85 与 other 类演出票 10 都不得作为门票价
+    b = planning.fill_budget(plan(), w)
+    line = b['items']['门票']['detail'][0]
+    assert line['adult_unit'] == 55.0
+    assert b['items']['门票']['amount'] == 137.0
+
+
+def test_spot_without_admission_products_is_not_guessed_free():
+    w = workspace()
+    w['tickets'] = {'s1': {'requested_date': '2026-10-11', 'items': [
+        {'resName': '"趣探宽窄"讲解包团', 'startPrice': '198', 'product_group': 'other',
+         'date_status': 'in_sales_window'},
+    ]}}
+    b = planning.fill_budget(plan(), w)
+    # 不把讲解票当门票，也不猜免费：列为未查到门票类产品
+    assert '门票' not in b['items']
+    joined = ' '.join(b['unknown'])
+    assert '未查到门票类产品' in joined
+    assert '免费开放' in joined

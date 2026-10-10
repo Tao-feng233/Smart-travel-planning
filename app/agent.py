@@ -190,6 +190,51 @@ async def search_hotels_by_keyword(w,args,progress,recommend):
     summary=await recommend(w,items,'按用户指定关键词查询；未按当天收尾地点比较，位置是否合适请结合行程判断')
     return summary+'\n可展开房型信息。选定酒店后再生成包含住宿往返的计划书。'
 
+async def load_ticket_snapshot(w,p,progress=None):
+    """查询单个景点的门票快照并写入 w['tickets']。失败时记录状态后返回 None。
+
+    与"手动查询门票"共用同一套查询与快照逻辑，避免两处实现漂移。
+    """
+    requested=enrichment.ticket_date(w,p,{})
+    rows=[];result=None;query_name=None
+    try:
+        for query_name in enrichment.ticket_names(p):
+            result=await tuniu('ticket','query_cheapest_tickets',{'scenic_name':query_name,'depart_date':requested})
+            d=unwrap(result['data']);rows=d.get('tickets',[]) if isinstance(d,dict) else []
+            if not isinstance(rows,list):raise DataError('门票接口未返回可用产品列表。')
+            if rows:break
+    except DataError:
+        w.setdefault('tickets',{}).setdefault(p['id'],{'items':[]}).update(
+            status='query_failed',attempted_date=requested,checked_at=now())
+        return None
+    w.setdefault('tickets',{})[p['id']]=enrichment.ticket_snapshot(rows,requested,result['source'],query_name,p)
+    return w['tickets'][p['id']]
+
+
+async def autoload_tickets(w,progress,limit=6):
+    """生成计划书前自动补齐已选景点的门票快照。
+
+    返回 (已查询数, 因额度或失败未查的景点名列表)。
+    """
+    spots=[(cid,(w.get('catalog') or {}).get(cid)) for cid in (w.get('selected_spots') or [])]
+    spots=[(cid,p) for cid,p in spots if isinstance(p,dict) and p.get('kind')=='spot']
+    pending=[(cid,p) for cid,p in spots
+             if not ((w.get('tickets') or {}).get(cid) or {}).get('items')
+             and not ((w.get('tickets') or {}).get(cid) or {}).get('tickets')]
+    if not pending:return 0,[]
+    from .integrations.tuniu_pool import remaining_budget
+    checked=0;skipped=[]
+    for cid,p in pending[:max(0,int(limit))]:
+        if remaining_budget()<=0:
+            skipped.extend(str(x.get('name') or '') for _,x in pending[checked:])
+            break
+        if progress:progress('途牛 MCP 正在查询'+str(p.get('name') or '该景点')+'的门票')
+        snap=await load_ticket_snapshot(w,p,progress)
+        if snap is None:skipped.append(str(p.get('name') or ''))
+        else:checked+=1
+    return checked,skipped
+
+
 async def hotel_query_budget():
     """Remaining query reservations across configured independent Tuniu accounts."""
     from .integrations.tuniu_pool import remaining_budget
@@ -890,17 +935,9 @@ async def handle(w,action,args,progress):
         if not p or p['kind']!='spot':raise DataError('请先选择要查门票的景点。')
         requested=enrichment.ticket_date(w,p,args)
         progress('途牛 MCP 正在查询门票产品与适用票种')
-        try:
-            for query_name in enrichment.ticket_names(p):
-                result=await tuniu('ticket','query_cheapest_tickets',{'scenic_name':query_name,'depart_date':requested})
-                d=unwrap(result['data']);rows=d.get('tickets',[]) if isinstance(d,dict) else []
-                if not isinstance(rows,list):raise DataError('门票接口未返回可用产品列表。')
-                if rows:break
-        except DataError:
-            w.setdefault('tickets',{}).setdefault(p['id'],{'items':[]}).update(status='query_failed',attempted_date=requested,checked_at=now())
-            raise
         w['ui']['focus_id']=p['id']
-        w.setdefault('tickets',{})[p['id']]=enrichment.ticket_snapshot(rows,requested,result['source'],query_name,p)
+        snap=await load_ticket_snapshot(w,p,progress)
+        if snap is None:raise DataError('门票查询未返回可用产品，请稍后重试或核对景点名称。')
         return '门票结果已保存。区间起价可能对应其他日期，学生/老人票不能直接用于成人；商品存在不代表已取得入场预约。'
     if action=='plan':
         from .locations import coordinate,locate_hotel
@@ -908,7 +945,17 @@ async def handle(w,action,args,progress):
         if h and not coordinate((w.get('hotel') or {}).get('location')):
             progress('正在重新核对已选住宿的位置')
             await locate_hotel(w,h,local_tool)
+        # 自动查询已选景点的门票，让预算里的门票栏直接有数字。
+        # 单点失败或额度不足都不打断生成（门票是补充信息）。
+        _checked,_skipped=await autoload_tickets(w,progress)
+        if _checked:
+            pass
         plan=await generate(w,progress)
+        if _skipped:
+            plan.setdefault('planning_issues',[]).append({
+                'code':'ticket_not_queried','level':'warning','view':'spot',
+                'message':'这些景点的门票未能自动查询，预算中按待核实处理：'
+                    +'、'.join(_skipped[:6])+'。可在景点页手动查询门票后重新生成。'})
         from .plan_warnings import request,waiting
         if request(w,plan):return waiting()
         w['plan']=plan;w['stage']='计划书';w.pop('last_plan_conflict',None)

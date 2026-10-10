@@ -157,23 +157,41 @@ def fill_budget(plan, w):
     # 资料来自门票快照 w['tickets']（用户查询过才存在）；没有就列为待核实，不猜。
     children=int(r.get('children') or 0)
     ticket_lines=[]
+    _no_admission=[]
     for _sid in (w.get('selected_spots') or []):
         _spot=cat.get(_sid) or {}
         _snap=(w.get('tickets') or {}).get(_sid) or {}
         _rows=_snap.get('tickets') or _snap.get('items') or []
         _adult=_child=None
+        _has_admission=False
         for _row in _rows:
             if not isinstance(_row,dict):continue
-            _blob=str(_row.get('name') or '')+str(_row.get('ticketTypeName') or '')+str(_row.get('personTypeName') or '')
+            # 只看真正的门票类产品；且日期在售。讲解/演出/餐饮等 "other" 与
+            # 附加体验 "addon" 都不是门票，不应计入门票预算。
+            if _row.get('product_group') and _row.get('product_group')!='admission':continue
+            if _row.get('date_status') and _row.get('date_status')!='in_sales_window':continue
+            _name=str(_row.get('resName') or '')+str(_row.get('name') or '')
+            _person=str(_row.get('personTypeName') or '')+str(_row.get('ticketTypeName') or '')
+            _blob=_name+_person
             try:_pr=float(_row.get('startPrice'))
             except (TypeError,ValueError):continue
             if _pr<=0:continue
+            _has_admission=True
+            # 捆绑产品（门票+观光车/演出等）不是基础门票价，避免高估。
+            if '+' in _name or '＋' in _name:continue
             # 儿童票只认"儿童/小孩"：学生票、老人票、优待票既不是成人票，
             # 也不能当儿童票用（否则会用更低的票价压低预算）。
             if '儿童' in _blob or '小孩' in _blob:
                 if _child is None or _pr<_child:_child=_pr
-            elif any(_w in _blob for _w in ('成人',)):
+            elif '成人' in _blob:
                 if _adult is None or _pr<_adult:_adult=_pr
+        # 该景点没有任何门票类产品：不猜免费，也不拿讲解/演出票充数。
+        if not _has_admission:
+            _other=len([x for x in _rows if isinstance(x,dict)
+                        and x.get('product_group') in (None,'other','addon')])
+            _no_admission.append({'spot':str(_spot.get('name') or '')[:26],
+                                  'other_products':_other})
+            continue
         if _adult is None and _child is None:continue
         _amt=(_adult or 0)*adults+(_child or 0)*children
         ticket_lines.append({'spot':str(_spot.get('name') or '')[:28],
@@ -199,8 +217,12 @@ def fill_budget(plan, w):
     # 待核实项：只保留真的没有数据的
     pending=[]
     if '往返交通' not in items:pending.append('往返交通（尚未选定或未取到票价）')
-    if '门票' not in items:
+    if '门票' not in items and _no_ticket:
         pending.append('门票（尚未查询该景点门票；可在景点页查询后再生成）')
+    for _x in _no_admission:
+        pending.append(_x['spot']+' 未查到门票类产品'
+                       +('（该景点可能免费开放，或仅有讲解/演出等付费项目）' if _x['other_products'] else '')
+                       +'，未计入预算')
     pending.append('门票实际日期及适用票种需以购票页为准')
     if '餐饮' not in items:pending.append('餐饮（尚未选定餐厅或未取到参考人均）')
     if budget.get('hotel_reference') is None:pending.append('住宿')
