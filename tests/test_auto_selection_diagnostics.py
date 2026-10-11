@@ -4,8 +4,10 @@ import json
 
 import pytest
 
-from app import auto_selection as auto, diagnostics, foods, schedule
-from app.providers import DataError
+from app.agents import auto_selection as auto
+from app.planning import diagnostics, schedule
+from app.travel import foods
+from app.core.errors import DataError
 
 
 def trip():

@@ -1,6 +1,7 @@
 import pytest
-from app import foods,schedule
-from app.providers import DataError
+from app.travel import foods
+from app.planning import schedule
+from app.core.errors import DataError
 
 def trip():
  return {'requirements':{'start_date':'2026-10-12','days':3},'catalog':{'f':{'id':'f','kind':'food','name':'海鲜店'}},'selected_spots':[]}

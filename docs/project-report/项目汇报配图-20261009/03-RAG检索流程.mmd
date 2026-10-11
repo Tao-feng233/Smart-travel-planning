@@ -1,0 +1,17 @@
+flowchart TB
+    subgraph Build[离线初始化与更新]
+        direction LR
+        J[知识 JSON] --> C[父块与子块]
+        C --> E[BGE：512维向量]
+        E --> Q[Qdrant 与 manifest]
+    end
+    subgraph Retrieve[在线检索]
+        direction LR
+        U[问题与城市／日期／实体条件] --> B[BM25 召回]
+        U --> V[Qdrant 语义召回]
+        B --> R[RRF 融合]
+        V --> R
+        R --> P[父块聚合、命中片段、来源]
+        P --> M[模型参考上下文]
+    end
+    Q -.-> V

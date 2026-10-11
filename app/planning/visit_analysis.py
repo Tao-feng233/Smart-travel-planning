@@ -1,0 +1,596 @@
+"""Estimated sightseeing workload, shared by preview and the final planner.
+
+The model proposes durations and dated periods. Identity, explicit intentions,
+time budgets and avoidable load imbalance are validated before publication.
+Nothing here verifies opening hours, road travel time or ticket availability.
+"""
+
+from app import prompts
+import hashlib
+import json
+import math
+
+from app.travel import visits
+from app.integrations.enrichment import model_facts
+from app.travel.journey import coordinate_distance
+from app.core.errors import DataError
+
+FACT_KEYS = (
+    "id",
+    "name",
+    "kind",
+    "parent_id",
+    "location",
+    "address",
+    "poi_type",
+    "tags",
+    "opening",
+    "opening_scope",
+    "description",
+    "recommendation",
+    "evidence",
+    "visit_suggestion",
+)
+
+
+def selected(w):
+    from app.travel.spot_hierarchy import state
+
+    return [w["catalog"][cid] for cid in state(w)["active_ids"]]
+
+
+def signature(w):
+    from app.agents.recommendation_context import context
+    from app.travel.spot_hierarchy import state, ancestors, parent_facts
+
+    hierarchy = state(w)
+    from app.planning.transport_links import offset
+    from app.travel.stay_plan import facts
+
+    value = {
+        "prompt_version": prompts.VERSION,
+        "nightly_stays": facts(w),
+        "hierarchy_version": 1,
+        "parent_coverage": hierarchy["parent_coverage"],
+        "parent_context": parent_facts(w),
+        "chosen": w.get("selected_spots", []),
+        "chains": {
+            cid: ancestors(w.get("catalog", {}), cid) for cid in hierarchy["active_ids"]
+        },
+        "transfer_offsets": [offset(w, "outbound"), offset(w, "return")],
+        "pacing_version": 3,
+        "recommendation_context": context(w),
+        "requirements": w["requirements"],
+        "spots": [{k: p.get(k) for k in FACT_KEYS} for p in selected(w)],
+        "requests": hierarchy["visit_requests"],
+        "order": hierarchy["visit_order"],
+        "hotel": {k: (w.get("hotel") or {}).get(k) for k in ("id", "location")},
+        "transport": [
+            {k: (w.get(field) or {}).get(k) for k in ("id", "departure", "arrival")}
+            for field in ("selected_transport", "selected_return")
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def current(w):
+    value = w.get("visit_analysis")
+    return value if value and value.get("signature") == signature(w) else None
+
+
+def budgets(w):
+    from app.planning.schedule import windows, minutes, day_end, PERIODS, meal_start
+    from app.planning import pacing
+
+    result = []
+    for dt in visits.dates(w):
+        low, high = windows(w, dt)
+        low = max(low, minutes(w["requirements"].get("day_start", "09:00")))
+        high = min(high, day_end(w, dt))
+        meals = sum(
+            max(0, min(high, at + pacing.meal_duration(w, dt, period)) - max(low, at))
+            for period in PERIODS
+            for at in [meal_start(w, dt, period)]
+            if at is not None
+        )
+        rest = pacing.reserved(w, dt, low, high)
+        result.append(
+            {
+                "date": dt,
+                "start_minute": low,
+                "end_minute": high,
+                "visit_minutes": max(0, high - low - meals - rest),
+                "midday_rest_minutes": rest,
+                "transfer_buffer_minutes": pacing.for_day(w, dt)["break_minutes"],
+                "estimated": True,
+            }
+        )
+    return result
+
+
+def estimate(p, w):
+    text = " ".join(
+        str(p.get(k) or "") for k in ("name", "poi_type", "tags", "description")
+    )
+    # A labelled fallback only; never presented as a provider's recommended time.
+    length = (
+        240
+        if any(k in text for k in ("山岳", "登山", "森林", "主题乐园"))
+        else 180
+        if any(k in text for k in ("湿地", "风景区", "博物馆", "海洋公园"))
+        else 120
+        if any(k in text for k in ("古城", "石窟", "公园", "景区"))
+        else 90
+    )
+    length = (
+        math.ceil(
+            length
+            * {"relaxed": 1.2, "packed": 0.85}.get(w["requirements"].get("pace"), 1)
+            / 15
+        )
+        * 15
+    )
+    return {
+        "duration": length,
+        "period": (p.get("visit_suggestion") or {}).get("period", "any"),
+        "reason": "依据地点类型与旅行节奏的初步估算，完成景点选择后由模型细化。",
+        "basis": "category_estimate",
+        "estimated": True,
+    }
+
+
+def allocate(w, estimates=None):
+    """Balance estimated minutes rather than enforcing equal attraction counts."""
+    estimates = estimates or {}
+    ps = selected(w)
+    ds = visits.dates(w)
+    if not ds:
+        return []
+    from app.travel.spot_hierarchy import state
+
+    bs = {b["date"]: b for b in budgets(w)}
+    pins = state(w)["visit_requests"]
+    loads = {d: 0 for d in ds}
+    groups = {d: [] for d in ds}
+    items = []
+    free = []
+    for p in ps:
+        item = {
+            "candidate_id": p["id"],
+            **estimate(p, w),
+            **estimates.get(p["id"], {}),
+            "estimated": True,
+        }
+        pin = pins.get(p["id"], {})
+        if pin.get("date") in ds:
+            item.update(date=pin["date"], period=pin.get("period", "any"))
+            items.append(item)
+            groups[item["date"]].append(p)
+            loads[item["date"]] += (
+                item["duration"] + bs[item["date"]]["transfer_buffer_minutes"]
+            )
+        else:
+            free.append((p, item))
+    # Place the biggest visits first so a small stop cannot crowd out a full day.
+    free.sort(key=lambda pair: -pair[1]["duration"])
+    for p, item in free:
+        usable = [d for d in ds if bs[d]["visit_minutes"] >= 30] or ds
+
+        def score(d):
+            capacity = max(1, bs[d]["visit_minutes"])
+            after = loads[d] + item["duration"] + bs[d]["transfer_buffer_minutes"]
+            distance = min(
+                (
+                    coordinate_distance(p, q)
+                    for q in groups[d]
+                    if p.get("location") and q.get("location")
+                ),
+                default=0,
+            )
+            # Geography is a tie breaker. It must not override a full day.
+            return (max(0, after - capacity), after / capacity, min(distance, 50), d)
+
+        dt = min(usable, key=score)
+        item["date"] = dt
+        items.append(item)
+        groups[dt].append(p)
+        loads[dt] += item["duration"] + bs[dt]["transfer_buffer_minutes"]
+    order = {cid: n for n, cid in enumerate(w.get("visit_order", []))}
+    return sorted(items, key=lambda x: (x["date"], order.get(x["candidate_id"], 9999)))
+
+
+def distribution_warnings(w, items, allowed_dates=None):
+    """Workload estimates are advice, not proof a trip cannot be executed."""
+    bs = {
+        b["date"]: b
+        for b in budgets(w)
+        if not allowed_dates or b["date"] in allowed_dates
+    }
+    loads = {
+        d: sum(
+            i["duration"] + bs[d]["transfer_buffer_minutes"]
+            for i in items
+            if i["date"] == d
+        )
+        for d in bs
+    }
+    result = []
+
+    def warning(code, message, dt, ids, **extra):
+        result.append(
+            {
+                "code": code,
+                "level": "warning",
+                "message": message,
+                "date": dt,
+                "candidate_ids": ids,
+                "view": "spot",
+                "estimated": True,
+                **extra,
+            }
+        )
+
+    for d, load in loads.items():
+        ids = [i["candidate_id"] for i in items if i["date"] == d]
+        if load > bs[d]["visit_minutes"]:
+            warning(
+                "estimated_capacity",
+                d
+                + "建议游玩及转场约"
+                + str(load)
+                + "分钟，扣除用餐与午休后的估算可用时间为"
+                + str(bs[d]["visit_minutes"])
+                + "分钟。安排可能偏紧，可调整游览范围或顺序，也可继续生成带警告的草稿，再核对实际路线。",
+                d,
+                ids,
+                needed_minutes=load,
+                available_minutes=bs[d]["visit_minutes"],
+                overrun_minutes=load - bs[d]["visit_minutes"],
+            )
+        for period, low, high in [
+            ("morning", 540, 720),
+            ("afternoon", 795, 1080),
+            ("evening", 1080, 1380),
+        ]:
+            fixed = [
+                i
+                for i in items
+                if i["date"] == d
+                and w.get("visit_requests", {}).get(i["candidate_id"], {}).get("period")
+                == period
+            ]
+            capacity = max(
+                0, min(high, bs[d]["end_minute"]) - max(low, bs[d]["start_minute"])
+            )
+            from app.planning.pacing import reserved
+
+            capacity = max(
+                0,
+                capacity
+                - reserved(
+                    w,
+                    d,
+                    max(low, bs[d]["start_minute"]),
+                    min(high, bs[d]["end_minute"]),
+                ),
+            )
+            needed = (
+                sum(i["duration"] for i in fixed)
+                + max(0, len(fixed) - 1) * bs[d]["transfer_buffer_minutes"]
+            )
+            if needed > capacity:
+                warning(
+                    "estimated_period_capacity",
+                    d
+                    + "指定"
+                    + visits.PERIODS[period]
+                    + "的建议游览约"
+                    + str(needed)
+                    + "分钟，该时段估算可用约"
+                    + str(capacity)
+                    + "分钟。建议时长尚需核对；明确时段不会被自动更改。",
+                    d,
+                    [i["candidate_id"] for i in fixed],
+                    needed_minutes=needed,
+                    available_minutes=capacity,
+                    overrun_minutes=needed - capacity,
+                )
+    usable = [d for d in bs if bs[d]["visit_minutes"] >= 30]
+    if len(usable) > 1 and len(items) > 1:
+        ratio = lambda d, load: load / max(1, bs[d]["visit_minutes"])
+        before = max(ratio(d, loads[d]) for d in usable) - min(
+            ratio(d, loads[d]) for d in usable
+        )
+        light = min(usable, key=lambda d: ratio(d, loads[d]))
+        for item in items:
+            d = item["date"]
+            length = item["duration"] + bs.get(d, {}).get("transfer_buffer_minutes", 30)
+            if (
+                d not in usable
+                or d == light
+                or w.get("visit_requests", {}).get(item["candidate_id"], {}).get("date")
+            ):
+                continue
+            if loads[light] + length > bs[light]["visit_minutes"]:
+                continue
+            moved = {**loads, d: loads[d] - length, light: loads[light] + length}
+            after = max(ratio(k, moved[k]) for k in usable) - min(
+                ratio(k, moved[k]) for k in usable
+            )
+            if before > 0.3 and after + 0.12 < before:
+                warning(
+                    "unbalanced_estimate",
+                    "每日负担明显失衡："
+                    + d
+                    + "建议游玩及转场约"
+                    + str(loads[d])
+                    + "分钟，"
+                    + light
+                    + "约"
+                    + str(loads[light])
+                    + "分钟，前者更密集。可优化分配，也可保留当前节奏；不要求填满休息时间或增加游玩天数。",
+                    d,
+                    [i["candidate_id"] for i in items if i["date"] in (d, light)],
+                    other_date=light,
+                )
+                break
+    return result
+
+
+def distribution_errors(w, items, allowed_dates=None):
+    # Analysis can request a better estimate or show a fallback. The final
+    # proposal keeps these separate from identity/date validation failures.
+    return [i["message"] for i in distribution_warnings(w, items, allowed_dates)]
+
+
+def notices(w, items):
+    bs = {b["date"]: b for b in budgets(w)}
+    capacity = sum(b["visit_minutes"] for b in bs.values())
+    needed = sum(
+        i["duration"] + bs.get(i["date"], {}).get("transfer_buffer_minutes", 30)
+        for i in items
+    )
+    result = []
+    if capacity and needed < capacity * 0.5:
+        result.append(
+            "当前景点较少，已分散安排并保留较多自由时间；可增加感兴趣的地点，或保持慢节奏游览。"
+        )
+    if needed > capacity:
+        result.append(
+            "当前建议游玩时长与转场预留超过可用时间；建议减少景点、延长行程或调整班次，尚不能保证全部安排可行。"
+        )
+    elif capacity and needed > capacity * 0.85:
+        result.append(
+            "当前景点安排较紧凑，尚未计入实际道路耗时；正式规划核对路线后可能需要调整。"
+        )
+    if distribution_errors(w, items) and w.get("visit_requests"):
+        result.append(
+            "用户指定日期优先保留，因此部分日期可能更密集；可修改指定日期或时段后重新优化。"
+        )
+    return result
+
+
+def preview(w):
+    value = current(w)
+    return value["items"] if value else allocate(w)
+
+
+def summary(w, value):
+    cat = w["catalog"]
+    groups = {}
+    for item in value["items"]:
+        groups.setdefault(item["date"], []).append(
+            cat[item["candidate_id"]]["name"]
+            + "（建议"
+            + str(item["duration"])
+            + "分钟）"
+        )
+    text = (
+        "已按景点规模、位置、旅行节奏与可用日期分析游玩安排。时长为建议估算，正式计划还会核对道路耗时与开放条件。"
+        if value["status"] == "model"
+        else "已按已选地点与可用日期整理初步安排，交通核对后会继续优化起止时间。"
+    )
+    text += "\n" + "\n".join(
+        dt + "：" + "、".join(ps) for dt, ps in list(groups.items())[:8]
+    )
+    if len(groups) > 8:
+        text += "\n其余日期可在时间轴中查看。"
+    return text + ("\n" + "\n".join(value["notices"]) if value["notices"] else "")
+
+
+async def analyze(w, model, progress, force=False):
+    from app.travel.spot_hierarchy import state, notes, parent_facts
+
+    hierarchy = state(w)
+    if hierarchy["issues"]:
+        raise DataError(
+            hierarchy["issues"][0]["message"],
+            {"issues": hierarchy["issues"], "view": "spot"},
+        )
+    w_original = w
+    w = {
+        **w,
+        "visit_requests": hierarchy["visit_requests"],
+        "visit_order": hierarchy["visit_order"],
+    }
+    existing = current(w)
+    if existing and not force:
+        return existing
+    ps = selected(w)
+    if not ps or not w["requirements"].get("days") or not visits.dates(w):
+        raise DataError("请先选择景点并补充出游日期、旅行天数，再优化游玩安排。")
+    progress("正在分析全部已选景点的游玩时长与每日负担")
+    prompt = prompts.system("visit")
+
+    from app.agents.recommendation_context import context
+    from app.travel.stay_plan import facts
+    from app.planning import pacing
+
+    content = {
+        "requirements": w["requirements"],
+        "spots": [{k: p.get(k) for k in FACT_KEYS} for p in ps],
+        "tour_dates": visits.dates(w),
+        "day_budgets": budgets(w),
+        "visit_requests": w.get("visit_requests", {}),
+        "visit_order": w.get("visit_order", []),
+        "hotel": w.get("hotel"),
+        "nightly_stays": facts(w),
+        "selected_transport": w.get("selected_transport"),
+        "selected_return": w.get("selected_return"),
+        "parent_coverage": hierarchy["parent_coverage"],
+        "parent_context": parent_facts(w),
+        "recommendation_context": context(w),
+        "initial_day_pacing": [
+            {"date": dt, **pacing.for_day(w, dt)} for dt in visits.dates(w)
+        ],
+        "official_guides": w.get("rag_results", []),
+        "initial_balanced_estimate": allocate(w),
+        "interaction_state": prompts.interaction_state(w),
+        "pacing_contract": pacing.contract(),
+    }
+    from app.planning.travel_preview import current as route_preview
+
+    road_data = route_preview(w)
+    if road_data:
+        content["queried_route_preview"] = [
+            row
+            for row in road_data["entries"]
+            if row["kind"] in ("route", "unknown_route", "transfer_plan")
+        ]
+
+    if w.get("planning_revision"):
+        content["revision_context"] = w["planning_revision"]
+
+    messages = [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": json.dumps(model_facts(content), ensure_ascii=False),
+        },
+    ]
+    valid = None
+    duration_estimates = {}
+    day_pacing = []
+    for attempt in range(2):
+        try:
+            message, _ = await model(
+                messages,
+                json_mode=True,
+                max_tokens=min(16000, max(2500, len(ps) * 140)),
+            )
+        except DataError:
+            break
+        errors = []
+        advisories = []
+        items = []
+        raw = message.get("content") or "{}"
+        try:
+            value = json.loads(raw)
+            seen = set()
+            ids = {p["id"] for p in ps}
+            pacing_rows = value.get("day_pacing", [])
+            if not isinstance(pacing_rows, list):
+                raise ValueError("day_pacing必须为列表")
+            parsed_pacing = []
+            pacing_seen = set()
+            for row in pacing_rows:
+                if row.get("date") not in visits.dates(w) or row["date"] in pacing_seen:
+                    raise ValueError("午休建议日期无效或重复")
+                parsed_pacing.append({"date": row["date"], **pacing.normalize(row)})
+                pacing_seen.add(row["date"])
+            for item in value["items"]:
+                cid = item["candidate_id"]
+                pin = w.get("visit_requests", {}).get(cid, {})
+                if cid not in ids or cid in seen:
+                    raise ValueError("未选或重复ID")
+                if item["date"] not in visits.dates(w):
+                    raise ValueError("日期不在游玩范围")
+                period = item.get("period", "any")
+                duration = item["duration"]
+                if (
+                    period not in visits.PERIODS
+                    or isinstance(duration, bool)
+                    or not isinstance(duration, int)
+                    or not 15 <= duration <= 720
+                ):
+                    raise ValueError("时段或时长无效")
+                if (
+                    pin.get("date")
+                    and pin["date"] != item["date"]
+                    or pin.get("period") not in (None, "any")
+                    and pin["period"] != period
+                ):
+                    raise ValueError("不得修改用户指定日期时段")
+                reason = item.get("reason")
+                if not isinstance(reason, str) or not reason.strip():
+                    raise ValueError("缺少分配原因")
+                seen.add(cid)
+                items.append(
+                    {k: item[k] for k in ("candidate_id", "date", "duration")}
+                    | {
+                        "period": period,
+                        "reason": reason[:240],
+                        "basis": "model_estimate",
+                        "estimated": True,
+                    }
+                )
+            if seen != ids:
+                raise ValueError("遗漏已选景点")
+            duration_estimates = {
+                i["candidate_id"]: {
+                    k: i[k] for k in ("duration", "period", "reason", "basis")
+                }
+                for i in items
+            }
+            day_pacing = parsed_pacing
+            from app.planning.schedule_quality import serious
+
+            advisories = [
+                x["message"]
+                for x in distribution_warnings(
+                    {**w, "_pacing_override": day_pacing}, items
+                )
+                if serious(x)
+            ]
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            errors.append("候选ID、日期、时段或JSON结构未通过校验：" + str(e))
+        if not errors and not advisories:
+            valid = items
+            break
+        if not attempt:
+            progress("正在根据每日负担与日期校验结果修订安排")
+            messages.extend(
+                [
+                    {"role": "assistant", "content": raw},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "validation_errors": errors,
+                                "workload_advisories": advisories,
+                                "allowed_ids": [p["id"] for p in ps],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ]
+            )
+    value = {
+        "signature": signature(w),
+        "status": "model" if valid is not None else "fallback",
+        "items": valid
+        if valid is not None
+        else allocate({**w, "_pacing_override": day_pacing}, duration_estimates),
+        "day_pacing": day_pacing,
+        "estimated": True,
+    }
+    value["parent_coverage"] = hierarchy["parent_coverage"]
+    value["notices"] = notices(
+        {**w, "_pacing_override": day_pacing}, value["items"]
+    ) + notes(w)
+    w_original["visit_analysis"] = value
+    if w.get("plan"):
+        w["plan"]["stale"] = True
+    return value

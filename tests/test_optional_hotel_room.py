@@ -4,7 +4,10 @@ import json
 
 import pytest
 
-from app import agent, auto_selection, guidance, journey, planning, report
+from app.agents import planner as agent, auto_selection
+from app.application import guidance, report
+from app.travel import journey
+from app.planning import engine as planning
 
 
 def trip():

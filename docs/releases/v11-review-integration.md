@@ -15,7 +15,7 @@
 
 134项Python测试通过，包含组员4条回归及新增餐次边界测试。browser_experience_v11.cjs通过HTTP高德照片、原图回退、小地图、时间轴、逐餐查询和冲突跳转验证；browser_map_v9.cjs通过原有地图交互及390/768/1600宽度布局验证。
 
-运行Python测试：`.venv/Scripts/python.exe -m pytest tests -q`。浏览器合成数据由scripts/make_browser_v11_fixture.py生成，不含个人记录。
+运行Python测试：`.venv/Scripts/python.exe -m pytest tests -q`。浏览器合成数据由scripts/checks/make_browser_v11_fixture.py生成，不含个人记录。
 
 ## 运行边界
 

@@ -1,0 +1,6 @@
+flowchart LR
+    A[understand：理解用户意图] --> B[check：检查输出]
+    B -->|可用| C[execute：执行业务动作]
+    B -->|不可用，有限修复| A
+    C --> D[工具结果与工作区状态]
+    C -.-> E[代选前申请用户确认]

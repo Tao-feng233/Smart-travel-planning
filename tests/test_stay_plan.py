@@ -4,7 +4,8 @@ import copy
 
 import pytest
 
-from app import agent, stay_plan, visits
+from app.agents import planner as agent
+from app.travel import stay_plan, visits
 
 D1, D2, D3 = '2026-10-12', '2026-10-13', '2026-10-14'
 
@@ -140,7 +141,7 @@ def test_room_details_are_explicit_and_use_the_candidate_quote_dates(monkeypatch
 
 def test_room_fetch_failure_keeps_the_hotel_selection(monkeypatch):
     """取房型失败不能把住宿选择弄丢，要保留选择并说明可重试。"""
-    from app.providers import DataError
+    from app.core.errors import DataError
     w = workspace()
     candidate = {'id': 'tuniu:hotel:900002@' + D1, 'provider_id': 900002, 'kind': 'hotel',
                  'name': '示例酒店', 'location': '120.30,36.00',
@@ -200,7 +201,7 @@ def test_primary_hotel_is_queried_from_the_centre_of_all_spots(monkeypatch):
 
 def test_timeline_uses_the_same_first_last_day_timing_as_the_plan(monkeypatch):
     """时间轴与计划书必须同一口径：首尾日准备时长用同一份 travel_timing。"""
-    from app import schedule, time_policy
+    from app.planning import schedule, time_policy
     w = workspace()
     w['selected_transport'] = {'id': 'a', 'kind': 'train', 'name': 'G0',
                                'departure': D1 + ' 06:00', 'arrival': D1 + ' 10:00',
@@ -215,7 +216,7 @@ def test_timeline_uses_the_same_first_last_day_timing_as_the_plan(monkeypatch):
     assert back_end == 15 * 60 - time_policy.FALLBACK_PREPARATION_MINUTES
     # 有实查结果时用实查结果（这里给一个更短、更贴近实际路线的准备时长）
     import time
-    from app import transport_links
+    from app.planning import transport_links
     w['transport_links']={'signature':transport_links.signature(w),'expires':time.time()+900,'links':{'outbound':{'status':'available','required_minutes':40},'return':{'status':'available','required_minutes':75}}}
     start, _ = schedule.windows(w, D1)
     assert start == 10 * 60 + 40, '时间轴必须用实查准备时长'
@@ -246,8 +247,8 @@ def test_center_candidates_survive_a_later_per_night_query(monkeypatch):
 
 
 def test_nightly_hotels_remain_assigned_without_invented_checkin_times():
-    """逐晚住宿选择保留在住宿编排，未询问确认时不生成定时入住。"""
-    from app import schedule
+    """逐晚住宿选择保留在住宿编排，并在时间轴上可见；但不生成未确认的定时入住。"""
+    from app.planning import schedule
     w = workspace()
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'morning'}])
     w['catalog'].update({
@@ -255,7 +256,9 @@ def test_nightly_hotels_remain_assigned_without_invented_checkin_times():
         'only2': {'id': 'only2', 'kind': 'hotel', 'name': '第二晚酒店', 'location': '120.40,36.10'}})
     stay_plan.assign(w, 'main', [D1])
     stay_plan.assign(w, 'only2', [D2])
-    assert not any(e['kind'] == 'hotel' for e in schedule.build(w)['entries'])
+    # 住宿要出现在时间轴上（用户要求看得见），但不得带编造的入住时刻
+    _stays=[e for e in schedule.build(w)['entries'] if e['kind'] == 'hotel']
+    assert _stays and all(not e.get('time') for e in _stays), _stays
     assert stay_plan.hotel_for(w, D1)['name'] == '第一晚酒店'
     assert stay_plan.hotel_for(w, D2)['name'] == '第二晚酒店'
     assert stay_plan.hotel_for(w, D3) is None

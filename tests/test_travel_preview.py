@@ -2,7 +2,7 @@ import asyncio
 import copy
 import time
 
-from app import planning,schedule,travel_preview
+from app.planning import engine as planning, schedule, travel_preview
 
 
 def trip():
@@ -16,7 +16,7 @@ def trip():
 
 def test_route_preview_queries_every_leg_updates_time_and_does_not_generate_a_book(monkeypatch):
     w=trip();seen=[];before=copy.deepcopy(w['selected_spots'])
-    from app import visit_analysis
+    from app.planning import visit_analysis
     w['visit_analysis']={'signature':visit_analysis.signature(w),'status':'model','items':[
         {'candidate_id':cid,'date':'2026-10-12','period':'morning' if cid=='a' else 'afternoon','duration':duration,'reason':'明确的小范围游览','basis':'model_estimate'} for cid,duration in [('a',60),('b',45),('c',30)]],'day_pacing':[],'notices':[]}
     async def road(a,b):
@@ -49,7 +49,7 @@ def test_missing_meal_origin_stays_pending_without_erasing_choices(monkeypatch):
 
 
 def test_explicit_route_refresh_does_not_call_model_or_change_choices(monkeypatch):
-    from app import agent
+    from app.agents import planner as agent
     w=trip();before=copy.deepcopy(w['selected_spots'])
     async def refresh(workspace,progress):workspace['travel_preview']={'status':'ready','signature':travel_preview.signature(workspace),'expires':time.time()+900,'entries':[]}
     async def model(*args,**kwargs):raise AssertionError('只核对交通不应调用模型')

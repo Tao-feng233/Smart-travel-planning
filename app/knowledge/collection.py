@@ -1,0 +1,149 @@
+"""Collection from an explicit source registry, without open-web discovery."""
+
+import json
+import os
+import uuid
+from pathlib import Path
+from urllib.parse import urlsplit
+from bs4 import BeautifulSoup
+from app.knowledge.corpus import CorpusError, clean_text, digest, normalize_record
+
+
+def extract(html, source):
+    soup = BeautifulSoup(html, "html.parser")
+    for node in soup(["script", "style", "nav", "header", "footer"]):
+        node.decompose()
+    nodes = soup.select(source["selector"])
+    if not nodes:
+        raise CorpusError("正文选择器未匹配")
+    lines = []
+    for node in nodes:
+        for line in node.get_text("\n", strip=True).splitlines():
+            line = clean_text(line)
+            if source.get("stop_before") and source["stop_before"] in line:
+                break
+            if line and line not in lines:
+                lines.append(line)
+    text = "\n".join(lines)
+    if source.get("start_at"):
+        start = text.find(source["start_at"])
+        if start < 0:
+            raise CorpusError("未找到指定正文起始段落")
+        text = text[start:]
+    page_title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    if len(text) < source.get("min_chars", 80) or not any(
+        term in text or term in page_title for term in source["terms"]
+    ):
+        raise CorpusError("正文过短或不包含预期实体")
+    if len(text) > 40000:
+        raise CorpusError("正文超过受控采集长度")
+    return text
+
+
+def collect(sources, previous, fetch, fetched_at):
+    """Each failed source keeps its last valid document; versions never mix."""
+    records = {row["id"]: row for row in previous}
+    report = []
+    for source in sources:
+        doc_id = source["id"]
+        try:
+            html, final_url = fetch(source)
+            if urlsplit(final_url).hostname not in source["allowed_hosts"]:
+                raise CorpusError("跳转目标不在已审核来源中")
+            if source.get("format") == "mct_directory":
+                from app.knowledge.public_directory import mct_shandong_records
+
+                rows = mct_shandong_records(html, source, fetched_at)
+                # Removed directory entries must not remain active as current
+                # directory facts. Other independently collected sources survive.
+                records = {
+                    key: row
+                    for key, row in records.items()
+                    if row.get("source_group") != doc_id
+                }
+                records.update({row["id"]: row for row in rows})
+                report.append(
+                    {"id": doc_id, "status": "updated", "documents": len(rows)}
+                )
+                continue
+            text = extract(html, source)
+            version = digest(text)
+            old = records.get(doc_id)
+            row = normalize_record(
+                {
+                    "id": doc_id,
+                    "city": source["city"],
+                    "title": source["title"],
+                    "url": source["url"],
+                    "resolved_url": final_url,
+                    "text": text,
+                    "source_kind": source.get("source_kind", "official_snapshot"),
+                    "category": "受控官方页面正文",
+                    "scope": source["scope"],
+                    "published_at": source.get("published_at"),
+                    "fetched_at": fetched_at,
+                    "valid_from": source.get("valid_from"),
+                    "valid_to": source.get("valid_to"),
+                    "entity_names": [
+                        name
+                        for name in source.get("entity_names", [])
+                        if name in text or name in source["title"]
+                    ],
+                    "entity_ids": source.get("entity_ids", []),
+                    "province": source.get("province"),
+                    "city_aliases": source.get("city_aliases", []),
+                    "source_version": version,
+                    "previous_version": old.get("source_version")
+                    if old and old.get("source_version") != version
+                    else old.get("previous_version")
+                    if old
+                    else None,
+                    "collection_status": "available",
+                    "last_checked_at": fetched_at,
+                }
+            )
+            records[doc_id] = row
+            report.append(
+                {
+                    "id": doc_id,
+                    "status": "unchanged"
+                    if old and old.get("source_version") == version
+                    else "updated",
+                    "characters": len(text),
+                }
+            )
+        except Exception as exc:
+            retained = [
+                key
+                for key, row in records.items()
+                if key == doc_id or row.get("source_group") == doc_id
+            ]
+            for key in retained:
+                records[key] = {
+                    **records[key],
+                    "collection_status": "stale",
+                    "last_checked_at": fetched_at,
+                }
+            report.append(
+                {
+                    "id": doc_id,
+                    "status": "failed",
+                    "retained": bool(retained),
+                    "error_type": type(exc).__name__,
+                    "reason": str(exc)
+                    if isinstance(exc, CorpusError)
+                    else "网络或源站暂不可用",
+                }
+            )
+    return sorted(records.values(), key=lambda row: row["id"]), report
+
+
+def publish(path, records):
+    """Validate before publishing; readers only see the complete replacement."""
+    path = Path(path)
+    for row in records:
+        normalize_record(row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix("." + uuid.uuid4().hex + ".tmp")
+    temp.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temp, path)

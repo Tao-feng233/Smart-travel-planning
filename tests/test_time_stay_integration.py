@@ -1,9 +1,12 @@
+from app.travel.requirements import update_requirements
 import asyncio
 import copy
 import json
 import time
 import pytest
-from app import agent,foods,planning,schedule,stay_plan,travel_preview,transport_links,visit_analysis,timeline_review,plan_warnings
+from app.agents import planner as agent
+from app.travel import foods, stay_plan
+from app.planning import engine as planning, schedule, travel_preview, transport_links, visit_analysis, timeline_review, plan_warnings
 
 D1,D2='2026-10-12','2026-10-13'
 
@@ -63,7 +66,7 @@ def test_lodging_skip_city_reset_and_invalid_explicit_night_preserve_intent():
     assert w['stay_hotels']==before
     w['requirements']['local_trip']=True
     asyncio.run(agent.handle(w,'skip_hotel',{},lambda _:None));assert not w.get('stay_hotels') and not w.get('hotel')
-    w=trip();agent.update_requirements(w,{'city':'杭州'})
+    w=trip();update_requirements(w,{'city':'杭州'})
     assert not w.get('stay_hotels') and not w.get('selected_rooms') and not w.get('stay_plan')
 
 

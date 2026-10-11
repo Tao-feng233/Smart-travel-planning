@@ -1,6 +1,8 @@
+from app.travel.requirements import update_requirements
 import asyncio,copy
 import pytest
-from app import agent,discovery,choices
+from app.agents import planner as agent
+from app.travel import discovery, choices
 
 def work():
  return {'requirements':{'city':'青岛','origin':'郑州','start_date':'2026-10-12','days':3,'adults':1,'preferences':['海边','海鲜']},'catalog':{},'selected_spots':[],'messages':[],'tickets':{},'hotel':{'id':'h1','kind':'hotel','name':'酒店'},'selected_room':{'id':'r1','quantity':1},'selected_transport':{'id':'go','kind':'train','direction':'outbound','arrival':'2026-10-12 10:00','selection_status':'confirmed'},'selected_return':{'id':'back','kind':'train','direction':'return','departure':'2026-10-14 12:00','selection_status':'confirmed'}}
@@ -16,7 +18,7 @@ def test_return_date_shift_never_changes_trip_start_or_lodging(monkeypatch):
  assert w['hotel']==before['hotel'] and w['selected_room']==before['selected_room'] and w['selected_transport']==before['selected_transport']
 
 def test_preferences_are_accumulated_across_refinements():
- w=work();agent.update_requirements(w,{'preferences':['知名度较高']})
+ w=work();update_requirements(w,{'preferences':['知名度较高']})
  assert '海鲜' in w['requirements']['preferences'] and '海边' in w['requirements']['preferences']
 
 def test_default_return_is_day_after_play_days(monkeypatch):
@@ -27,7 +29,7 @@ def test_default_return_is_day_after_play_days(monkeypatch):
  assert seen[0]['departureDate']=='2026-10-15'
 
 def test_return_date_change_invalidates_only_return():
- w=work();before=copy.deepcopy(w);agent.update_requirements(w,{'return_date':'2026-10-15'})
+ w=work();before=copy.deepcopy(w);update_requirements(w,{'return_date':'2026-10-15'})
  assert w['requirements']['return_date']=='2026-10-15' and w['selected_return'] is None
  assert w['selected_transport']==before['selected_transport'] and w['selected_room']==before['selected_room']
 
@@ -41,7 +43,8 @@ def test_paging_does_not_fetch_unrecommended_candidates(monkeypatch):
 
 
 def test_food_preferences_survive_known_scenic_refinement_and_types_stay_separate(monkeypatch):
- from app import foods,providers
+ from app.travel import foods
+ from app.integrations import providers
  w=work();w['catalog']['s1']={'id':'s1','kind':'spot','name':'栈桥','location':'120,36'};w['selected_spots']=['s1'];calls=[]
  async def tool(name,args):
   calls.append(args)
@@ -53,14 +56,14 @@ def test_food_preferences_survive_known_scenic_refinement_and_types_stay_separat
  asyncio.run(foods.search(w,{'keywords':['海鲜']},lambda _:None,rank))
  assert len(w['food_query']['ids']) in (5,6) and calls[0]['location']=='120,36' and calls[0]['category']=='food'
  assert 'f0' not in w['selected_spots']
- from app.journey import refine_intent
+ from app.travel.journey import refine_intent
  i=refine_intent(w,'感觉这几个地方好像不太出名啊，都没太听过',{'action':'spots_page','patch':{'preferences':['知名度高']}})
- agent.update_requirements(w,i['patch'])
+ update_requirements(w,i['patch'])
  assert i['action']=='search_spots' and i['prefer_known'] and '海鲜' in w['requirements']['preferences']
 
 
 def test_meals_are_optional_replaceable_and_can_be_cleared():
- from app import foods
+ from app.travel import foods
  w=work();w['catalog'].update(f1={'id':'f1','kind':'food','name':'第一餐厅'},f2={'id':'f2','kind':'food','name':'第二餐厅'})
  for cid in ('f1','f2'):foods.select_meal(w,{'meal_date':'2026-10-13','meal_period':'lunch','food_id':cid})
  assert len(w['meal_choices'])==1 and w['meal_choices']['2026-10-13|lunch']['food_id']=='f2'
@@ -79,7 +82,7 @@ def test_natural_language_select_saves_hotel_and_confirms_transport(monkeypatch)
 
 
 def test_next_step_requires_real_choice_and_does_not_repeat_weather():
- from app.journey import next_step,refine_intent
+ from app.travel.journey import next_step, refine_intent
  w=work();w['catalog']['s']={'id':'s','name':'栈桥','kind':'spot'};w['selected_spots']=['s'];w['spots_confirmed']=True
  assert next_step(w)['view']=='food'
  w['dining_reviewed']=True
@@ -89,7 +92,7 @@ def test_next_step_requires_real_choice_and_does_not_repeat_weather():
 
 
 def test_food_search_uses_verified_category_and_rejects_restaurants_as_spots(monkeypatch):
- from app import providers
+ from app.integrations import providers
  calls=[]
  async def amap(path,args):calls.append((path,args));return {'data':{'pois':[{'id':'x','name':'海鲜餐厅','typecode':'050100','type':'餐饮服务;中餐厅'}]},'source':{}}
  monkeypatch.setattr(providers,'amap',amap)
@@ -100,10 +103,11 @@ def test_food_search_uses_verified_category_and_rejects_restaurants_as_spots(mon
 
 def test_plan_includes_selected_lunch_and_optional_meals_with_real_routes(monkeypatch,tmp_path):
  import json
- from app import planning,foods
+ from app.planning import engine as planning
+ from app.travel import foods
  monkeypatch.setattr(planning,'RUNTIME',tmp_path)
  async def model(messages,**kwargs):
-  if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"请核对"}'},{}
+  if kwargs.get('label')=='review':return {'content':'{"issues":[],"summary":"请核对"}'},{}
   return {'content':json.dumps({'days':[{'date':'2026-10-12','items':[]},{'date':'2026-10-13','items':[{'candidate_id':'s','duration':90,'note':'建议沿海岸游览'}]},{'date':'2026-10-14','items':[]}],'packing':[],'todos':[]})},{}
  async def tool(*args):return {'items':[]}
  pairs=[]

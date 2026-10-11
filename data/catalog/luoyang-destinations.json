@@ -1,0 +1,44 @@
+[
+  {
+    "id": "city:luoyang",
+    "name": "洛阳",
+    "province": "河南",
+    "tags": [
+      "古都文化",
+      "石窟",
+      "佛教",
+      "山岳",
+      "牡丹"
+    ],
+    "summary": "十三朝古都，以龙门石窟、白马寺、关林等石窟与佛教遗产为核心，兼顾老君山、白云山等伏牛山水与牡丹文化；全市3A级以上景区68家，其中5A级5家。",
+    "highlights": [
+      "龙门石窟",
+      "白马寺",
+      "关林",
+      "老君山",
+      "白云山",
+      "龙潭大峡谷",
+      "鸡冠洞",
+      "重渡沟",
+      "隋唐洛阳城国家遗址公园",
+      "明堂天堂",
+      "应天门",
+      "丽景门",
+      "黛眉山",
+      "青要山",
+      "木札岭"
+    ],
+    "source": {
+      "name": "洛阳市人民政府及河南省文化和旅游厅官方资料",
+      "url": "https://www.ly.gov.cn/mlly/lymc/",
+      "queried_at": "2026-10-10",
+      "kind": "目的地背景资料，非实时价格、运营状态或客流",
+      "record_ids": [
+        "official-ly-city-profile",
+        "official-ly-annual-pass",
+        "official-ly-luanchuan-4a",
+        "official-ly-laojunshan-geo"
+      ]
+    }
+  }
+]

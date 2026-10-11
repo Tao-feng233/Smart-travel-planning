@@ -1,0 +1,25 @@
+const {chromium}=require('C:/Users/asus/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const fs=require('fs');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+ const page=await browser.newPage({baseURL:'http://127.0.0.1:8767',viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const done=async()=>{await page.waitForSelector('#progress[hidden]',{state:'attached',timeout:240000});if(await page.locator('#error:not([hidden])').count())throw Error(await page.locator('#error').textContent())};
+ const state=async()=>await(await page.request.get('/api/workspaces/latest')).json();
+ await page.goto('/');await page.waitForSelector('.book');
+ await page.click('[data-tab="transport"]');await page.locator('#content [data-action="flight"][data-direction="return"]').click();await done();let w=await state();
+ const returned=w.transport.items.find(p=>p.departure.slice(11,16)>='18:00');if(!returned)throw Error('本次返回结果无合适的晚间班次');
+ if(w.transport.items.some(p=>p.direction!=='return'||p.query_conditions.departureCityName!=='青岛'))throw Error('返程查询方向错误');
+ await page.locator(`[data-select="${returned.id}"]`).click();await done();
+ await page.click('[data-tab="plan"]');await page.locator('#content [data-action="plan"]').click();await done();w=await state();
+ console.log('RETURN',returned.departure,'LAST_DAY_END',w.plan.days.at(-1).end);
+ const m=s=>Number(s.slice(0,2))*60+Number(s.slice(3));if(m(w.plan.days.at(-1).end)>m(returned.departure.slice(11,16))-120)throw Error('未保留返程准备时间');
+ await page.click('[data-tab="spot"]');await page.locator(`[data-ticket="${w.selected_spots[0]}"]`).click();await done();w=await state();console.log('TICKET_QUERY',w.tickets[w.selected_spots[0]]?.items?.length);
+ await page.click('[data-tab="plan"]');await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:'.展示检查/真实-最终页面.png',fullPage:false});
+ await page.emulateMedia({media:'print'});await page.pdf({path:'data/runtime/青岛旅行计划书-实际检查.pdf',format:'A4',printBackground:true});await page.emulateMedia({media:'screen'});
+ console.log('ENV_HTTP_STATUS',(await page.request.get('/.env')).status());
+ const exportR=await page.request.get(`/api/workspaces/${w.id}/export`);if(!(await exportR.text()).includes('返程'))throw Error('导出缺失返程');
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:'.展示检查/真实-手机.png',fullPage:true});
+ console.log('MOBILE_OVERFLOW',await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth));console.log('PAGE_ERRORS',JSON.stringify(errors));
+ fs.writeFileSync('data/runtime/browser-final.json',JSON.stringify({workspace_id:w.id,errors,checks:['返程真实查询','返程选择','返程时间检查','门票真实查询','计划书完整展示','PDF','Markdown含往返交通','env不可访问','移动端']},null,2));
+ await browser.close();
+})().catch(e=>{console.error(e.message);process.exit(1)});

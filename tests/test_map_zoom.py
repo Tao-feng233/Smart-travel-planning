@@ -1,6 +1,6 @@
 import pytest
-from app import maps
-from app.providers import DataError
+from app.integrations import maps
+from app.core.errors import DataError
 
 def test_zoom_changes_real_map_level_without_moving_center():
  ps=[{'location':'120.14,30.25'},{'location':'120.1,30.23'}]

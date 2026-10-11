@@ -1,5 +1,5 @@
 import asyncio
-from app import maps
+from app.integrations import maps
 
 def test_national_basemap_needs_no_trip_markers():
  args=maps.params([],zoom=3,center=(104.1954,35.8617),overlays=False)

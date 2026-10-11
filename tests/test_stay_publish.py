@@ -8,7 +8,10 @@ import copy
 
 import pytest
 
-from app import agent, main, stay_plan, storage
+from app.agents import planner as agent
+from app.travel import stay_plan
+from app.application.workspaces import present
+from app.persistence import storage
 
 D1, D2, D3 = '2026-10-12', '2026-10-13', '2026-10-14'
 
@@ -33,7 +36,7 @@ def test_present_publishes_authoritative_per_night_assignments():
     for row in w['stay_plan']['rows']:
         row['hotel_source'] = 'unset'
         row['hotel_id'] = None
-    out = main.present(w)
+    out = present(w)
     assignments = out['stay_plan']['assignments']
     assert assignments[D1] == {'hotel_id': 'h1', 'source': 'explicit'}, assignments
     assert assignments[D2] == {'hotel_id': 'h2', 'source': 'explicit'}, assignments
@@ -49,7 +52,7 @@ def test_present_keeps_already_queried_candidates():
     row = w['stay_plan']['rows'][0]
     row['candidate_ids'] = ['h1', 'h2']
     row['queried_at'] = '2026-10-09T10:00:00+08:00'
-    out = main.present(w)
+    out = present(w)
     first = next(r for r in out['stay_plan']['rows'] if r['date'] == D1)
     assert first['candidate_ids'] == ['h1', 'h2'], first
     assert first['queried_at'] == '2026-10-09T10:00:00+08:00', first
@@ -67,7 +70,7 @@ def test_selecting_a_hotel_makes_that_night_count_as_picked(monkeypatch):
     monkeypatch.setattr(agent, 'tuniu', vendor)
     monkeypatch.setattr(agent, 'local_tool', tool)
     asyncio.run(agent.handle(w, 'select', {'id': 'h2', 'stay_date': D2}, lambda _: None))
-    out = main.present(w)
+    out = present(w)
     assignments = out['stay_plan']['assignments']
     assert assignments[D2] == {'hotel_id': 'h2', 'source': 'explicit'}, assignments
     assert D2 not in out['stay_plan']['unassigned']

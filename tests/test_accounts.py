@@ -2,7 +2,11 @@ import asyncio,uuid,time,secrets
 from contextlib import asynccontextmanager
 import pytest
 from fastapi.testclient import TestClient
-from app import main,storage,auth
+from app import main
+from app.api import auth
+from app.application import jobs as job_runner
+from app.api import security as web_security
+from app.persistence import storage
 
 PASSWORD='Aa-test-'+secrets.token_urlsafe(24)
 
@@ -10,24 +14,93 @@ PASSWORD='Aa-test-'+secrets.token_urlsafe(24)
 def client(monkeypatch,tmp_path):
     monkeypatch.setattr(storage,'DB',tmp_path/'test.db');storage.init()
     # API orchestration fixtures keep the new read-only audit offline.
-    from app import timeline_review
+    from app.planning import timeline_review
     original_audit=timeline_review.refresh
     async def offline_model(*args,**kwargs):return {'content':'{"summary":"合成审核","issues":[]}'},{}
     async def offline_audit(w,model,progress,**kwargs):return await original_audit(w,offline_model,progress,**kwargs)
     monkeypatch.setattr(timeline_review,'refresh',offline_audit)
-    from app import timeline_tools
+    from app.planning import timeline_tools
     original_optimize=timeline_tools.optimize
     async def offline_tool_model(*args,**kwargs):return {'tool_calls':[{'id':'offline','function':{'name':'keep_timeline','arguments':'{"reason":"合成测试保留安排"}'}}]},{}
     async def offline_optimize(w,model,progress,**kwargs):return await original_optimize(w,offline_tool_model,progress,**kwargs)
     monkeypatch.setattr(timeline_tools,'optimize',offline_optimize)
     @asynccontextmanager
     async def lifespan(app):
-        main.SHUTTING_DOWN=False;main.TASKS.clear();main.LOCKS.clear()
+        job_runner.SHUTTING_DOWN=False;job_runner.TASKS.clear();job_runner.LOCKS.clear()
         yield
-        for task in list(main.TASKS.values()):task.cancel()
-        if main.TASKS:await asyncio.gather(*list(main.TASKS.values()),return_exceptions=True)
+        for task in list(job_runner.TASKS.values()):task.cancel()
+        if job_runner.TASKS:await asyncio.gather(*list(job_runner.TASKS.values()),return_exceptions=True)
     monkeypatch.setattr(main.app.router,'lifespan_context',lifespan)
     with TestClient(main.app,base_url='http://127.0.0.1:8767',headers={'Origin':'http://127.0.0.1:8767','Content-Type':'application/json'}) as c:yield c
+
+
+def test_failed_ui_edit_does_not_publish_half_completed_selection(client,monkeypatch):
+    from app.core.errors import DataError
+    signup(client);w=create(client)
+    w['catalog']['s']={'id':'s','kind':'spot','name':'已选景点'}
+    w['selected_spots']=['s'];w['plan']={'title':'原计划','days':[],'stale':False}
+    storage.save(w)
+    async def failed(draft,action,args,progress):
+        draft['selected_spots']=[];draft['plan']['title']='未完成的新计划'
+        raise DataError('路线无法使用')
+    monkeypatch.setattr(job_runner,'handle',failed)
+    j=wait(client,submit(client,w,'adjust_timeline').json()['job_id'])
+    assert j['status']=='failed'
+    assert j['workspace']['selected_spots']==['s'] and j['workspace']['plan']['title']=='原计划'
+
+
+@pytest.mark.parametrize("failure", ["provider", "cancel"])
+def test_partial_chat_adjustment_can_finish_after_later_failure(client, monkeypatch, failure):
+    """A later failure must not strand a job after an earlier committed adjustment."""
+    from app.core.errors import DataError
+
+    signup(client)
+    w = create(client)
+    w["catalog"]["s"] = {"id": "s", "kind": "spot", "name": "已选景点"}
+    w["selected_spots"] = ["s"]
+    storage.save(w)
+
+    async def partially_completed(workspace, text, progress):
+        workspace["timeline_adjustment"] = {
+            "status": "applied",
+            "reason": "已保存前一步时间调整",
+            "changed_ids": ["s"],
+            "roads_checked": False,
+        }
+        if failure == "cancel":
+            raise asyncio.CancelledError()
+        raise DataError("后续查询暂时失败")
+
+    monkeypatch.setattr(job_runner, "run_chat", partially_completed)
+    ack = client.post(
+        "/api/workspaces/" + w["id"] + "/actions",
+        json={"revision": w["revision"], "action": "chat", "text": "调整后继续安排", "request_id": str(uuid.uuid4())},
+    )
+    job = wait(client, ack.json()["job_id"])
+    assert job["status"] == ("cancelled" if failure == "cancel" else "failed")
+    assert job["workspace"]["selected_spots"] == ["s"]
+    assert job["workspace"]["timeline_adjustment"]["status"] == "applied"
+    assert any("前一步时间调整" in row["content"] for row in job["workspace"]["messages"])
+
+
+def test_chat_undo_restores_the_previous_edit_not_the_chat_presave(client,monkeypatch):
+    import json
+    from app.agents import planner
+    from app.planning import travel_preview
+    signup(client);w=create(client)
+    w['catalog']={cid:{'id':cid,'kind':'spot','name':cid} for cid in ('s1','s2')}
+    w['selected_spots']=['s1'];w['revision']+=1;storage.save(w)
+    w['selected_spots']=['s1','s2'];w['revision']+=1;storage.save(w)
+    async def model(*args,**kwargs):
+        return {'tool_calls':[{'function':{'name':'submit_intent','arguments':json.dumps({
+            'action':'undo','patch':{},'mission':{'mode':'act','objective':'撤销刚才修改','scopes':[],'multi_step':False,'generate_plan':False}})}}]},{}
+    async def preview(*args,**kwargs):pass
+    monkeypatch.setattr(planner,'llm',model);monkeypatch.setattr(travel_preview,'refresh',preview)
+    response=client.post('/api/workspaces/'+w['id']+'/actions',json={
+        'revision':w['revision'],'action':'chat','text':'撤销刚才的修改','request_id':str(uuid.uuid4())})
+    j=wait(client,response.json()['job_id'])
+    assert j['status']=='completed' and j['workspace']['selected_spots']==['s1']
+    assert any(m['role']=='user' and m['content']=='撤销刚才的修改' for m in j['workspace']['messages'])
 
 def signup(client,name='alice'):
     response=client.post('/api/auth/register',json={'username':name,'password':PASSWORD,'nickname':name})
@@ -55,7 +128,7 @@ def test_anonymous_access_never_returns_global_history(client):
 
 def test_followup_optimization_keeps_previous_conflict_through_loading_ui(client,monkeypatch):
     import json
-    from app import agent,replies
+    from app.agents import planner as agent, replies
     signup(client);w=create(client)
     w['requirements']={'city':'青岛','start_date':'2026-10-12','days':2}
     w['catalog']={'s':{'id':'s','kind':'spot','name':'崂山风景区','location':'120.6,36.2'}}
@@ -76,7 +149,7 @@ def test_followup_optimization_keeps_previous_conflict_through_loading_ui(client
 
 
 def test_plan_warning_is_completed_request_with_explicit_approval_before_publication(client,monkeypatch):
-    from app import agent,replies
+    from app.agents import planner as agent, replies
     signup(client);w=create(client);w['requirements']={'city':'青岛','start_date':'2026-10-12','days':1}
     w['catalog']={'s':{'id':'s','kind':'spot','name':'崂山风景区','location':'120.6,36.2'}};w['selected_spots']=['s'];storage.save(w)
     calls=[]
@@ -97,24 +170,24 @@ def test_login_page_assets_are_versioned_and_not_cached(client):
     page=client.get('/')
     assert page.status_code==200 and 'id="auth-gate"' in page.text
     assert page.headers['cache-control']=='no-store'
-    for name,version in main.ASSET_VERSIONS.items():
+    for name,version in web_security.ASSET_VERSIONS.items():
         path=f'/assets/{name}?v={version}'
         assert path in page.text
         assert client.get(path).headers['cache-control']=='no-store'
     refreshed=client.get('/',headers={'If-None-Match':'"old-page"'})
     assert refreshed.status_code==200 and 'id="auth-gate"' in refreshed.text
     health=client.get('/api/healthz').json()
-    assert health['service']=='shitu' and health['project_id']==main.PROJECT_ID
+    assert health['service']=='shitu' and health['project_id']==web_security.PROJECT_ID
 
 def test_chat_topic_is_exposed_before_query_finishes_and_saved_with_reply(client,monkeypatch):
-    from app import guidance
+    from app.application import guidance
     signup(client);w=create(client)
     async def slow(w,text,progress):
         w['ui']=guidance.describe(w,'search_hotels',status='loading');progress('正在查询酒店候选')
         await asyncio.sleep(.3)
         w['catalog']['h1']={'id':'h1','name':'测试酒店','kind':'hotel'}
         w['last_action']='search_hotels';return '住宿候选已返回'
-    monkeypatch.setattr(main,'run_chat',slow)
+    monkeypatch.setattr(job_runner,'run_chat',slow)
     ack=client.post('/api/workspaces/'+w['id']+'/actions',json={'revision':0,'action':'chat','text':'看看住宿','request_id':str(uuid.uuid4())}).json()
     for _ in range(30):
         j=client.get('/api/jobs/'+ack['job_id']).json()
@@ -169,7 +242,7 @@ def test_new_trip_history_rename_archive_restore_delete(client):
 def test_request_idempotency_does_not_repeat_action(client,monkeypatch):
     signup(client);w=create(client);calls=[]
     async def fake(w,action,args,progress):calls.append(action);return '已执行'
-    monkeypatch.setattr(main,'handle',fake);request_id=str(uuid.uuid4())
+    monkeypatch.setattr(job_runner,'handle',fake);request_id=str(uuid.uuid4())
     first=submit(client,w,request_id=request_id).json()['job_id'];wait(client,first)
     second=submit(client,w,request_id=request_id).json()['job_id']
     assert first==second and len(calls)==1
@@ -177,7 +250,7 @@ def test_request_idempotency_does_not_repeat_action(client,monkeypatch):
 def test_stop_prevents_delete_race_and_keeps_user_message(client,monkeypatch):
     signup(client);w=create(client)
     async def slow(w,text,progress):progress('测试处理中');await asyncio.sleep(60);return '不能到达'
-    monkeypatch.setattr(main,'run_chat',slow)
+    monkeypatch.setattr(job_runner,'run_chat',slow)
     response=client.post('/api/workspaces/'+w['id']+'/actions',json={'revision':0,'action':'chat','text':'想去青岛','request_id':str(uuid.uuid4())})
     jid=response.json()['job_id']
     for _ in range(50):
@@ -223,7 +296,7 @@ def test_unowned_legacy_records_are_preserved_but_not_public(client):
     assert storage.get(legacy['id']) is not None
 
 def test_restart_marks_unfinished_job_interrupted_and_keeps_saved_conversation(client,monkeypatch):
-    from app import guidance
+    from app.application import guidance
     user=signup(client);w=create(client);w['messages']=[{'role':'user','content':'下次继续我的旅行'}];w['ui']=guidance.describe(w,'search_hotels',status='loading');storage.save(w)
     jid=uuid.uuid4().hex
     with storage.connect() as c:c.execute('INSERT INTO jobs(id,owner_id,workspace_id,request_id,status,progress,created,updated,action) VALUES(?,?,?,?,?,?,?,?,?)',(jid,user['user']['id'],w['id'],str(uuid.uuid4()),'running','正在整理',storage.now(),storage.now(),'chat'))
@@ -240,11 +313,11 @@ def test_card_selection_updates_feedback_without_appending_chat(client):
  assert len(w['messages'])==1 and w['messages'][0]['type']=='welcome' and w['feedback']['text']=='已选2个景点'
 
 def test_streamed_reply_is_available_before_task_finishes_and_events_are_owner_only(client,monkeypatch):
- from app import replies
+ from app.agents import replies
  signup(client);w=create(client)
  async def streamed(w,text,progress):
   replies.emit('已收到。');await asyncio.sleep(.2);replies.emit('查询结果');await asyncio.sleep(.2);return '已收到。查询结果'
- monkeypatch.setattr(main,'run_chat',streamed)
+ monkeypatch.setattr(job_runner,'run_chat',streamed)
  ack=client.post('/api/workspaces/'+w['id']+'/actions',json={'revision':0,'action':'chat','text':'流式测试','request_id':str(uuid.uuid4())}).json();jid=ack['job_id']
  for _ in range(25):
   j=client.get('/api/jobs/'+jid).json()
@@ -258,7 +331,7 @@ def test_streamed_reply_is_available_before_task_finishes_and_events_are_owner_o
 
 
 def test_manual_ticket_query_only_updates_workbench(client,monkeypatch):
- from app import agent
+ from app.agents import planner as agent
  signup(client);w=create(client);stored=storage.get(w['id']);stored['requirements']={'city':'杭州','origin':'郑州','start_date':'2026-10-10','days':3,'adults':1};storage.save(stored)
  async def provider(*args):return {'data':{'data':[]},'source':{}}
  monkeypatch.setattr(agent,'tuniu',provider)
@@ -278,7 +351,7 @@ def test_final_transport_selection_has_one_needed_message_and_dining_target(clie
  assert len(result2['workspace']['messages'])==len(result['workspace']['messages'])
 
 def test_map_image_requires_owner_and_uses_provider_coordinates(client,monkeypatch):
- from app import maps
+ from app.integrations import maps
  assert client.get('/api/workspaces/unknown/map-image').status_code==401
  signup(client);w=create(client);w['catalog']={'s':{'id':'s','name':'西湖','location':'120.14,30.25'}};w['selected_spots']=['s'];storage.save(w);seen=[]
  async def image(points,ordered):seen.extend(points);return b'png-test','image/png'
@@ -288,7 +361,7 @@ def test_map_image_requires_owner_and_uses_provider_coordinates(client,monkeypat
  signup(client,'map_other');assert client.get('/api/workspaces/'+w['id']+'/map-image?focus=s').status_code==404
 
 def test_national_basemap_is_owner_only_and_privately_cached(client,monkeypatch):
- from app import maps
+ from app.integrations import maps
  signup(client);w=create(client);seen=[]
  async def image(points,**args):seen.append(args);return b'base-map','image/png'
  monkeypatch.setattr(maps,'image',image)
@@ -301,14 +374,14 @@ def test_national_basemap_is_owner_only_and_privately_cached(client,monkeypatch)
 
 
 def test_place_detail_is_quiet_and_keeps_current_map(client,monkeypatch):
-    from app import agent
+    from app.agents import planner as agent
     signup(client);w=create(client)
     w['requirements'].update(city='成都',start_date='2026-10-20',days=3,adults=1)
     w['catalog']['amap:B1']={'id':'amap:B1','kind':'food','name':'午餐店'}
     storage.save(w)
     async def tool(name,args):return {'items':[{'id':'amap:B1','kind':'food','cost':'60','telephone':'123','source':{'name':'高德地图'}}]}
     async def model(*args,**kwargs):pytest.fail('Manual detail must not compose a model reply')
-    monkeypatch.setattr(agent,'local_tool',tool);monkeypatch.setattr(main.replies,'compose',model)
+    monkeypatch.setattr(agent,'local_tool',tool);monkeypatch.setattr(job_runner.replies,'compose',model)
     j=wait(client,submit(client,w,'place_detail',{'id':'amap:B1','view':'map'}).json()['job_id'])
     assert j['status']=='completed' and j['ui']['view']=='map' and j['ui']['reply_text']==''
     assert j['workspace']['messages']==w['messages']
@@ -316,8 +389,8 @@ def test_place_detail_is_quiet_and_keeps_current_map(client,monkeypatch):
 
 
 def test_failed_place_detail_is_quiet_and_retains_snapshot(client,monkeypatch):
-    from app import agent
-    from app.providers import DataError
+    from app.agents import planner as agent
+    from app.core.errors import DataError
     signup(client);w=create(client)
     w['catalog']['amap:B1']={'id':'amap:B1','kind':'food','name':'午餐店','cost':'60'}
     storage.save(w)

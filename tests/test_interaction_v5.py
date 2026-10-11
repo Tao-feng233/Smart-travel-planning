@@ -1,7 +1,9 @@
 import asyncio,json
 from datetime import date,timedelta
-from app import agent,planning,providers
-from app.providers import DataError
+from app.agents import planner as agent
+from app.planning import engine as planning
+from app.integrations import providers
+from app.core.errors import DataError
 import pytest,httpx
 
 def test_completion_only_asks_missing_origin():
@@ -33,7 +35,7 @@ def test_native_stream_parses_deltas_without_exposing_reasoning(monkeypatch):
 def test_rounded_route_and_late_arrival_are_separate_explicit_events(monkeypatch,tmp_path):
  monkeypatch.setattr(planning,'RUNTIME',tmp_path);day='2026-10-12'
  async def llm(messages,**kw):
-  if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"请核对班次"}'},{}
+  if kw.get('label')=='review':return {'content':'{"issues":[],"summary":"请核对班次"}'},{}
   return {'content':json.dumps({'days':[{'date':day,'items':[]},{'date':'2026-10-13','items':[{'candidate_id':'s1','duration':90,'note':'建议沿栈桥步行，先看回澜阁，再欣赏海岸景色。'}]},{'date':'2026-10-14','items':[]}],'packing':[],'todos':[]})},{}
  async def tool(name,args):return {'items':[]}
  async def route(a,b):return [{'mode':'driving','available':True,'minutes':13,'distance':4800,'source':{'name':'测试','queried_at':day}}]

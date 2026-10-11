@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from app import foods
+from app.travel import foods
 
 D1 = '2026-10-12'
 
@@ -54,7 +54,7 @@ def test_lunch_anchor_is_the_scenic_area():
 def test_dinner_anchor_includes_the_hotel_for_the_way_back():
     """晚餐要能按"回酒店顺路"推荐：酒店必须在参照点里。"""
     w = workspace()
-    from app import visits
+    from app.travel import visits
     visits.save(w, [{'candidate_id': 's1', 'date': D1, 'period': 'afternoon'}])
     refs = foods.anchors(w, {'meal_date': D1, 'meal_period': 'dinner'})
     assert any(p['id'] == 'h1' for p in refs), refs

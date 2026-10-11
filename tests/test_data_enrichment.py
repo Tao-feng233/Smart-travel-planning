@@ -1,8 +1,9 @@
 import asyncio, copy
 import pytest
-from app import providers, agent
-from app.choices import room_choices, select_room
-from app.providers import DataError
+from app.integrations import providers
+from app.agents import planner as agent
+from app.travel.choices import room_choices, select_room
+from app.core.errors import DataError
 
 def work():
     return {'requirements':{'city':'成都','start_date':'2026-10-20','days':3,'adults':1,'rooms':1},
@@ -86,7 +87,7 @@ def test_hotel_child_details_use_same_occupancy_conditions(monkeypatch):
 
 
 def test_ticket_does_not_replace_child_attraction_with_parent():
-    from app.enrichment import ticket_names,ticket_snapshot
+    from app.integrations.enrichment import ticket_names, ticket_snapshot
     p={'id':'s','name':'龙门石窟·万佛洞'}
     assert ticket_names(p)==['龙门石窟·万佛洞']
     row={'resName':'不含门票研学体验成人票','scenicName':'某景区','startPrice':'10','startDate':'2026-11-01','endDate':'2026-12-31'}
@@ -103,13 +104,13 @@ def test_empty_poi_fields_remain_unknown_not_empty_array(monkeypatch):
 
 def test_plan_stores_geometry_without_sending_vertices_to_reviewer(monkeypatch,tmp_path):
     import json
-    from app import planning
+    from app.planning import engine as planning
     w=work();w['requirements'].update(days=1,local_trip=True);w['selected_spots']=['a','b'];w['catalog']={k:{'id':k,'kind':'spot','name':k,'location':xy} for k,xy in [('a','104.06,30.66'),('b','104.07,30.67')]};seen=[]
     async def tool(name,args):
         if name=='calculate_route':return {'mode':args['mode'],'available':True,'minutes':10,'distance':1000,'polylines':['104.06,30.66;104.07,30.67'],'steps':[{'instruction':'沿路直行'}],'source':{}}
         return {'items':[]}
     async def model(messages,**kwargs):
-        if '独立审核' in messages[0]['content']:
+        if kwargs.get('label')=='review':
             seen.append(json.loads(messages[1]['content']));return {'content':json.dumps({'issues':[],'summary':''})},{}
         return {'content':json.dumps({'days':[{'date':'2026-10-20','items':[{'candidate_id':'a','duration':60},{'candidate_id':'b','duration':60}]}]})},{}
     monkeypatch.setattr(planning,'local_tool',tool);monkeypatch.setattr(planning,'llm',model);monkeypatch.setattr(planning,'RUNTIME',tmp_path)

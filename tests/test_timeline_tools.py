@@ -2,7 +2,7 @@ import asyncio
 import copy
 import json
 import pytest
-from app import planning,schedule,visit_analysis,travel_preview,timeline_tools,timeline_review,plan_warnings
+from app.planning import engine as planning, schedule, visit_analysis, travel_preview, timeline_tools, timeline_review, plan_warnings
 
 DT='2026-10-14'
 
@@ -85,7 +85,7 @@ def test_route_and_arrival_keys_are_unique_and_sightseeing_duration_stays_separa
 
 
 def test_semantic_edit_plan_mode_keeps_explicit_timeline_tool_action():
- from app import goal_agent
+ from app.agents import goals as goal_agent
  w=trip();intent={'action':'adjust_timeline','patch':{},'mission':{'mode':'edit_plan','objective':'调整时间轴'}}
  assert goal_agent.normalize(w,'调整时间轴',intent)['action']=='adjust_timeline'
 

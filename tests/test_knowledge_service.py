@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
 import pytest
-from app import knowledge, rag, vector_index, tools, providers
-from app.knowledge_collection import collect, extract, publish
-from app.embeddings import Encoder, EmbeddingError
+from app.knowledge import corpus as knowledge, retrieval as rag, index as vector_index
+from app.integrations import tools, providers
+from app.knowledge.collection import collect, extract, publish
+from app.knowledge.embeddings import Encoder, EmbeddingError
 
 
 def record(identifier='guide', **extra):
@@ -202,7 +203,7 @@ def test_airport_query_keeps_terminal_candidates_but_excludes_other_airports(mon
 
 
 def test_mcp_configuration_inheritance_is_explicit(monkeypatch):
-    from app.data_settings import mcp_environment
+    from app.core.data_settings import mcp_environment
     monkeypatch.setenv('QDRANT_URL','http://localhost:6333')
     monkeypatch.setenv('UNRELATED_TEST_SECRET','unrelated')
     env=mcp_environment()

@@ -3,9 +3,9 @@ import copy
 import json
 import pytest
 
-from app.proposals import create
-from app import plan_warnings, planning
-from app.providers import DataError
+from app.planning.proposals import create
+from app.planning import plan_warnings, engine as planning
+from app.core.errors import DataError
 
 
 def trip():

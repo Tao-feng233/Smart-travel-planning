@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from app import journey,replies
+from app.travel import journey
+from app.agents import replies
 
 
 def trip(confirmed=False):
@@ -36,6 +37,8 @@ def test_reply_prompt_uses_current_stage_without_command_heading(monkeypatch,sem
     token=replies.PREFIX.set('')
     try:asyncio.run(replies.compose(w,'已查询到景点'))
     finally:replies.PREFIX.reset(token)
-    assert '结尾以**下一步：具体操作**' not in seen[0]['content']
-    assert '不强制输出' in seen[0]['content']
-    assert '选择完成后' in json.loads(seen[-1]['content'])['next_step']['message']
+    assert [m['role'] for m in seen]==['system','user']
+    data=json.loads(seen[-1]['content'])
+    assert '选择完成后' in data['next_step']['message']
+    assert data['interaction_state']['plan_status']=='absent'
+    assert data['interaction_state']['optional_choices']==['hotel_room','intercity_tickets','restaurant']

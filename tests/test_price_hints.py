@@ -1,4 +1,4 @@
-from app import price_hints
+from app.travel import price_hints
 
 
 def trip():

@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from app import discovery,planning,schedule,visit_analysis
+from app.travel import discovery
+from app.planning import engine as planning, schedule, visit_analysis
 
 
 def trip():

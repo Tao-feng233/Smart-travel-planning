@@ -2,8 +2,11 @@ import asyncio
 import json
 import sqlite3
 import pytest
-from app import config,storage,providers,agent
-from app.integrations import tuniu,tuniu_pool
+from app.core import config
+from app.persistence import storage
+from app.integrations import providers
+from app.agents import planner as agent
+from app.integrations import tuniu, tuniu_pool
 
 
 @pytest.fixture

@@ -1,6 +1,7 @@
 import asyncio
 import pytest
-from app import discovery,data_coverage
+from app.travel import discovery
+from app.knowledge import coverage as data_coverage
 
 
 NAMES=['栈桥景区','八大关风景区','五四广场','崂山风景区','青岛市博物馆','青岛奥帆海洋文化旅游区']
@@ -21,8 +22,9 @@ def test_ranking_one_item_cannot_collapse_two_day_candidate_set(monkeypatch):
 
 def test_existing_official_background_entities_are_recognized():
     assert data_coverage.place_known('青岛','花石楼')
-    assert data_coverage.place_known('青岛','中山路')
-    assert data_coverage.place_known('青岛','青岛奥帆中心')
+    # 语料按高德登记名对齐：中山路→中山路历史文化街区、青岛奥帆中心→青岛奥帆海洋文化旅游区。
+    assert data_coverage.place_known('青岛','中山路历史文化街区')
+    assert data_coverage.place_known('青岛','青岛奥帆海洋文化旅游区')
     assert not data_coverage.place_known('青岛','凭空产生的景点')
 
 
@@ -58,7 +60,7 @@ def test_more_with_changed_topic_restarts_batch_cursor_and_preserves_choices(mon
 
 
 def test_real_batch_tool_returns_four_then_next_two_from_named_records(monkeypatch):
-    from app import spot_candidates
+    from app.travel import spot_candidates
     names=NAMES[:];queries=[]
     monkeypatch.setattr(spot_candidates,'covered_places',lambda city:names)
     async def search(city,keyword,category,page,page_size):
@@ -73,7 +75,7 @@ def test_real_batch_tool_returns_four_then_next_two_from_named_records(monkeypat
 
 
 def test_batch_tool_skips_missing_coordinates_and_auxiliary_pois(monkeypatch):
-    from app import spot_candidates
+    from app.travel import spot_candidates
     monkeypatch.setattr(spot_candidates,'covered_places',lambda city:NAMES)
     async def search(city,keyword,*args,**kwargs):
         i=NAMES.index(keyword)
@@ -86,7 +88,7 @@ def test_batch_tool_skips_missing_coordinates_and_auxiliary_pois(monkeypatch):
 
 
 def test_batch_tool_reports_query_failure_instead_of_data_shortage(monkeypatch):
-    from app import spot_candidates
+    from app.travel import spot_candidates
     monkeypatch.setattr(spot_candidates,'covered_places',lambda city:NAMES[:4])
     async def fail(*_,**kwargs):raise discovery.DataError('接口暂不可用')
     monkeypatch.setattr(spot_candidates.providers,'search_poi',fail)
@@ -96,8 +98,8 @@ def test_batch_tool_reports_query_failure_instead_of_data_shortage(monkeypatch):
 
 
 def test_four_item_batch_tool_is_registered_and_model_can_request_quantity():
-    from app.mcp_server import mcp
-    from app import agent,goal_agent
+    from app.integrations.mcp_server import mcp
+    from app.agents import planner as agent, goals as goal_agent
     tools=asyncio.run(mcp.list_tools())
     assert any(t.name=='get_spot_candidates' for t in tools)
     assert 'recommend_count' in agent.FUNCTION['function']['parameters']['properties']

@@ -3,7 +3,9 @@ import asyncio
 
 import pytest
 
-from app import foods, report, schedule
+from app.travel import foods
+from app.application import report
+from app.planning import schedule
 
 D1, D2 = '2026-10-12', '2026-10-13'
 

@@ -2,7 +2,7 @@ import asyncio
 import copy
 import json
 
-from app import schedule
+from app.planning import schedule
 
 
 def workspace():
@@ -29,7 +29,8 @@ def test_explicit_date_is_kept_even_when_it_makes_load_uneven():
 
 
 def test_model_duration_distribution_is_shared_with_timeline_and_meal_anchors():
-    from app import visit_analysis, visits
+    from app.planning import visit_analysis
+    from app.travel import visits
     w = workspace()
     seen = []
     async def model(messages, **kwargs):
@@ -53,7 +54,7 @@ def test_model_duration_distribution_is_shared_with_timeline_and_meal_anchors():
 
 
 def test_invalid_model_ids_and_dates_cannot_replace_user_selections():
-    from app import visit_analysis
+    from app.planning import visit_analysis
     w = workspace(); before = copy.deepcopy(w['selected_spots']); calls = []
     async def model(messages, **kwargs):
         calls.append(messages)
@@ -66,7 +67,7 @@ def test_invalid_model_ids_and_dates_cannot_replace_user_selections():
 
 
 def test_heaped_model_proposal_gets_concrete_repair_feedback():
-    from app import visit_analysis
+    from app.planning import visit_analysis
     w = workspace(); calls = []
     async def model(messages, **kwargs):
         calls.append(copy.deepcopy(messages))
@@ -80,7 +81,7 @@ def test_heaped_model_proposal_gets_concrete_repair_feedback():
 
 
 def test_final_proposal_repairs_distribution_and_keeps_long_visit(monkeypatch, tmp_path):
-    from app.proposals import create
+    from app.planning.proposals import create
     w = workspace(); calls = []
     async def model(messages, **kwargs):
         calls.append(copy.deepcopy(messages))
@@ -102,7 +103,7 @@ def test_final_proposal_repairs_distribution_and_keeps_long_visit(monkeypatch, t
 
 
 def test_sparse_dense_notices_use_estimated_workload_instead_of_only_count():
-    from app import visit_analysis
+    from app.planning import visit_analysis
     w = workspace()
     assert any('较少' in x for x in visit_analysis.notices(w, visit_analysis.allocate(w)))
     w['requirements']['days'] = 1

@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from app import agent,replies
+from app.agents import planner as agent, replies
 
 
 def trip():
@@ -30,8 +30,8 @@ def test_recommendation_gets_party_and_only_applicable_weather(monkeypatch):
     seen=[]
     async def model(messages,**kwargs):seen.append(json.loads(messages[-1]['content']));return {'content':'{"recommendations":[],"summary":"建议"}'},{}
     monkeypatch.setattr(agent,'llm',model)
-    monkeypatch.setattr('app.storage.cached',lambda _:None)
-    monkeypatch.setattr('app.storage.put_cache',lambda *args:None)
+    monkeypatch.setattr('app.persistence.storage.cached',lambda _:None)
+    monkeypatch.setattr('app.persistence.storage.put_cache',lambda *args:None)
     asyncio.run(agent.recommend(w,[{'id':'s','name':'景点','kind':'spot'}],'推荐景点'))
     context=seen[0]['recommendation_context']
     assert context['party']['children']==1 and context['party']['companion_notes']==['有一位老人，减少爬坡']
@@ -40,7 +40,7 @@ def test_recommendation_gets_party_and_only_applicable_weather(monkeypatch):
 
 
 def test_default_and_known_preferences_do_not_block_and_do_not_repeat():
-    from app.recommendation_context import needs_preferences,ask,context
+    from app.agents.recommendation_context import needs_preferences, ask, context
     w=trip();ask(w)
     assert not needs_preferences(w,{'preference_mode':'default'})
     assert not needs_preferences(w,{})

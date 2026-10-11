@@ -1,7 +1,8 @@
 import asyncio
 import json
 
-from app import agent,discovery,replies
+from app.agents import planner as agent, replies
+from app.travel import discovery
 
 
 def trip():
@@ -29,7 +30,7 @@ def test_no_new_candidates_is_a_normal_result_with_old_batch_kept(monkeypatch):
     async def tool(*args):return {'items':[w['catalog']['old']]}
     monkeypatch.setattr(discovery,'local_tool',tool)
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,None))
-    assert '暂未找到新的' in result and w['spot_search']['ids']==['old']
+    assert '保留原有' in result and w['spot_search']['ids']==['old']
 
 
 def test_chat_paging_at_end_requests_more_instead_of_failing(monkeypatch):
@@ -47,9 +48,12 @@ def test_chat_paging_at_end_requests_more_instead_of_failing(monkeypatch):
 def test_model_can_recommend_more_than_eight_with_alternatives(monkeypatch):
     w=trip();items=[{'id':f's{i}','name':f'候选{i}','kind':'spot'} for i in range(12)]
     async def model(messages,**kwargs):
-        assert '完整旅行景点集合' in messages[0]['content']
+        data=json.loads(messages[1]['content'])
+        assert len(data['items'])==12
+        assert data['recommendation_policy']['target']==6
+        assert data['recommendation_policy']['all_candidates_required_to_visit'] is False
         return {'content':json.dumps({'recommendations':[{'id':p['id'],'reason':'符合三天行程','role':'primary' if i<8 else 'alternative'} for i,p in enumerate(items)],'summary':'三天建议','coverage_note':'8个行程建议与4个备选，按兴趣取舍。'})},{}
-    monkeypatch.setattr(agent,'llm',model);monkeypatch.setattr('app.storage.cached',lambda _:None);monkeypatch.setattr('app.storage.put_cache',lambda *args:None)
+    monkeypatch.setattr(agent,'llm',model);monkeypatch.setattr('app.persistence.storage.cached',lambda _:None);monkeypatch.setattr('app.persistence.storage.put_cache',lambda *args:None)
     result=asyncio.run(agent.recommend(w,items,'推荐完整行程'))
     assert all(p.get('recommendation_rank') is not None for p in items)
     assert sum(p['recommendation_role']=='alternative' for p in items)==4 and '4个备选' in result

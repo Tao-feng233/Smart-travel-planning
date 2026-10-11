@@ -1,10 +1,12 @@
+from app.travel.requirements import update_requirements
 import asyncio
 import copy
 import json
 
 import pytest
 
-from app import agent, planning
+from app.agents import planner as agent
+from app.planning import engine as planning
 
 
 def trip():
@@ -52,7 +54,7 @@ def test_missing_hotel_coordinates_identify_hotel_and_meal(monkeypatch,tmp_path)
     assert error.value.context['view']=='hotel'
     assert {'h','f'}<=set(error.value.context['candidate_ids'])
     assert '已选酒店' in str(error.value) and '2026-10-12' in str(error.value)
-    from app.diagnostics import from_error
+    from app.planning.diagnostics import from_error
     issue=from_error(w,error.value.context,str(error.value))['issues'][0]
     assert issue['view']=='hotel' and issue['meal_period']=='breakfast'
     assert issue['candidate_ids']==['h','f']
@@ -60,20 +62,20 @@ def test_missing_hotel_coordinates_identify_hotel_and_meal(monkeypatch,tmp_path)
 
 def test_adding_default_zero_children_does_not_expire_existing_quotes():
     w=trip();w['hotel'].pop('stale');w['catalog']['h'].pop('stale')
-    agent.update_requirements(w,{'children':0})
+    update_requirements(w,{'children':0})
     assert not w['hotel'].get('stale') and not w['catalog']['h'].get('stale')
 
 
 def test_changed_dates_expire_quotes_but_not_hotel_position():
-    from app.locations import hotel_anchor,quote_stale
-    w=trip();agent.update_requirements(w,{'start_date':'2026-10-20'})
+    from app.travel.locations import hotel_anchor, quote_stale
+    w=trip();update_requirements(w,{'start_date':'2026-10-20'})
     assert quote_stale(w['hotel']) and w['selected_room'] is None
     assert hotel_anchor(w)['id']=='h'
     assert w['catalog']['h']['stale']
 
 
 def test_hotel_from_other_city_is_not_reused_as_route_origin():
-    from app.locations import hotel_anchor
+    from app.travel.locations import hotel_anchor
     w=trip();w['hotel']['query_conditions']['cityName']='杭州'
     assert hotel_anchor(w) is None
 

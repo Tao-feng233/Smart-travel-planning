@@ -1,11 +1,12 @@
 import copy
 from datetime import date,timedelta
 import pytest
-from app.agent import update_requirements,unwrap
-from app.planning import validate_plan,choose_route
-from app.rag import retrieve
-from app.providers import ALLOW
-from app.report import markdown
+from app.travel.requirements import update_requirements
+from app.integrations.responses import unwrap
+from app.planning.engine import validate_plan, choose_route
+from app.knowledge.retrieval import retrieve
+from app.integrations.providers import ALLOW
+from app.application.report import markdown
 
 def workspace():
     return {'requirements':{'city':'青岛','start_date':(date.today()+timedelta(days=2)).isoformat(),'days':2},
@@ -58,7 +59,7 @@ def test_rag_provenance_and_city_filter():
 
 def test_planner_repairs_invalid_identity_once_without_silently_replacing(monkeypatch,tmp_path):
     import asyncio,json
-    import app.planning as p
+    import app.planning.engine as p
     monkeypatch.setattr(p,'RUNTIME',tmp_path)
     dt=(date.today()+timedelta(days=2)).isoformat();calls=[]
     async def fake_llm(messages,**kwargs):
@@ -77,7 +78,7 @@ def test_planner_repairs_invalid_identity_once_without_silently_replacing(monkey
 
 def test_selected_return_conflict_blocks_delivery(monkeypatch,tmp_path):
     import asyncio,json
-    import app.planning as p
+    import app.planning.engine as p
     monkeypatch.setattr(p,'RUNTIME',tmp_path)
     dt=(date.today()+timedelta(days=2)).isoformat()
     async def fake_llm(messages,**kwargs):return {'content':json.dumps({'days':[{'date':dt,'items':[{'candidate_id':'spot:1','duration':120}]}]})},{}
@@ -90,7 +91,7 @@ def test_selected_return_conflict_blocks_delivery(monkeypatch,tmp_path):
     assert any('10:30' in issue['message'] and '返程' in issue['message'] for issue in error.value.context['issues'])
 
 def test_review_handles_missing_summary_but_rejects_invalid_issues():
-    from app.planning import parse_review
+    from app.planning.engine import parse_review
     assert parse_review('{"issues":["预约未确认"]}')['summary']
     assert parse_review('```json\n{"issues":[],"summary":"待确认"}\n```')['summary']=='待确认'
     with pytest.raises(ValueError):parse_review('{"issues":"没有问题"}')
@@ -100,12 +101,12 @@ def test_review_handles_missing_summary_but_rejects_invalid_issues():
 def test_review_survives_overview_guide_that_has_scope_instead_of_date_scope(monkeypatch,tmp_path):
     """回归：目的地概览类资料只有 scope、没有 date_scope，审核投影不得因直接下标取值而 KeyError。"""
     import asyncio,json
-    import app.planning as p
+    import app.planning.engine as p
     monkeypatch.setattr(p,'RUNTIME',tmp_path)
     dt=(date.today()+timedelta(days=2)).isoformat();seen=[]
     async def fake_llm(messages,**kwargs):
         seen.append(messages)
-        if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"审核完成"}'},{}
+        if kwargs.get('label')=='review':return {'content':'{"issues":[],"summary":"审核完成"}'},{}
         return {'content':json.dumps({'days':[{'date':dt,'items':[{'candidate_id':'spot:1','duration':120}]}]})},{}
     async def fake_tool(name,args):
         if name=='retrieve_guides':
@@ -120,8 +121,8 @@ def test_review_survives_overview_guide_that_has_scope_instead_of_date_scope(mon
 
 def test_meal_choice_is_rejected_upfront_when_arrival_or_return_makes_it_impossible():
     """方案B：抵达/返程时刻与餐次规划时段冲突时，选择当场被拒绝并说明原因，不再静默丢弃。"""
-    from app import foods
-    from app.providers import DataError
+    from app.travel import foods
+    from app.core.errors import DataError
     d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
     w=workspace();w['catalog']['food:1']={'id':'food:1','kind':'food','name':'陈麻婆豆腐'}
     w['selected_transport']={'id':'go','departure':d0+' 09:29','arrival':d0+' 22:26'}
@@ -138,11 +139,11 @@ def test_meal_choice_is_rejected_upfront_when_arrival_or_return_makes_it_impossi
 def test_dropped_meal_warning_names_the_restaurant_and_period(monkeypatch,tmp_path):
     """先选餐、后改交通时仍可能排不进日程，此时遗留提示必须点名是哪家餐厅的哪一餐。"""
     import asyncio,json
-    import app.planning as p
+    import app.planning.engine as p
     monkeypatch.setattr(p,'RUNTIME',tmp_path)
     d0=(date.today()+timedelta(days=2)).isoformat();d1=(date.today()+timedelta(days=3)).isoformat()
     async def fake_llm(messages,**kwargs):
-        if '审核助手' in messages[0]['content']:return {'content':'{"issues":[],"summary":"审核完成"}'},{}
+        if kwargs.get('label')=='review':return {'content':'{"issues":[],"summary":"审核完成"}'},{}
         days=[{'date':d0,'items':[]},{'date':d1,'items':[{'candidate_id':'spot:1','duration':120}]}]
         return {'content':json.dumps({'days':days})},{}
     async def fake_tool(name,args):return {'items':[]}

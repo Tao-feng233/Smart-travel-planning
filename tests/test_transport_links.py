@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from app import planning,schedule,transport_links
+from app.planning import engine as planning, schedule, transport_links
 
 
 def trip():

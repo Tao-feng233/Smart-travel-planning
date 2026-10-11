@@ -4,7 +4,16 @@
 
 当前为 v11 基础上的协作整合版，已接入 DeepSeek、高德地图、和风天气及途牛 MCP，适用于本机和小规模体验。计划包含建议安排与待确认事项，不构成实际预订、实时导航或全部事实已核实的保证。
 
-## 协作升级任务
+## 当前整理版本（2026-10-11）
+
+整体代码重构已在本机完成：后端按职责分层，模型使用真实编辑工具连续执行，计划生成按阶段组织，前端按核心、视图和组件整理，维护脚本按用途归类。启动方式沿用原入口。
+
+- [整体完成与复审记录](docs/releases/整体重构完成与复审-20261011.md)：备份、具体变更、验证与模型抽测边界。
+- [后端导航](app/README.md)、[前端导航](frontend/README.md)、[脚本导航](scripts/README.md)。
+
+本轮完整试用分支为 `feat/shitu-refactor-20261011`，拉取方式和建议测试场景见 [分支试用说明](docs/collaboration/整体重构分支试用说明-20261011.md)。以下协作任务记录用于说明历史分工与已接入能力，不代表重构后仍需逐批搬动原文件。
+
+## 协作升级任务记录
 
 下一阶段按数据与知识服务、Agent与业务系统、推荐与行程规划三部分推进。v11.2基础上的数据服务升级已接入Qdrant、真实中文Embedding和父子块混合检索；当前验证采用Qdrant持久化本地模式。MySQL、独立Worker、高德JS API和动态时间引擎继续由对应分支开发。
 
@@ -13,7 +22,7 @@
 - [数据与知识服务接入说明](docs/collaboration/数据与知识服务接入说明.md)：已完成接口、索引初始化、日期适用状态及组员接入方式。
 - [山东景区资料覆盖说明](docs/collaboration/山东景区资料覆盖说明.md)：首批52条公开资料、16个地市覆盖、来源与适用边界及更新命令。
 
-从 `feat/shitu-v11-review-integration` 的最新提交创建各自工作分支，先统一公共接口，再通过PR分批整合。MCP、RAG和数据获取由协调者负责；共享模块的修改边界、验收与交接方式见上述两份文档。
+本轮试用后的修复从 `feat/shitu-refactor-20261011` 创建各自工作分支，再通过PR整合。MCP、RAG和数据获取由协调者负责；上述协作文档保留原分工背景，涉及旧目录的入口以当前模块导航为准。
 
 ## 功能与业务流程
 
@@ -61,7 +70,7 @@ Copy-Item .env.example .env
 首次初始化中文模型与知识索引：
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/build_knowledge_index.py --download-model
+.\.venv\Scripts\python.exe scripts/data/build_knowledge_index.py --download-model
 ```
 
 后续正常检索不自动下载模型。没有初始化或索引过期时会明确降级为BM25；采集、更新与服务端部署说明见[数据服务文档](docs/collaboration/数据与知识服务接入说明.md)。
@@ -100,7 +109,17 @@ Copy-Item .env.example .env
 核心目录：
 
 ```text
-app/                    Agent、业务模块、工具、鉴权与持久化
+app/main.py             服务启动与资源生命周期
+app/api/                HTTP 接口、鉴权与请求校验
+app/application/        后台任务、工作台数据整理与导出
+app/agents/             意图识别、目标编排、代选与回复
+app/travel/             需求、景点、住宿、餐饮与选择状态
+app/planning/           时间轴、路线衔接、计划生成与审查
+app/core/               配置与共享约定
+app/integrations/       外部接口、MCP 与请求缓存
+app/knowledge/          资料采集、混合检索与向量索引
+app/persistence/        SQLite 数据保存
+app/prompts/            提示词模板
 frontend/               当前旅行工作台与地图
 data/catalog/           目的地概览目录
 data/knowledge/         公共官方资料与城市背景
@@ -125,7 +144,7 @@ docs/legacy/            旧项目可继续参考的设计资料及适用说明
 
 实际 `.env`、本地账户与旅行、数据库、缓存、日志、截图、完整旧项目备份、临时文件、虚拟环境和可能带配置的体验包均不提交。仓库仅提供空白配置模板和公开资料。
 
-体验包由 `scripts/build_trial.py` 构建，默认不带配置；附带环境的分享包属于本机授权场景，不进入公开仓库。源项目与体验包启动、数据隔离方式分别说明，公开仓库不分发调用额度。
+体验包由 `scripts/release/build_trial.py` 构建，默认不带配置；附带环境的分享包属于本机授权场景，不进入公开仓库。源项目与体验包启动、数据隔离方式分别说明，公开仓库不分发调用额度。
 
 ## 复核整合记录
 

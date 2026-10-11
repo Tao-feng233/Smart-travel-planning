@@ -1,5 +1,6 @@
 import asyncio
-from app import guidance,agent
+from app.application import guidance
+from app.agents import planner as agent
 
 def trip():
     return {'requirements':{'city':'青岛','days':3,'adults':2,'start_date':'2026-10-08'},

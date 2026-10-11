@@ -1,7 +1,10 @@
 import asyncio
 import copy
 import pytest
-from app import agent,providers,journey,planning,locations
+from app.agents import planner as agent
+from app.travel import journey, locations
+from app.planning import engine as planning
+from app.integrations import providers
 
 
 def trip():
@@ -64,7 +67,7 @@ def test_unknown_route_price_is_not_zero(monkeypatch):
 
 
 def test_export_keeps_prices_without_navigation_instructions():
-    from app.report import route_lines
+    from app.application.report import route_lines
     lines=route_lines({'mode':'transit','fare':4,'steps':[{'instruction':'乘坐 地铁3号线','from':'青岛站','to':'五四广场'},{'instruction':'乘坐 地铁2号线','from':'五四广场','to':'浮山所'}]})
     assert '参考 ¥4' in '\n'.join(lines)
     assert all(word not in '\n'.join(lines) for word in ('上车', '下车', '地铁3号线', '五四广场'))

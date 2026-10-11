@@ -1,7 +1,10 @@
 import asyncio
 import pytest
-from app import discovery,agent,providers,guidance
-from app.text import readable
+from app.travel import discovery
+from app.agents import planner as agent
+from app.application import guidance
+from app.integrations import providers
+from app.core.text import readable
 
 def trip():return {'requirements':{'city':'青岛'},'catalog':{},'selected_spots':[],'messages':[],'tickets':{}}
 def poi(i,name=None):return {'id':f's{i}','name':name or f'景点{i}','kind':'spot','rating':4.5,'location':f'120.{300+i},36.05'}
@@ -31,7 +34,7 @@ def test_source_backed_destinations_cover_distinct_directions():
 
 def test_recommendation_order_changes_displayed_page(monkeypatch):
     # Synthetic names isolate ordering; coverage has separate end-to-end guards.
-    monkeypatch.setattr('app.data_coverage.place_known',lambda *_:True)
+    monkeypatch.setattr('app.knowledge.coverage.place_known',lambda *_:True)
     w=trip();calls=[]
     async def tool(name,args):
         if name=='retrieve_guides':return {'items':[]}
@@ -91,6 +94,10 @@ def test_complete_selection_queries_hotel_when_information_is_ready(monkeypatch)
     async def road(*_):return [{'mode':'driving','available':True,'minutes':10}]
     async def recommend(*args):return '已比较住宿候选'
     monkeypatch.setattr(agent,'tuniu',tuniu);monkeypatch.setattr(agent,'local_tool',local_tool);monkeypatch.setattr(agent,'recommend',recommend);monkeypatch.setattr(agent,'route_options',road)
+    # 住宿查询受途牛账号池的剩余额度约束，那是本机运行状态；这里固定为可用，
+    # 让用例只验证"信息齐备时应自动查询住宿"这件事本身。
+    async def budget():return 10
+    monkeypatch.setattr(agent,'hotel_query_budget',budget)
     answer=asyncio.run(agent.handle(w,'complete_spots',{},lambda x:None))
     assert w['spots_confirmed'] and calls[0]['poiName']=='景点1'
     assert '已确认景点' in answer and guidance.finish(w)['view']=='hotel'

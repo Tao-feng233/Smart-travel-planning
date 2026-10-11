@@ -1,6 +1,8 @@
 import asyncio
 import pytest
-from app import agent, planning, providers
+from app.agents import planner as agent
+from app.planning import engine as planning
+from app.integrations import providers
 
 
 def test_all_hotel_candidates_receive_map_address_and_coordinates(monkeypatch):
@@ -46,7 +48,7 @@ def test_successful_empty_route_is_distinct_from_query_error(monkeypatch):
 
 
 def test_actual_supplier_branch_alias_matches_only_same_address():
-    from app.locations import match_hotel
+    from app.travel.locations import match_hotel
     hotel={'name':'西安钟楼诺富特酒店','address':'案板街16号（近地铁H口）'}
     rows=[{'name':'西安钟楼诺富特酒店(钟鼓楼回民街店)','address':'案板街16号(地铁H口旁)',
            'location':'108.949899,34.260596','typecode':'100103','provider_id':'correct'},
@@ -58,7 +60,7 @@ def test_actual_supplier_branch_alias_matches_only_same_address():
 
 
 def test_supplier_province_in_middle_of_name_is_a_geographic_qualifier():
-    from app.locations import match_hotel
+    from app.travel.locations import match_hotel
     p={'name':'维也纳国际酒店·山东青岛火车站东广场栈桥店','address':'湖南路59号'}
     row={'name':'维也纳国际酒店(青岛火车站东广场栈桥店)','address':'湖南路59号(地铁D口旁)',
          'location':'120.314754,36.064978','typecode':'100100','provider_id':'B1'}
@@ -92,7 +94,7 @@ def test_same_point_requires_no_provider_query(monkeypatch):
 
 
 def test_food_search_filters_confirmed_empty_routes_but_keeps_unknown(monkeypatch):
-    from app import foods
+    from app.travel import foods
     anchor={'id':'a','name':'参照景点','kind':'spot','location':'104.06,30.66','citycode':'028'}
     w={'requirements':{'city':'成都','start_date':'2026-10-20','days':1},'catalog':{'a':anchor},'selected_spots':['a']}
     rows=[{'id':cid,'name':cid,'kind':'food','location':xy,'citycode':'028'} for cid,xy in [('ok','104.07,30.67'),('blocked','104.08,30.68'),('unknown','104.09,30.69')]]
@@ -118,7 +120,7 @@ def test_cross_city_transit_uses_each_endpoint_city(monkeypatch):
 
 
 def test_no_transit_does_not_hide_a_walkable_restaurant(monkeypatch):
-    from app.access import check
+    from app.travel.access import check
     a={'id':'a','name':'景点','location':'104.06,30.66'}
     b={'id':'b','name':'餐厅','kind':'food','location':'104.07,30.67'}
     async def routes(*args):return [{'mode':'walking','available':True,'status':'available','minutes':8},
@@ -128,7 +130,7 @@ def test_no_transit_does_not_hide_a_walkable_restaurant(monkeypatch):
 
 
 def test_restaurant_with_insufficient_meal_window_is_screened(monkeypatch):
-    from app.access import check
+    from app.travel.access import check
     a={'id':'a','name':'景点','location':'104.06,30.66'}
     b={'id':'b','name':'餐厅','kind':'food','location':'104.07,30.67'}
     w={'requirements':{'start_date':'2026-10-20','days':1},'selected_return':{'departure':'2026-10-20 15:00'}}

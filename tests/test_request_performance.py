@@ -1,7 +1,9 @@
 import asyncio
 import json
 
-from app import providers,agent,request_cache,storage
+from app.integrations import providers, request_cache
+from app.agents import planner as agent
+from app.persistence import storage
 
 
 def test_identical_inflight_map_queries_share_one_vendor_request(monkeypatch):

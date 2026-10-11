@@ -1,0 +1,10 @@
+flowchart TB
+    UI[浏览器：对话、工作台、地图、时间轴、计划书]
+    UI -->|HTTP 请求| API[FastAPI：工作区与任务]
+    API -->|SSE：进度与回复| UI
+    API --> Agent[LangGraph：理解、校验、执行]
+    Agent --> Model[DeepSeek：理解、建议与审核]
+    Agent --> Tool[MCP 与供应商封装]
+    Tool --> Provider[高德地点与道路／和风天气／途牛旅游服务]
+    Tool --> RAG[官方资料 + BM25 + BGE + Qdrant + RRF]
+    API --> DB[(SQLite：业务状态)]

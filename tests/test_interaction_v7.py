@@ -1,6 +1,8 @@
+from app.travel.requirements import update_requirements
 import asyncio,copy
 import pytest
-from app import agent,journey,foods,discovery
+from app.agents import planner as agent
+from app.travel import journey, foods, discovery
 
 def trip():return {'requirements':{'city':'杭州','origin':'郑州','start_date':'2026-10-10','days':3,'adults':1},'catalog':{},'selected_spots':[],'messages':[],'tickets':{}}
 
@@ -14,15 +16,23 @@ def test_noon_train_controls_are_actual_query_conditions(monkeypatch):
  assert seen[0]['departureTime']=='11:00-14:00'
  assert w['query_controls']['train_type']=='highspeed' and w['query_controls']['direction']=='outbound'
 
-def test_date_range_and_local_origin_are_recorded():
+def test_date_range_and_local_origin_are_recorded(monkeypatch):
+ # This scenario means October 10; keep its clock independent of the run date.
+ from datetime import date
+ from app.travel import requirements
+ class ScenarioDate(date):
+  @classmethod
+  def today(cls):return cls(2026,10,10)
+ monkeypatch.setattr(journey,'date',ScenarioDate)
+ monkeypatch.setattr(requirements,'date',ScenarioDate)
  w=trip();w['requirements']={'city':'杭州'}
  intent=journey.refine_intent(w,'我从杭州出发，就在杭州玩，10号到12号',{'action':'chat','patch':{'city':'杭州'},'answer':''})
- agent.update_requirements(w,intent['patch'])
+ update_requirements(w,intent['patch'])
  assert w['requirements']['origin']=='杭州' and w['requirements']['days']==3 and w['requirements']['start_date']=='2026-10-10'
  assert journey.is_local(w['requirements'])
 
 def test_long_trip_and_more_than_ten_spots_are_supported():
- w=trip();agent.update_requirements(w,{'days':21})
+ w=trip();update_requirements(w,{'days':21})
  w['catalog']={str(i):{'id':str(i),'kind':'spot','name':'景点'+str(i),'location':'120,30'} for i in range(12)}
  for i in w['catalog']:asyncio.run(agent.handle(w,'select',{'id':i},lambda _:None))
  assert len(w['selected_spots'])==12 and w['requirements']['days']==21
@@ -55,7 +65,7 @@ def test_same_city_does_not_query_intercity_provider(monkeypatch):
 def test_long_plan_proposals_are_batched_and_keep_all_ids(tmp_path):
  import json
  from datetime import date,timedelta
- from app.proposals import create
+ from app.planning.proposals import create
  calls=[];spots=[{'id':str(i),'name':'地点'+str(i)} for i in range(35)];dates=[(date(2026,10,10)+timedelta(days=i)).isoformat() for i in range(21)]
  async def model(messages,**args):
   payload=json.loads(messages[1]['content']);calls.append(payload)

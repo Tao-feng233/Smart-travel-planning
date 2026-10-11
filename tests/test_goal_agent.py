@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app import agent,auto_selection,replies,goal_agent
+from app.agents import planner as agent, auto_selection, replies, goals as goal_agent
 
 
 def trip():

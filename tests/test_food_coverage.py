@@ -5,7 +5,7 @@
 体验者反馈"旅游完啥都选不了"。而同一坐标换关键词能查到 12 家。
 """
 import asyncio
-from app import foods
+from app.travel import foods
 
 
 def trip(city='洛阳', start='2026-10-08', days=7):

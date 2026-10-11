@@ -1,4 +1,4 @@
-"""Contract fixtures and semantic tests for app/contracts.py (batch 1).
+"""Contract fixtures and semantic tests for app/core/contracts.py (batch 1).
 
 The SQLite implementations here are reference fixtures, not the production
 repositories: they pin down the semantics (conflict rejection, idempotent
@@ -7,9 +7,8 @@ implementation in a later batch must reproduce to keep these tests green.
 """
 import json,sqlite3,time
 import pytest
-from app import contracts as C
-from app.contracts import (RevisionConflict,RequestConflict,LeaseLost,JobNotClaimable,
-                           FinalAfterCancel,ContractError,resolve_date)
+from app.core import contracts as C
+from app.core.contracts import RevisionConflict, RequestConflict, LeaseLost, JobNotClaimable, FinalAfterCancel, ContractError, resolve_date
 
 
 class SqliteWorkspaces:

@@ -5,7 +5,9 @@ from threading import Barrier
 
 import pytest
 
-from app import providers, agent, replies, storage
+from app.integrations import providers
+from app.agents import planner as agent, replies
+from app.persistence import storage
 
 
 @pytest.mark.parametrize('payload', [

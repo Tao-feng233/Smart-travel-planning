@@ -3,8 +3,10 @@ import copy
 
 import pytest
 
-from app import foods, planning, providers
-from app.providers import DataError
+from app.travel import foods
+from app.planning import engine as planning
+from app.integrations import providers
+from app.core.errors import DataError
 
 
 def trip():
