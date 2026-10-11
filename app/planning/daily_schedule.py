@@ -33,6 +33,7 @@ class DailySchedule:
             }
             await self.approach()
             self.duration = self.item["duration"]
+            self.fit_return_day()
             await self.visit_start()
             if await self.opening():
                 self.discard_visit()
@@ -59,6 +60,86 @@ class DailySchedule:
         del self.ctx.warnings[mark["warnings"] :]
         del self.ctx.offered[mark["offered"] :]
         del self.ctx.meal_unplaced[mark["meal_unplaced"] :]
+
+    def latest_end(self):
+        """Latest acceptable day end: the requirement, extended for evening visits and
+        pulled earlier on the return day so接驳准备 still fits."""
+        limit = minute(self.ctx.requirements.get("day_end", "18:30"))
+        if any((x.get("period") == "evening" for x in self.group["items"])):
+            limit = max(limit, 22 * 60)
+        if (
+            self.ctx.return_time
+            and self.group["date"] == self.ctx.return_time.date().isoformat()
+        ):
+            deadline = (
+                (
+                    self.ctx.return_time.hour * 60
+                    + self.ctx.return_time.minute
+                    - transport_links.offset(self.ctx.workspace, "return")
+                )
+                // 5
+                * 5
+            )
+            limit = min(limit, max(0, deadline))
+        return limit
+
+    def fit_return_day(self):
+        """On the return day, narrow a visit so it still fits before the deadline.
+
+        Hard-scheduling to the point of raising would abort the whole plan, leaving the
+        user with nothing to adjust. Narrowing and reporting it keeps the plan usable.
+        """
+        if not (
+            self.ctx.return_time
+            and self.group["date"] == self.ctx.return_time.date().isoformat()
+        ):
+            return
+        limit = self.latest_end()
+        available = limit - self.time
+        if available >= self.duration:
+            return
+        if available < 0:
+            raise DataError(
+                self.group["date"]
+                + " 已没有可安排时间："
+                + clock(self.time)
+                + " 时已超过需在 "
+                + clock(limit)
+                + " 前开始接驳准备的要求（返程 "
+                + self.ctx.return_time.strftime("%H:%M")
+                + "）。请减少当天安排或改乘更晚的班次。",
+                {
+                    "date": self.group["date"],
+                    "view": "spot",
+                    "direction": "return",
+                    "candidate_ids": [self.item["candidate_id"]],
+                },
+            )
+        original = self.duration
+        self.duration = max(0, available)
+        self.ctx.offered.append(
+            {
+                "code": "return_day_trim",
+                "level": "warning",
+                "view": "spot",
+                "date": self.group["date"],
+                "candidate_ids": [self.item["candidate_id"]],
+                "overrun_minutes": original - self.duration,
+                "available_minutes": available,
+                "message": self.group["date"]
+                + " 当天需在 "
+                + clock(limit)
+                + " 前开始接驳准备（返程 "
+                + self.ctx.return_time.strftime("%H:%M")
+                + "），"
+                + self.item["name"]
+                + "已由"
+                + str(original)
+                + "分钟调整为约"
+                + str(self.duration)
+                + "分钟。若希望玩满，可减少当天景点、提前返回，或改乘更晚的班次。",
+            }
+        )
 
     async def setup(self):
         self.group["items"].sort(
@@ -709,9 +790,8 @@ class DailySchedule:
                 self.lunch = True
 
     async def dinner(self):
-        self.end_limit = minute(self.ctx.requirements.get("day_end", "18:30"))
+        self.end_limit = self.latest_end()
         if any((x.get("period") == "evening" for x in self.group["items"])):
-            self.end_limit = max(self.end_limit, 22 * 60)
             self.ctx.warnings.append(
                 self.group["date"]
                 + "包含晚间游览建议，当日结束按22:00预留；请核实出游当天夜间开放并确认体力。"
@@ -720,16 +800,6 @@ class DailySchedule:
             self.ctx.return_time
             and self.group["date"] == self.ctx.return_time.date().isoformat()
         ):
-            deadline = (
-                (
-                    self.ctx.return_time.hour * 60
-                    + self.ctx.return_time.minute
-                    - transport_links.offset(self.ctx.workspace, "return")
-                )
-                // 5
-                * 5
-            )
-            self.end_limit = min(self.end_limit, max(0, deadline))
             self.ctx.warnings.append(
                 f"{self.group['date']} 所选返程 {self.ctx.return_time.strftime('%H:%M')}，预留{transport_links.offset(self.ctx.workspace, 'return')}分钟接驳准备；实际出入口、候车或安检等待仍需确认。"
             )
@@ -831,7 +901,9 @@ class DailySchedule:
                     + clock(self.end_limit)
                     + "前开始接驳准备，相差约"
                     + str(_need)
-                    + "分钟。可缩短该项游览、减少当天景点、提前返回，或改乘更晚的班次。",
+                    + "分钟。这一段回住宿的路程本身就占了大部分时间，"
+                    + "单纯缩短游览通常补不回来；建议减少当天的景点或活动、提前返回住宿，"
+                    + "或改乘更晚的班次。",
                     {
                         "date": self.group["date"],
                         "view": "spot",
