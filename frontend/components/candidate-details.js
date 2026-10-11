@@ -1,0 +1,562 @@
+/* Detail cards and the map prototype. */
+let modalCandidate = null,
+  mapDay = "";
+const mapZooms = new Map(),
+  mapCenters = new Map();
+const MAP_WORLD_PIXELS = 512; // Amap scale=1 static maps use this world-pixel scale at zoom 0.
+const periodNames = {
+  any: "时段不限",
+  morning: "上午",
+  afternoon: "下午",
+  evening: "晚上",
+};
+function safeImage(url) {
+  try {
+    const u = new URL(url);
+    return ["https:", "http:"].includes(u.protocol) &&
+      !u.username &&
+      !u.password
+      ? u.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+function originalPhoto(url) {
+  try {
+    const u = new URL(url);
+    if (
+      u.protocol === "https:" &&
+      u.hostname === "m.tuniucdn.com" &&
+      !u.search
+    ) {
+      u.pathname = u.pathname.replace(
+        /_w\d+_h\d+_c\d+_t\d+(?:_q\d+)?(?=\.(?:jpe?g|png)$)/i,
+        "",
+      );
+      return u.href;
+    }
+  } catch {}
+  return url;
+}
+function photoHTML(p) {
+  const urls = [
+    ...new Set(
+      (p.photos || [])
+        .map((x) =>
+          safeImage(typeof x === "string" ? x : x?.url || x?.imageUrl),
+        )
+        .filter(Boolean),
+    ),
+  ].slice(0, 5);
+  return urls.length
+    ? `<div class="place-photos">${urls.map((u) => `<figure><img src="${esc(originalPhoto(u))}" data-photo-fallback="${esc(u)}" alt="${esc(p.name)} · 来源提供的参考图片" loading="lazy" referrerpolicy="no-referrer"><figcaption hidden></figcaption></figure>`).join("")}</div><small class="photo-source">图片来自${esc(p.source?.name || "查询来源")}，优先加载同源原图；拍摄时间未提供。点击图片查看完整图片。</small>`
+    : '<p class="photo-empty">本次来源未提供图片。</p>';
+}
+function timingHTML(p) {
+  const v =
+    workspace.visit_requests?.[p.id] ||
+    (workspace.timeline?.provisional
+      ? workspace.timeline.entries?.find(
+          (i) => i.kind === "spot" && i.candidate_id === p.id,
+        )
+      : null) ||
+    p.visit_suggestion;
+  if (!v) return "";
+  return `<div class="visit-timing"><strong>${workspace.visit_requests?.[p.id] ? "你的安排" : "建议游玩"}：${esc(v.date || "日期待定")} · ${esc(periodNames[v.period] || "时段不限")}</strong>${v.reason ? `<span>${esc(v.reason)}</span>` : ""}</div>`;
+}
+function priceHintHTML(p, detail = false) {
+  const number = (value) =>
+    value !== null &&
+    value !== undefined &&
+    String(value).trim() !== "" &&
+    Number.isFinite(Number(value)) &&
+    Number(value) >= 0;
+  const hint =
+    p.price_hint ||
+    (number(p.cost)
+      ? {
+          label:
+            (p.kind === "food" ? "参考人均 ¥" : "参考消费 ¥") +
+            p.cost +
+            (p.kind === "spot" ? "/人" : ""),
+          basis: "map_reference",
+          note: "地图参考消费，不是实际报价；门票及附加项目需核实。",
+        }
+      : {
+          label: p.kind === "food" ? "人均待核实" : "费用待核实",
+          basis: "unknown",
+          note: "来源未提供可靠价格，不代表免费。",
+        });
+  return `<div class="price-hint ${hint.basis === "official_free_admission" ? "free-admission" : ""}" title="${esc(hint.note || "")}"><strong>${esc(hint.label)}</strong>${detail ? `<small>${esc(hint.note || "")}${hint.source?.url ? " " + link(hint.source.url, "价格依据 ↗") : ""}</small>` : ""}</div>`;
+}
+function coverageHintHTML(p) {
+  const covered = workspace.spot_coverage?.parent_coverage?.[p.id];
+  return covered?.length
+    ? `<p class="scope-hint">已选景区范围：本次按 ${covered.map((id) => esc(workspace.catalog[id]?.name || "已选子地点")).join("、")} 合并安排，父项不另计游玩时长。</p>`
+    : p.scope_context
+      ? '<p class="scope-hint">景区范围介绍，可展开选择具体地点；同时选择父景区与子地点时合并安排，避免重复计时。</p>'
+      : "";
+}
+function compactCard(p) {
+  const food = p.kind === "food",
+    hotel = p.kind === "hotel",
+    sel = food
+      ? workspace.meal_choices?.[
+          (mealDate || workspace.requirements.start_date) + "|" + mealPeriod
+        ]?.food_id === p.id
+      : hotel
+        ? workspace.hotel?.id === p.id
+        : workspace.selected_spots.includes(p.id);
+  return `<article class="card compact-place ${sel ? "selected" : ""}" data-candidate="${esc(p.id)}" data-open-candidate="${esc(p.id)}" tabindex="0" aria-label="查看${esc(p.name)}详情"><div class="card-top"><div><small class="candidate-label">${esc(p.scope_context ? "景区范围介绍" : p.discovery_label || (hotel ? "住宿候选" : food ? "餐饮候选" : "景点候选"))}</small><h3>${esc(p.name)}</h3></div><div class="card-metrics">${hotel ? `<strong>${p.price != null ? "¥" + esc(p.price) + " 起" : "价格待查询"}</strong>` : food ? priceHintHTML(p) : `${p.rating ? `<strong>${esc(p.rating)} 分</strong>` : ""}${priceHintHTML(p)}`}${(food || hotel) && p.rating ? `<span>${esc(p.rating)} 分</span>` : ""}${sel ? '<span class="selected-mark">已选择</span>' : ""}</div></div><p class="candidate-location">${esc(p.address || "位置资料待完善")}</p>${locationStatusHTML(p)}${accessHTML(p)}${food && p.tags?.length ? `<div class="food-specialties"><small>店铺特色</small><strong>${p.tags.slice(0, 5).map(esc).join(" · ")}</strong></div>` : ""}${p.recommendation ? `<p class="compact-description">${esc(p.recommendation)}</p>` : ""}${p.recommendation_basis ? `<div class="recommendation-basis"><small>推荐理由</small><p>${esc(p.recommendation_basis)}</p></div>` : ""}${p.kind === "spot" ? coverageHintHTML(p) + (!workspace.spot_coverage?.parent_coverage?.[p.id] ? timingHTML(p) : "") : ""}${p.opening ? `<p class="opening-brief">${food ? "营业资料" : "开放资料"}：${esc(p.opening)}</p>` : ""}<div class="card-bottom"><span class="open-detail-hint">点击卡片查看详情、图片与地图 ↗</span><div class="card-actions">${hotel ? `<button data-select="${esc(p.id)}" ${p.stale ? "disabled" : ""}>${sel ? "已选酒店" : "选择住宿"}</button><button class="ghost" data-open-candidate="${esc(p.id)}">查看房型（可选）</button>` : food ? `<button data-food="${esc(p.id)}" ${!workspace.requirements.start_date ? "disabled" : ""}>${sel ? "本餐已选" : "选为本餐地点"}</button>` : `<button data-select="${esc(p.id)}" class="${sel ? "ghost" : ""}">${sel ? "取消选择" : p.scope_context ? "选择整个景区" : "选择景点"}</button><button class="ghost" data-dismiss="${esc(p.id)}" ${sel ? "disabled" : ""}>不感兴趣</button>`}</div></div></article>`;
+}
+
+const foodCard = compactCard;
+
+function renderCandidateCardWithDetails(p) {
+  if (["spot", "food", "hotel"].includes(p.kind)) return compactCard(p);
+  return renderCandidateCard(p).replace(
+    "data-candidate=",
+    `data-open-candidate="${esc(p.id)}" tabindex="0" data-candidate=`,
+  );
+}
+
+function selectedMapPoints(day = "", focus = "") {
+  const cat = workspace.catalog;
+  let points = [];
+  if (day) {
+    const d =
+      !workspace.plan?.stale &&
+      workspace.plan?.days?.find((d) => d.date === day);
+    if (d)
+      points = (d.events || [])
+        .map((e) => cat[e.candidate_id] || e.food)
+        .filter((p) => p?.location);
+    else
+      points = workspace.selected_spots
+        .map((id) => cat[id])
+        .filter(
+          (p) =>
+            p?.location &&
+            workspace.timeline?.entries?.some(
+              (e) =>
+                e.kind === "spot" && e.candidate_id === p.id && e.date === day,
+            ),
+        );
+  } else
+    points = workspace.selected_spots
+      .map((id) => cat[id])
+      .filter((p) => p?.location);
+  if (workspace.hotel?.location) points.unshift(workspace.hotel);
+  if (!day)
+    points.push(
+      ...Object.values(workspace.meal_choices || {})
+        .filter((c) => c.mode !== "self" && workspace.meal_mode !== "self")
+        .map((c) => cat[c.food_id])
+        .filter((p) => p?.location),
+    );
+  if (focus && cat[focus]?.location) points.push(cat[focus]);
+  return [...new Map(points.map((p) => [p.id, p])).values()].slice(0, 120);
+}
+function fitMapZoom(ps) {
+  if (ps.length === 1) return 15;
+  const xy = ps.map((p) => p.location.split(",").map(Number)),
+    xs = xy.map((p) => p[0] / 360 + 0.5),
+    ys = xy.map((p) => {
+      const t = Math.sin((p[1] * Math.PI) / 180);
+      return 0.5 - Math.log((1 + t) / (1 - t)) / (4 * Math.PI);
+    }),
+    spans = [
+      Math.max(...xs) - Math.min(...xs),
+      Math.max(...ys) - Math.min(...ys),
+    ],
+    levels = spans.map((span, i) =>
+      span > 0
+        ? Math.log2([660, 320][i] / (MAP_WORLD_PIXELS * span))
+        : Infinity,
+    );
+  return Math.max(
+    1,
+    Math.min(
+      17,
+      Number.isFinite(Math.min(...levels))
+        ? Math.floor(Math.min(...levels))
+        : 15,
+    ),
+  );
+}
+function placeMapHTML(day = "", focus = "") {
+  const ps = selectedMapPoints(day, focus),
+    missing = focus && !workspace.catalog[focus]?.location;
+  if (missing && !ps.length)
+    return '<p class="map-empty">当前地点暂未取得可用坐标，可更新地点资料后重试。</p>';
+  return (
+    (missing
+      ? '<p class="location-status pending">当前地点坐标尚未核实；下方仅展示其他已取得坐标的地点。</p>'
+      : "") + interactiveMapHTML(ps, day, focus)
+  );
+}
+function mainMapHTML() {
+  const dates =
+    workspace.plan && !workspace.plan.stale
+      ? workspace.plan.days.map((d) => d.date)
+      : workspace.requirements.start_date
+        ? Array.from(
+            { length: Number(workspace.requirements.days || 1) },
+            (_, i) => addDate(workspace.requirements.start_date, i),
+          )
+        : [];
+  return `<div class="candidate-head"><div><h3>地点与旅行线路</h3><p>查看已选景点、住宿和用餐地点；生成计划后可按天比较线路。</p></div></div><label class="map-date-label">显示范围<select id="map-day"><option value="">全部地点</option>${dates.map((d) => `<option value="${d}" ${mapDay === d ? "selected" : ""}>${esc(d)}</option>`).join("")}</select></label>${placeMapHTML(mapDay)}<p class="panel-footnote">这是地图雏形。地图入口可查看周边或使用高德导航；当前未提供站内实时导航。</p>`;
+}
+
+function renderWorkspaceMapContent() {
+  return tab === "map" ? mainMapHTML() : renderWorkspaceContent();
+}
+function visitForm(p) {
+  const dates = workspace.requirements.start_date
+    ? Array.from({ length: Number(workspace.requirements.days || 1) }, (_, i) =>
+        addDate(workspace.requirements.start_date, i),
+      )
+    : [];
+  const intent = workspace.visit_requests?.[p.id] || {};
+  return dates.length
+    ? `<form id="visit-form" data-visit="${esc(p.id)}"><h3>想在哪天游玩？</h3><p>可在这里指定，也可在对话中说“第二天晚上去${esc(p.name)}”。</p><div class="visit-controls"><label>日期<select name="date"><option value="">交给助手安排</option>${dates.map((d) => `<option value="${d}" ${intent.date === d ? "selected" : ""}>${d}</option>`).join("")}</select></label><label>时段<select name="period">${Object.entries(
+        periodNames,
+      )
+        .map(
+          ([k, v]) =>
+            `<option value="${k}" ${intent.period === k ? "selected" : ""}>${v}</option>`,
+        )
+        .join("")}</select></label><button>保存安排</button></div></form>`
+    : "<p>确定出游日期后，可以为这个景点指定游玩日期和时段。</p>";
+}
+function renderCandidateDetails(p) {
+  if (p.kind === "destination" || (!p.kind && p.highlights))
+    return `<p>${esc(p.summary)}</p><p>${(p.highlights || []).map(esc).join(" · ")}</p>${p.recommendation ? `<div class="recommendation-basis">${esc(p.recommendation)}</div>` : ""}${src(p.source)}`;
+  if (["train", "flight"].includes(p.kind)) return renderCandidateCard(p);
+  const hotel = p.kind === "hotel";
+  return `${photoHTML(p)}${hotel ? "" : priceHintHTML(p, true)}<p class="detail-address">${esc(p.address || "地址待核实")}</p>${locationStatusHTML(p)}${accessHTML(p)}${coverageHintHTML(p)}${p.recommendation ? `<div class="detail-introduction"><h3>${hotel ? "住宿介绍" : p.kind === "food" ? "店铺特色与用餐参考" : "地点介绍"}</h3><p>${esc(p.recommendation)}</p></div>` : ""}${p.recommendation_basis ? `<div class="recommendation-basis"><small>推荐理由</small><p>${esc(p.recommendation_basis)}</p></div>` : ""}${p.rating ? `<p>来源评分：${esc(p.rating)}</p>` : ""}${p.review_summary ? `<p>${esc(p.review_summary)}</p>` : ""}${businessDetailsHTML(p)}${hotel ? `<div class="detail-selection"><button data-select="${esc(p.id)}" ${p.stale ? "disabled" : ""}>${workspace.hotel?.id === p.id ? "已选酒店" : "选择这家住宿"}</button></div>${hotelProfileHTML(p)}<h3>位置与入住信息</h3><p>${esc(p.match_status || "地图位置待核对")}</p>${p.anchor_name ? `<p>到${esc(p.anchor_name)}：${p.anchor_route ? esc(mode(p.anchor_route.mode)) + "约" + esc(p.anchor_route.minutes) + "分钟" : "通行待核实"}</p>` : ""}${p.area_comparison?.length ? `<div class="area-comparison">${p.area_comparison.map((q) => `<span>${esc(q.name)} · 直线${esc(q.straight_km)}公里</span>`).join("")}</div>` : ""}<h3>具体房型（可选）</h3><p>选定住宿位置即可继续；如有需要，可补充房型、餐食和退改选择。</p>${p.detail ? roomHTML(p.detail, p.id) : `<button data-detail="${esc(p.id)}">加载房型、餐食与退改信息</button>`}` : p.kind === "spot" ? `<div class="detail-selection"><button data-select="${esc(p.id)}" class="${workspace.selected_spots.includes(p.id) ? "ghost" : ""}">${workspace.selected_spots.includes(p.id) ? "取消选择景点" : "选择这个景点"}</button></div>${timingHTML(p)}<h3>开放、门票与预约</h3><p>${esc(p.opening || "开放资料待核实")} · 出游当天请核对</p><p>门票与预约：${esc(p.reservation || "尚未核实")}</p>${ticketQueryHTML(p)}${workspace.tickets[p.id] ? ticketsHTML(workspace.tickets[p.id]) : ""}${visitForm(p)}` : `<p>人均：${p.cost ? "¥" + esc(p.cost) + "（地图参考）" : "待核实"} · 营业资料：${esc(p.opening || "待核实")}</p><button data-food="${esc(p.id)}">选为本餐地点</button>`}<h3>周边地图</h3>${placeMapHTML("", p.id)}${p.evidence?.length ? `<details><summary>介绍依据</summary>${p.evidence.map((e) => `<p>${esc(e.text)}</p>${link(e.url, e.title)}`).join("")}</details>` : ""}${src(p.source)}${p.detail_source ? src(p.detail_source) : ""}${p.place_detail_source ? src(p.place_detail_source) : ""}`;
+}
+function refreshCandidate() {
+  if (!modalCandidate || !$("#candidate-dialog").open) return;
+  const p =
+    workspace.catalog[modalCandidate] ||
+    (workspace.destinations || []).find((d) => d.id === modalCandidate);
+  if (!p) {
+    $("#candidate-dialog").close();
+    return;
+  }
+  const body = $("#candidate-modal-body"),
+    scroll = $("#candidate-dialog").scrollTop;
+  body.innerHTML = candidateBody(p);
+  $("#candidate-dialog").scrollTop = scroll;
+  setBusy(busy);
+}
+function showCandidateDialog(id, group = null) {
+  const p =
+    workspace.catalog[id] ||
+    (workspace.destinations || []).find((d) => d.id === id);
+  if (!p) return;
+  modalCandidate = id;
+  $("#candidate-modal-kind").textContent =
+    {
+      spot: "景点详情",
+      hotel: "住宿详情",
+      food: "餐饮详情",
+      train: "列车详情",
+      flight: "航班详情",
+    }[p.kind] || "目的地详情";
+  $("#candidate-modal-title").textContent = p.name;
+  if (!$("#candidate-dialog").open) $("#candidate-dialog").showModal();
+  refreshCandidate();
+  $("#candidate-dialog").scrollTop = 0;
+  if (group) {
+    const room = [
+      ...$("#candidate-dialog").querySelectorAll("[data-room-group]"),
+    ].find((el) => el.dataset.roomGroup === group);
+    if (room) {
+      room.closest("details").open = true;
+      room.scrollIntoView({ block: "center" });
+      room.classList.add("reference-highlight");
+    }
+  }
+  if (
+    ((id.startsWith("amap:") &&
+      ["spot", "food", "market"].includes(p.kind) &&
+      !p.place_detail_status) ||
+      (p.kind === "hotel" && !p.location && !p.location_checked_at)) &&
+    !busy
+  ) {
+    const wid = workspace.id,
+      epoch = tripEpoch;
+    setTimeout(() => {
+      if (
+        epoch === tripEpoch &&
+        workspace.id === wid &&
+        modalCandidate === id &&
+        $("#candidate-dialog").open &&
+        !busy
+      )
+        action("place_detail", { id, view: tab });
+    }, 0);
+  }
+}
+
+function finishCandidateDetails(j, ...args) {
+  const q = j.workspace?.food_query;
+  if (
+    q &&
+    j.status === "completed" &&
+    (j.action === "search_foods" ||
+      j.ui?.action === "search_foods" ||
+      (j.action === "chat" && j.workspace.last_action === "search_foods"))
+  ) {
+    if (q.meal_date) mealDate = q.meal_date;
+    if (q.meal_period) mealPeriod = q.meal_period;
+    foodAnchor = q.explicit_anchor_id || "";
+  }
+  applyJobResult(j, ...args);
+  refreshCandidate();
+}
+$("#map-button").onclick = () => switchTab("map");
+$("#candidate-dialog").addEventListener("click", (e) => {
+  const d = e.currentTarget,
+    r = d.getBoundingClientRect();
+  if (
+    e.target === d &&
+    (e.clientX < r.left ||
+      e.clientX > r.right ||
+      e.clientY < r.top ||
+      e.clientY > r.bottom)
+  )
+    d.close();
+});
+document.addEventListener("click", (e) => {
+  const direct = e.target.closest("button[data-open-candidate]");
+  if (direct) {
+    openCandidate(direct.dataset.openCandidate);
+    return;
+  }
+  if (e.target.closest("button,a,input,select,textarea,summary,details"))
+    return;
+  const card = e.target.closest("[data-open-candidate]");
+  if (card) openCandidate(card.dataset.openCandidate);
+});
+document.addEventListener("keydown", (e) => {
+  if (
+    (e.key === "Enter" || e.key === " ") &&
+    e.target.matches("article[data-open-candidate]")
+  ) {
+    e.preventDefault();
+    openCandidate(e.target.dataset.openCandidate);
+  }
+});
+document.addEventListener(
+  "click",
+  (e) => {
+    if (
+      !busy &&
+      e.target.closest(
+        "#candidate-dialog [data-select],#candidate-dialog [data-room],#candidate-dialog [data-food]",
+      )
+    )
+      $("#candidate-dialog").close();
+  },
+  true,
+);
+document.addEventListener(
+  "error",
+  (e) => {
+    if (e.target.matches?.(".place-photos img")) {
+      const img = e.target;
+      if (
+        img.dataset.photoFallback &&
+        img.src !== img.dataset.photoFallback &&
+        !img.dataset.photoRetried
+      ) {
+        img.dataset.photoRetried = "true";
+        img.src = img.dataset.photoFallback;
+        return;
+      }
+      img.parentElement.hidden = true;
+      const gallery = img.parentElement.parentElement;
+      if ([...gallery.children].every((i) => i.hidden)) {
+        gallery.innerHTML = "<p>参考图片暂未加载。</p>";
+      }
+    }
+    if (e.target.matches?.(".map-base")) {
+      e.target.hidden = true;
+      e.target.parentElement.querySelector(".map-load-fallback").hidden = false;
+    }
+  },
+  true,
+);
+document.addEventListener("change", (e) => {
+  if (e.target.id === "map-day") {
+    mapDay = e.target.value;
+    render();
+  }
+});
+document.addEventListener("submit", async (e) => {
+  if (e.target.id !== "visit-form") return;
+  e.preventDefault();
+  const form = e.target,
+    cid = form.dataset.visit,
+    dt = form.elements.date.value;
+  await action("visit_schedule", {
+    visit_requests: [
+      {
+        candidate_id: cid,
+        date: dt,
+        period: form.elements.period.value,
+        clear: !dt,
+      },
+    ],
+  });
+  refreshCandidate();
+});
+
+function setBusy(value) {
+  setTaskBusy(value);
+  document
+    .querySelectorAll(
+      "#candidate-dialog button:not([data-close]),#candidate-dialog input,#candidate-dialog select",
+    )
+    .forEach((el) => {
+      if (!disabledBeforeBusy.has(el)) disabledBeforeBusy.set(el, el.disabled);
+      el.disabled =
+        value || !!workspace?.archived || disabledBeforeBusy.get(el);
+    });
+}
+
+let foodRefreshTimer;
+document.addEventListener("change", (e) => {
+  if (
+    !["meal-date", "meal-period", "food-anchor"].includes(e.target.id) ||
+    busy ||
+    !workspace.requirements.start_date
+  )
+    return;
+  clearTimeout(foodRefreshTimer);
+  const wid = workspace.id,
+    epoch = tripEpoch;
+  foodRefreshTimer = setTimeout(() => {
+    if (epoch === tripEpoch && workspace.id === wid && !busy)
+      action("search_foods", {
+        meal_date: mealDate || workspace.requirements.start_date,
+        meal_period: mealPeriod,
+        anchor_id: foodAnchor || undefined,
+      });
+  }, 150);
+});
+
+function mapWorld(lng, lat) {
+  const t = Math.sin((lat * Math.PI) / 180);
+  return [lng / 360 + 0.5, 0.5 - Math.log((1 + t) / (1 - t)) / (4 * Math.PI)];
+}
+function mapCoordinate(x, y) {
+  return [
+    ((((x % 1) + 1) % 1) - 0.5) * 360,
+    Math.max(
+      -85,
+      Math.min(
+        85,
+        (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI,
+      ),
+    ),
+  ];
+}
+function mapFitCenter(ps) {
+  const pts = ps.map((p) => mapWorld(...p.location.split(",").map(Number))),
+    xs = pts.map((p) => p[0]),
+    ys = pts.map((p) => p[1]);
+  return mapCoordinate(
+    (Math.min(...xs) + Math.max(...xs)) / 2,
+    (Math.min(...ys) + Math.max(...ys)) / 2,
+  );
+}
+function mapPercentage(level, fit) {
+  const value = 100 * Math.pow(2, level - fit);
+  return (
+    new Intl.NumberFormat("zh-CN", {
+      maximumFractionDigits: value < 1 ? 3 : value < 10 ? 1 : 0,
+    }).format(value) + "%"
+  );
+}
+function mapPointerOffset(surface, event) {
+  const r = surface.getBoundingClientRect();
+  return r.width && r.height
+    ? [
+        ((event.clientX - r.left) * 800) / r.width - 400,
+        ((event.clientY - r.top) * 440) / r.height - 220,
+      ]
+    : null;
+}
+
+function businessDetailsHTML(p) {
+  const isPlace =
+    p.id?.startsWith("amap:") && ["spot", "food", "market"].includes(p.kind);
+  return `${p.tags?.length ? `<div class="place-tags">${p.tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div><small>特色标签来自地图资料，具体菜品请向商家确认。</small>` : ""}${p.alias ? `<p>别名：${esc(p.alias)}</p>` : ""}${p.business_area ? `<p>所在商圈：${esc(p.business_area)}</p>` : ""}${p.telephone ? `<p>电话：${esc(p.telephone)}</p>` : p.kind === "food" ? "<p>电话：来源暂未提供</p>" : ""}${p.opening_today ? `<p>查询当天营业资料：${esc(p.opening_today)}</p>` : ""}${p.opening_week ? `<p>每周营业资料：${esc(p.opening_week)}</p>` : ""}${isPlace ? `<div class="detail-data-status"><small>${{ available: "已补充地点详情；空缺字段为来源未提供", not_found: "未找到进一步详情，保留已有资料", query_failed: "详情查询失败，可重试" }[p.place_detail_status] || "打开详情后补充地图资料"}${p.place_detail_checked_at ? " · 查询 " + esc(p.place_detail_checked_at) : ""}</small><button class="ghost" data-place-detail="${esc(p.id)}">${p.place_detail_status === "query_failed" ? "重试详情" : "更新地点资料"}</button></div><small class="data-scope">营业资料是查询时快照，不能保证出游当天营业、菜单或订位情况。</small>` : ""}`;
+}
+function hotelProfileHTML(p) {
+  const d = p.detail;
+  if (!d) return "";
+  return `<div class="hotel-profile">${d.starName || d.brandName ? `<p>${[d.starName, d.brandName].filter(Boolean).map(esc).join(" · ")}</p>` : ""}${d.hotelNameEn ? `<p>${esc(d.hotelNameEn)}</p>` : ""}${d.reviews?.count != null ? `<p>来源评价数量：${esc(d.reviews.count)}</p>` : ""}${d.commentDigest && d.commentDigest !== p.review_summary ? `<p>${esc(d.commentDigest)}</p>` : ""}</div>`;
+}
+function effectiveVisitDate(p) {
+  const t = workspace.tickets?.[p.id];
+  if (t?.requested_date) return t.requested_date;
+  const fixed = workspace.visit_requests?.[p.id]?.date;
+  if (fixed) return fixed;
+  const day =
+    !workspace.plan?.stale &&
+    workspace.plan?.days?.find((d) =>
+      d.events?.some((e) => e.candidate_id === p.id),
+    );
+  return (
+    day?.date ||
+    workspace.timeline?.entries?.find(
+      (e) => e.kind === "spot" && e.candidate_id === p.id,
+    )?.date ||
+    p.visit_suggestion?.date ||
+    workspace.requirements.start_date ||
+    ""
+  );
+}
+function ticketQueryHTML(p) {
+  return `<div class="ticket-query"><label>门票游玩日期<input type="date" data-ticket-date value="${esc(effectiveVisitDate(p))}"></label><button data-ticket="${esc(p.id)}">查询门票产品</button></div>`;
+}
+
+function locationStatusHTML(p) {
+  if (p.kind !== "hotel") return "";
+  const status = p.location
+    ? "已取得地图坐标"
+    : p.match_status || "地图位置尚未核实";
+  return `<div class="location-status ${p.location ? "verified" : "pending"}"><span>${esc(status)}</span><button class="text-button" data-place-detail="${esc(p.id)}">${p.location ? "更新位置" : "重试位置"}</button></div>`;
+}
+function accessHTML(p) {
+  const a = p.access;
+  if (!a) return "";
+  return `<div class="access-status ${a.status === "available" ? "verified" : "pending"}"><small>${a.status === "available" ? "已核对参照路段" : "通行待核实"}</small><p>${esc(a.message)}</p><small>参照区域的查询结果，完整路线仍按最终顺序检查。</small></div>`;
+}
+function excludedCandidatesHTML(query) {
+  const rows = query?.excluded || [];
+  return rows.length
+    ? `<details class="excluded-candidates"><summary>已提前筛除 ${rows.length} 个不适合当前安排的候选</summary>${rows.map((p) => `<p><strong>${esc(p.name)}</strong>：${esc(p.message)}</p>`).join("")}<small>可调整参照区域、交通方式或日期后重新查询。</small></details>`
+    : "";
+}
+
+function renderFoodResults() {
+  return renderFoodResultsBase() + excludedCandidatesHTML(workspace.food_query);
+}
+
+function content() {
+  const html = renderWorkspaceMapContent();
+  return tab === "hotel"
+    ? html + excludedCandidatesHTML(workspace.hotel_query)
+    : html;
+}
+
+function spotsHTML() {
+  return renderSpotResults() + excludedCandidatesHTML(workspace.spot_search);
+}

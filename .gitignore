@@ -1,0 +1,26 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+data/runtime/
+.展示检查/*-真实*
+*.log
+.展示检查/真实-*
+
+# 体验包可能包含授权分享的接口配置，勿提交
+dist/
+
+# Local backups, generated reports and temporary authoring files
+repository-backups/
+output/
+tmp/
+.idea/
+.agents/
+.codex/
+.展示检查/
+*.db
+*.db-wal
+*.db-shm
