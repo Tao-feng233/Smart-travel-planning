@@ -1,0 +1,24 @@
+flowchart TB
+    A[用户请求与已有旅行状态] --> B[模型分析条件、意图与委托范围]
+    B --> C[程序校验条件、数据覆盖与工具参数]
+    C -->|缺少关键条件| Q[说明缺项或提出确认方案]
+    Q --> A
+    C --> D[MCP 与供应商适配：执行查询]
+    D --> E[地点、酒店、道路、天气与班次数据]
+    D --> F[RAG：检索相关资料与来源]
+    E --> G[程序核对候选身份、坐标与适用状态]
+    F --> G
+    G --> H[模型综合比较候选并解释取舍]
+    H -->|仅查询或比较| O[保存查询结果并展示候选]
+    H -->|继续安排| I[用户选择或明确委托范围内代选]
+    I --> J[模型提出日期、顺序与游玩时长]
+    J --> K[程序计算道路、餐次、休息与首尾日窗口]
+    K --> L[模型只读审核要求与资料遗漏]
+    L --> M[保存版本并展示时间轴与计划书]
+    M -->|用户修改：保留已有状态继续处理| A
+    classDef model fill:#eee8fb,stroke:#7d66b4,color:#243454
+    classDef program fill:#e8f4ee,stroke:#4d927d,color:#243454
+    classDef data fill:#edf2fc,stroke:#7096d5,color:#243454
+    class B,H,J,L model
+    class C,G,K program
+    class D,E,F data

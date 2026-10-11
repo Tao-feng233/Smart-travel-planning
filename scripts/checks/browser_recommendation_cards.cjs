@@ -19,6 +19,10 @@ const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:8767';
   if(u.pathname.endsWith('/map-image'))return r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768"/>'});
   if(u.pathname.endsWith('/actions')){request=r.request().postDataJSON();return r.fulfill({contentType:'application/json',body:'{"job_id":"j"}'})}
   if(u.pathname.endsWith('/events')){
+   if(request.action==='select'){
+    assert.equal(request.args.id,'house');w.selected_spots.push('house');w.revision++;
+    return r.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({id:'j',action:'select',status:'completed',workspace:w,ui:w.ui})+'\n\n'});
+   }
    assert.equal(request.action,'search_spots');
    if(request.args.expand_spots){
     assert.equal(request.args.expand_spots,true);w.selected_spots=['free'];
@@ -61,6 +65,8 @@ const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:8767';
    workspace.catalog.sea={id:'sea',kind:'spot',name:'海滨风景区'};
    workspace.catalog.eight={id:'eight',kind:'spot',name:'八大关风景区',parent_id:'sea'};
    workspace.catalog.house={id:'house',kind:'spot',name:'花石楼',parent_id:'eight'};
+   workspace.catalog.eight.recommendation='历史街区与海岸慢游';
+   workspace.catalog.house.recommendation='景区内历史建筑参观';
    workspace.selected_spots=['sea','eight'];workspace.spot_search.ids=['eight','house'];
    workspace.spot_page={page:1,pages:1,ids:['sea','eight','house']};
    workspace.spot_groups=[{key:'sea',title:'海滨风景区',parent_id:'sea',ids:['eight','house'],basis:'地图父子关系'}];
@@ -68,6 +74,34 @@ const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:8767';
   });
   assert.equal(await p.locator('#content [data-candidate=eight]').count(),1);
   assert.match(await p.locator('#content [data-candidate=sea]').innerText(),/景区范围介绍[\s\S]*父项不另计游玩时长/);
-  assert.deepEqual(errors,[]);console.log('Preference fallback, score/price labels, detail notes and restaurant reference passed.');
+  // Child cards live inside the expanded scenic-area details element.
+  for (const id of ['eight','house']) {
+   for (const target of ['h3','.compact-description','.open-detail-hint']) {
+    await p.locator('#content [data-candidate="'+id+'"] '+target).click();
+    await p.waitForSelector('#candidate-dialog[open]',{timeout:2000});
+    assert.match(await p.locator('#candidate-modal-title').innerText(),
+      id==='eight'?/八大关风景区/:/花石楼/);
+    assert.match(await p.locator('#candidate-modal-body').innerText(),
+      id==='eight'?/历史街区与海岸慢游/:/景区内历史建筑参观/);
+    await p.locator('#candidate-dialog [data-close=candidate-dialog]').click();
+   }
+  }
+  await p.locator('#content .branch-children > summary').click();
+  assert.equal(await p.locator('#candidate-dialog[open]').count(),0);
+  assert.equal(await p.locator('#content .branch-children').evaluate(el=>el.open),false);
+  await p.locator('#content .branch-children > summary').click();
+  await p.evaluate(()=>document.querySelector('#content [data-candidate=eight]').insertAdjacentHTML('beforeend',src({name:'合成来源',url:'https://example.test/source'})));
+  await p.locator('#content [data-candidate=eight] .source > summary').click();
+  assert.equal(await p.locator('#candidate-dialog[open]').count(),0);
+  assert.equal(await p.locator('#content [data-candidate=eight] .source').evaluate(el=>el.open),true);
+  await p.locator('#content [data-candidate=house]').focus();
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('#candidate-dialog[open]',{timeout:2000});
+  assert.equal(await p.locator('#candidate-modal-title').innerText(),'花石楼');
+  await p.locator('#candidate-dialog [data-close=candidate-dialog]').click();
+  await p.locator('#content [data-candidate=house] [data-select=house]').click();
+  await p.waitForFunction(()=>!busy&&workspace.selected_spots.includes('house'));
+  assert.equal(await p.locator('#candidate-dialog[open]').count(),0);
+  assert.deepEqual(errors,[]);console.log('Recommendation cards, nested scenic details and independent controls passed.');
  }finally{await b.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

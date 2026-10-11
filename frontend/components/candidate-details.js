@@ -337,10 +337,12 @@ document.addEventListener("click", (e) => {
     openCandidate(direct.dataset.openCandidate);
     return;
   }
-  if (e.target.closest("button,a,input,select,textarea,summary,details"))
-    return;
   const card = e.target.closest("[data-open-candidate]");
-  if (card) openCandidate(card.dataset.openCandidate);
+  if (!card) return;
+  const control = e.target.closest("button,a,input,select,textarea,summary,details");
+  // Ignore controls inside this card, not a scenic group's enclosing details.
+  if (control && card.contains(control)) return;
+  openCandidate(card.dataset.openCandidate);
 });
 document.addEventListener("keydown", (e) => {
   if (

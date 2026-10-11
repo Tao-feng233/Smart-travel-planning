@@ -1,0 +1,14 @@
+flowchart TB
+    UI[浏览器：对话、工作台、地图、时间轴、计划书]
+    UI -->|HTTP 操作| API[FastAPI：账户、工作区与任务]
+    API -->|SSE 进度与回复| UI
+    API --> Agent[LangGraph：理解、校验、执行]
+    Agent <--> Model[DeepSeek：意图、工具决策与建议]
+    Agent --> Edit[真实业务工具：查询、选择、编辑、生成]
+    Edit --> State[校验与工作区提交]
+    State --> DB[(SQLite：选择、版本与任务)]
+    Edit --> Query[MCP 与供应商适配]
+    Query --> Provider[高德地点与道路 / 和风天气 / 途牛服务]
+    Query --> RAG[知识检索：BM25 + BGE + Qdrant + RRF]
+    Edit --> Plan[排程、边界检查与只读模型审核]
+    Plan --> State
