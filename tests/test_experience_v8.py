@@ -33,9 +33,13 @@ def test_stream_does_not_echo_acknowledgement_twice(monkeypatch):
   assert ''.join(sink).strip()=='请先完成当前选择。'
  finally:replies.PREFIX.reset(token);replies.SINK.reset(other)
 
-def test_named_day_request_does_not_change_trip_dates():
+def test_named_day_request_does_not_change_trip_dates(monkeypatch):
  from app.agents import planner as agent
  from app.travel import visits
+ from app.planning import visit_analysis
+ async def analysis(w, *_):
+  return {'items':visit_analysis.allocate(w),'status':'fixture','notices':[]}
+ monkeypatch.setattr(visit_analysis,'analyze',analysis)
  w=ready();w['catalog']={'s':{'id':'s','name':'西湖','kind':'spot','location':'120.14,30.25'}}
  i=journey.refine_intent(w,'第二天晚上去西湖',{'action':'chat','patch':{'start_date':'2026-10-11'},'answer':''})
  assert i['action']=='visit_schedule' and not i['patch']

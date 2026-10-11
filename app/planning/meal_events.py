@@ -2,7 +2,7 @@
 
 from app.core.errors import DataError
 from app.travel import foods, stay_plan
-from app.planning import pacing
+from app.planning import pacing, route_cache
 from app.planning.time_values import round_up, clock
 
 
@@ -34,7 +34,7 @@ async def schedule(ctx, dt, period, t, last, duration):
         earliest, latest = meal_window(ctx.workspace, dt, period)
         t = max(t, earliest)
     if p and last:
-        options = await ctx.services.route_options(last, p)
+        options = await route_cache.options(ctx, last, p)
         chosen = ctx.services.choose_route(options, ctx.requirements)
         if not chosen:
             reason = (

@@ -4,7 +4,7 @@ from app.core.errors import DataError
 from app.travel import foods, stay_plan
 from app.planning import pacing, transport_links
 from app.planning.time_values import minute, round_up, clock
-from app.planning import meal_events
+from app.planning import meal_events, return_fitting, route_cache
 
 
 class DailySchedule:
@@ -22,7 +22,17 @@ class DailySchedule:
         if await self.return_only():
             return
         await self.breakfast()
-        for self.index, self.item in enumerate(self.group["items"]):
+        await self.visits()
+        await self.after_lunch()
+        await self.dinner()
+        await self.hotel_transfer()
+        await self.free_time()
+        await self.return_trip()
+        self.publish()
+
+    async def visits(self, start=0, *, fit=True):
+        for self.index in range(start, len(self.group["items"])):
+            self.item = self.group["items"][self.index]
             await self.before_visit()
             self.visit_checkpoint = {
                 "time": self.time,
@@ -37,19 +47,20 @@ class DailySchedule:
             if await self.opening():
                 self.discard_visit()
                 continue
-            await self.inside_dining()
-            if self.meal_minutes and await self.opening(self.meal_minutes):
-                self.discard_visit()
-                continue
-            if await self.visit_end():
+            if fit:
+                await return_fitting.fit(self)
+            if await self.complete_visit() == "stop":
                 break
-            await self.add_visit()
-        await self.after_lunch()
-        await self.dinner()
-        await self.hotel_transfer()
-        await self.free_time()
-        await self.return_trip()
-        self.publish()
+
+    async def complete_visit(self):
+        await self.inside_dining()
+        if self.meal_minutes and await self.opening(self.meal_minutes):
+            self.discard_visit()
+            return "skip"
+        if await self.visit_end():
+            return "stop"
+        await self.add_visit()
+        return "placed"
 
     def discard_visit(self):
         """Withdraw the uncommitted road/wait segment; preserve preceding meals."""
@@ -387,11 +398,7 @@ class DailySchedule:
 
     async def approach(self):
         if self.last:
-            pair = (self.last["id"], self.point["id"])
-            opts = self.ctx.routes.get(pair)
-            if opts is None:
-                opts = await self.ctx.services.route_options(self.last, self.point)
-                self.ctx.routes[pair] = opts
+            opts = await route_cache.options(self.ctx, self.last, self.point)
             chosen = self.ctx.services.choose_route(opts, self.ctx.requirements)
             if chosen:
                 base_buffer = (
@@ -468,6 +475,19 @@ class DailySchedule:
             _usable = max(0, _cap - self.time - meal_minutes)
             if last_entry is not None and self.time > last_entry:
                 _usable = 0
+            if return_fitting.fixed(self, self.item):
+                raise DataError(
+                    self.point["name"]
+                    + "的固定游玩时长无法放入开放时段，请调整日期或预约安排。",
+                    {
+                        "phase": "return_day" if self.is_return_day() else "schedule",
+                        "code": "fixed_duration",
+                        "view": "spot",
+                        "date": self.group["date"],
+                        "candidate_ids": [self.point["id"]],
+                        "available_minutes": _usable,
+                    },
+                )
             self.ctx.boundary_issues.append(
                 {
                     "code": "opening_hours",
@@ -652,6 +672,34 @@ class DailySchedule:
                 + _names
                 + "安排在游玩过程中（游玩时长不缩短，游程相应延长）。"
             )
+        if self.item["duration"] > self.duration:
+            self.note += (
+                "；按当天实际可用窗口缩短为局部游览建议，不代表可完整游遍景区。"
+            )
+
+    def latest_end(self):
+        """One cutoff shared by visit fitting and the final dinner/return checks."""
+        end = minute(self.ctx.requirements.get("day_end", "18:30"))
+        if any(item.get("period") == "evening" for item in self.group["items"]):
+            end = max(end, 22 * 60)
+        if self.is_return_day():
+            departure = self.ctx.return_time.hour * 60 + self.ctx.return_time.minute
+            end = min(
+                end,
+                max(
+                    0,
+                    (departure - transport_links.offset(self.ctx.workspace, "return"))
+                    // 5
+                    * 5,
+                ),
+            )
+        return end
+
+    def is_return_day(self):
+        return bool(
+            self.ctx.return_time
+            and self.group["date"] == self.ctx.return_time.date().isoformat()
+        )
 
     async def add_visit(self):
         self.inside_periods.update(period for period, _ in self.inside_meals)
@@ -709,9 +757,8 @@ class DailySchedule:
                 self.lunch = True
 
     async def dinner(self):
-        self.end_limit = minute(self.ctx.requirements.get("day_end", "18:30"))
+        self.end_limit = self.latest_end()
         if any((x.get("period") == "evening" for x in self.group["items"])):
-            self.end_limit = max(self.end_limit, 22 * 60)
             self.ctx.warnings.append(
                 self.group["date"]
                 + "包含晚间游览建议，当日结束按22:00预留；请核实出游当天夜间开放并确认体力。"
@@ -720,16 +767,6 @@ class DailySchedule:
             self.ctx.return_time
             and self.group["date"] == self.ctx.return_time.date().isoformat()
         ):
-            deadline = (
-                (
-                    self.ctx.return_time.hour * 60
-                    + self.ctx.return_time.minute
-                    - transport_links.offset(self.ctx.workspace, "return")
-                )
-                // 5
-                * 5
-            )
-            self.end_limit = min(self.end_limit, max(0, deadline))
             self.ctx.warnings.append(
                 f"{self.group['date']} 所选返程 {self.ctx.return_time.strftime('%H:%M')}，预留{transport_links.offset(self.ctx.workspace, 'return')}分钟接驳准备；实际出入口、候车或安检等待仍需确认。"
             )
@@ -789,7 +826,7 @@ class DailySchedule:
 
     async def hotel_transfer(self):
         if self.ctx.base and self.last and (self.last["id"] != self.ctx.base["id"]):
-            opts = await self.ctx.services.route_options(self.last, self.ctx.base)
+            opts = await route_cache.options(self.ctx, self.last, self.ctx.base)
             chosen = self.ctx.services.choose_route(opts, self.ctx.requirements)
             if not chosen:
                 raise DataError(
@@ -831,7 +868,7 @@ class DailySchedule:
                     + clock(self.end_limit)
                     + "前开始接驳准备，相差约"
                     + str(_need)
-                    + "分钟。可缩短该项游览、减少当天景点、提前返回，或改乘更晚的班次。",
+                    + "分钟。需要同时预留回住宿和返程接驳的路程；请减少当天活动、提前取行李，或改乘更晚的班次。",
                     {
                         "date": self.group["date"],
                         "view": "spot",

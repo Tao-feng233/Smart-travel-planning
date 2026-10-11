@@ -86,6 +86,10 @@ def test_no_spots_cannot_be_confirmed():
     with pytest.raises(providers.DataError,match='至少'):asyncio.run(agent.handle(trip(),'complete_spots',{},lambda x:None))
 
 def test_complete_selection_queries_hotel_when_information_is_ready(monkeypatch):
+    from app.planning import visit_analysis
+    async def analysis(w, *_):
+        return {'items':visit_analysis.allocate(w),'status':'fixture','notices':[]}
+    monkeypatch.setattr(visit_analysis,'analyze',analysis)
     w=trip();w['catalog']={'s1':poi(1)};w['selected_spots']=['s1'];w['requirements'].update(start_date='2026-10-08',days=3,adults=2)
     calls=[]
     async def tuniu(service,tool,args):

@@ -1,3 +1,7 @@
+## Refactor trial fixes (2026-10-11)
+
+Confirmed two trial defects: recursive frontend asset discovery included dependencies, and return-day visits were checked against departure too late. page_assets now versions only declared HTML scripts/styles. return_fitting isolates bounded trial schedules through actual meals/rest/roads/opening waits, preserves fixed requests and choices, and uses per-plan route_cache to avoid repeat provider queries. 525 backend checks and browser plan/session recovery pass. Backup: repository-backups/before-refactor-fixes-20261011-154911. See docs/collaboration/重构试用问题核对与修复说明-20261011.md. The platform source 92cac1d was content-ported on 2026-10-10; ancestry divergence alone is not evidence of 35 omitted features.
+
 
 ## Overall refactor completed locally (2026-10-11)
 

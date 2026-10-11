@@ -10,7 +10,7 @@
 | 模型主链 | `agents/planner.py` 组装主链；`input_context.py` 提供事实，`turn.py` 执行一轮对话；`goals.py`、`execution.py`、`edit_tools.py` 连续完成工具操作；`auto_selection.py` 处理授权代选；`replies.py` 汇报结果 |
 | 旅行需求与选择 | `travel/dispatch.py`、`handlers/`：按业务分发和处理动作；`requirements.py` 校验需求，`selections.py` 清理取消选择；`actions.py` 提供草稿提交边界 |
 | 景点与住宿查询 | `travel/discovery.py`、`spot_search.py`：展示分页、分批获取、筛选和发布；`hotels.py`、`hotel_candidates.py`：逐晚住宿查询、详情与统一酒店候选资料 |
-| 时间轴与排程 | `planning/engine.py` 组装生成流程；`plan_inputs.py`、`plan_routes.py`、`daily_schedule.py`、`meal_events.py`、`plan_output.py`、`plan_review.py` 分别负责提案、道路、全天排程、用餐、输出与审核；`schedule.py` 构建工作台预览 |
+| 时间轴与排程 | `planning/engine.py` 组装生成流程；`plan_inputs.py`、`plan_routes.py`、`daily_schedule.py`、`meal_events.py`、`plan_output.py`、`plan_review.py` 分别负责提案、道路、全天排程、用餐、输出与审核；`return_fitting.py` 用实际餐次与道路试排返程日弹性游览，`route_cache.py` 复用本次道路查询；`schedule.py` 构建工作台预览 |
 | 配置与共享约定 | `core/`：配置、错误、文本处理及平台接口约定 |
 | 外部接口与 MCP | `integrations/`：供应商适配、地图、缓存与 MCP；`contracts.py` 校验外部数据形状及坐标 |
 | 途牛轮换与额度 | `integrations/tuniu.py`、`tuniu_pool.py`、`tuniu_policy.py` |

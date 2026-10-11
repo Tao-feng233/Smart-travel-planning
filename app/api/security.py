@@ -7,6 +7,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.core.config import ROOT, setting
+from app.api.page_assets import asset_versions
 
 ORIGIN = setting("APP_PUBLIC_ORIGIN", "http://127.0.0.1:8767").rstrip("/")
 ORIGINS = {ORIGIN} | (
@@ -14,13 +15,7 @@ ORIGINS = {ORIGIN} | (
 )
 HOSTS = {urlsplit(o).netloc for o in ORIGINS}
 PROJECT_ID = hashlib.sha256(str(ROOT.resolve()).casefold().encode()).hexdigest()[:16]
-ASSET_VERSIONS = {
-    path.relative_to(ROOT / "frontend").as_posix(): hashlib.sha256(
-        path.read_bytes()
-    ).hexdigest()[:12]
-    for path in (ROOT / "frontend").rglob("*")
-    if path.is_file() and path.suffix in (".js", ".css")
-}
+ASSET_VERSIONS = asset_versions(ROOT / "frontend")
 
 
 async def security(request: Request, call_next):

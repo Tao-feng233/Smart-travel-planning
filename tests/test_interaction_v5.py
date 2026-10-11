@@ -23,6 +23,8 @@ def test_weather_automatically_covers_supplied_dates_and_flags_far_forecast(monk
 
 def test_native_stream_parses_deltas_without_exposing_reasoning(monkeypatch):
  chunks=[];client=httpx.AsyncClient
+ calls=[]
+ monkeypatch.setattr(providers,'record_llm_call',lambda *args,**kw:calls.append((args,kw)))
  monkeypatch.setattr(providers,'setting',lambda name,default='':{'LLM_BASE_URL':'https://model.test','LLM_API_KEY':'fake-only','LLM_MODEL':'test-model'}.get(name,default))
  def handler(request):
   body=json.loads(request.content);assert body['stream'] is True
@@ -31,6 +33,7 @@ def test_native_stream_parses_deltas_without_exposing_reasoning(monkeypatch):
  monkeypatch.setattr(providers.httpx,'AsyncClient',lambda **kw:client(transport=httpx.MockTransport(handler)))
  text,usage=asyncio.run(providers.llm_stream([{'role':'user','content':'测试'}],chunks.append))
  assert chunks==['欢迎','使用'] and text=='欢迎使用' and 'PRIVATE' not in text and usage['completion_tokens']==2
+ assert len(calls)==1
 
 def test_rounded_route_and_late_arrival_are_separate_explicit_events(monkeypatch,tmp_path):
  monkeypatch.setattr(planning,'RUNTIME',tmp_path);day='2026-10-12'
