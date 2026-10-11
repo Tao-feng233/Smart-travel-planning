@@ -52,13 +52,34 @@ async def check(w, p, anchor, route_options, choose_route, meal=None):
         )
         if meal:
             from app.planning.pacing import meal_duration
-            from app.planning.schedule import meal_window, PERIODS
+            from app.planning.schedule import meal_window, meal_latest_end, clock
 
             low, high = meal_window(w, *meal)
-            if low + chosen["minutes"] + 15 + meal_duration(w, meal[0], meal[1]) > high:
+            span = chosen["minutes"] + 15 + meal_duration(w, meal[0], meal[1])
+            take_limit = meal_latest_end(w, meal[0], meal[1])
+            if low + span > take_limit:
+                period_label = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}.get(
+                    meal[1], "本餐"
+                )
                 result.update(
                     status="time_conflict",
-                    message="该餐次可用时段不足以容纳已查询通行、15分钟缓冲与完整用餐",
+                    message=period_label
+                    + "最晚可安排到 "
+                    + clock(take_limit)
+                    + "，而前往餐厅、15 分钟缓冲与完整用餐共需约 "
+                    + str(span)
+                    + " 分钟（"
+                    + clock(low)
+                    + " 起算放不下）。"
+                    + (
+                        "晚餐上界被用餐窗口上界（"
+                        + clock(high)
+                        + "）先卡住，晚于此的「每天结束游玩」设置不会放宽它。"
+                        if meal[1] == "dinner"
+                        else "该餐上界为 "
+                        + clock(take_limit)
+                        + "，受每天结束游玩时间限制。"
+                    ),
                 )
         from app.travel.stay_plan import anchor as stay_anchor
 
@@ -69,22 +90,28 @@ async def check(w, p, anchor, route_options, choose_route, meal=None):
             back_route = choose_route(back, r)
             if back_route:
                 result["return_route"] = back_route
-                from app.planning.schedule import meal_latest_end
 
                 # 晚餐上界与时间轴同源：不被当天活动结束时刻卡住。
-                limit = meal_latest_end(w, meal[0], meal[1])
-                if (
-                    low
-                    + chosen["minutes"]
+                # take_limit 已在上方按同一口径算过，这里直接复用，避免两处漂移。
+                total = (
+                    chosen["minutes"]
                     + 15
                     + meal_duration(w, meal[0], meal[1])
                     + back_route["minutes"]
                     + 15
-                    > limit
-                ):
+                )
+                if low + total > take_limit:
                     result.update(
                         status="time_conflict",
-                        message="该餐次含前往餐厅、完整用餐及返回住宿的通行，超过当前结束或返程准备时刻",
+                        message="该餐次含前往餐厅、完整用餐及返回住宿的通行共需约 "
+                        + str(total)
+                        + " 分钟，而"
+                        + clock(take_limit)
+                        + " 是这一餐的最晚上界（晚餐会被用餐窗口上界 "
+                        + clock(high)
+                        + " 先卡住，晚于此的「每天结束游玩」设置不会放宽它）；"
+                        + clock(low)
+                        + " 起算排不下。",
                     )
             elif back and all(x.get("status") == "no_route" for x in back):
                 result.update(
