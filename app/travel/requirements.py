@@ -110,6 +110,16 @@ def update_requirements(w, patch, *, preference_updates=None):
         "end_date",
         "local_trip",
         "intercity_mode",
+        # 往返交通改为用户填写（见《往返交通改为用户填写-设计文档》3.1）
+        "origin_station",
+        "arrival_station",
+        "arrival_time",
+        "arrival_period",
+        "return_station",
+        "return_arrival_station",
+        "return_time",
+        "return_period",
+        "intercity_ticket_cost",
     }
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None}
     if "city" in clean:
@@ -174,6 +184,10 @@ def update_requirements(w, patch, *, preference_updates=None):
         "self_arranged",
     ):
         raise DataError("不支持的往返交通安排")
+    # 往返时段：只接受三个明确取值；精确时刻由 travel_time 校验 HH:MM 形式。
+    for key in ("arrival_period", "return_period"):
+        if key in clean and clean[key] not in (None, "", "morning", "afternoon", "evening"):
+            raise DataError("时段只能是上午、下午或晚上")
     old = w["requirements"]
     for key in (
         "preferences",
@@ -302,3 +316,13 @@ def update_requirements(w, patch, *, preference_updates=None):
             for k, v in w.get("meal_choices", {}).items()
             if k.split("|")[0] in valid
         }
+    # 往返交通由用户填写（不再选班次）。合成必须放在上面那些"
+    # 日期/出发地变化就清空 selected_transport/selected_return"的逻辑【之后】，
+    # 否则刚合成好的记录又会被清掉。
+    # 只有用户确实填了时刻相关信息时才合成，避免无谓改写已有记录。
+    if {"arrival_time", "arrival_period", "return_time", "return_period",
+            "arrival_station", "return_station", "outbound_date",
+            "return_date", "start_date", "days"} & changed:
+        from app.travel import travel_synthesis
+
+        travel_synthesis.apply(w)
