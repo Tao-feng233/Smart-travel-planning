@@ -11,22 +11,24 @@ def trip():
             'selected_spots':['old'],'spots_confirmed':True,'messages':[],'spot_search':{'city':'青岛','ids':['old'],'page':1,'provider_page':1,'keywords':['人文']}}
 
 
-def test_more_candidates_excludes_shown_and_preserves_selection(monkeypatch):
+def test_more_candidates_excludes_shown_and_preserves_selection(monkeypatch,web_candidates):
     w=trip();calls=[]
+    rows=[w['catalog']['old'],{'id':'new','kind':'spot','name':'八大关','location':'120.35,36.06'}]
+    observed=web_candidates(rows)
     async def tool(name,args):
-        if name=='retrieve_guides':return {'items':[]}
         calls.append(args)
-        return {'items':[w['catalog']['old'],{'id':'new','kind':'spot','name':'八大关','location':'120.35,36.06'}]}
+        return {'items':rows}
     async def rank(*args):return '新增备选'
     monkeypatch.setattr(discovery,'local_tool',tool)
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,rank))
     assert w['selected_spots']==['old'] and w['spots_confirmed']
     assert w['spot_search']['ids']==['new'] and 'old' in w['spot_search']['history_ids']
-    assert calls[0]['offset']==0 and 'old' in calls[0]['exclude_ids'] and '已补充' in result
+    assert '已有景点' in observed[0]['excluded'] and '已补充' in result
 
 
-def test_no_new_candidates_is_a_normal_result_with_old_batch_kept(monkeypatch):
+def test_no_new_candidates_is_a_normal_result_with_old_batch_kept(monkeypatch,web_candidates):
     w=trip()
+    web_candidates([w['catalog']['old']])
     async def tool(*args):return {'items':[w['catalog']['old']]}
     monkeypatch.setattr(discovery,'local_tool',tool)
     result=asyncio.run(discovery.search(w,{'expand_spots':True},lambda _:None,None))

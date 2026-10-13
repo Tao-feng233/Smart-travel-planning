@@ -34,8 +34,8 @@ def state(w):
     ]
     covered = {
         cid: [leaf for leaf in active if cid in chains[leaf]]
-        for cid in chosen
-        if cid not in active
+        for cid in dict.fromkeys(chosen + list(w.get("spot_scope_selections", {})))
+        if cid not in active and any(cid in chains[leaf] for leaf in active)
     }
     pins = {cid: dict(pin) for cid, pin in w.get("visit_requests", {}).items()}
     issues = []
@@ -90,7 +90,64 @@ def state(w):
         "visit_requests": pins,
         "visit_order": order,
         "issues": issues,
+        "scope_choices": {
+            cid: selection_info(w, cid)
+            for cid, p in cat.items()
+            if p.get("kind") == "spot" and selection_targets(w, cid) != [cid]
+        },
     }
+
+
+def selection_targets(w, cid):
+    """Only expand actual, available child cards; names are not containment."""
+    from app.travel.discovery import visible
+
+    cat = w.get("catalog", {})
+    pool = visible(w) if w.get("spot_search") else list(cat)
+    pool = list(
+        dict.fromkeys(
+            pool
+            + w.get("selected_spots", [])
+            + w.get("spot_scope_selections", {}).get(cid, [])
+        )
+    )
+    rejected = set(w.get("rejected_spots", []))
+    children = [
+        cat[child]
+        for child in pool
+        if cat.get(child, {}).get("kind") == "spot"
+        and not cat[child].get("stale")
+        and child not in rejected
+        and cid in ancestors(cat, child)
+    ]
+    return [p["id"] for p in candidates(cat, children)] if children else [cid]
+
+
+def selection_info(w, cid):
+    targets = selection_targets(w, cid)
+    chosen = set(w.get("selected_spots", []))
+    count = sum(target in chosen for target in targets)
+    return {
+        "ids": targets,
+        "selected_count": count,
+        "all_selected": count == len(targets),
+    }
+
+
+def scenic_groups(w):
+    """Selected actual visits sharing a map container, from outer to inner scopes."""
+    cat = w.get("catalog", {})
+    active = state(w)["active_ids"]
+    grouped = {}
+    for cid in active:
+        for parent in reversed(ancestors(cat, cid)):
+            if parent in cat:
+                grouped.setdefault(parent, []).append(cid)
+    return [
+        {"parent_id": parent, "name": cat[parent]["name"], "candidate_ids": ids}
+        for parent, ids in grouped.items()
+        if len(ids) > 1
+    ]
 
 
 def candidates(catalog, items):

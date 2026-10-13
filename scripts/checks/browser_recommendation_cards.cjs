@@ -20,7 +20,17 @@ const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:8767';
   if(u.pathname.endsWith('/actions')){request=r.request().postDataJSON();return r.fulfill({contentType:'application/json',body:'{"job_id":"j"}'})}
   if(u.pathname.endsWith('/events')){
    if(request.action==='select'){
-    assert.equal(request.args.id,'house');w.selected_spots.push('house');w.revision++;
+    const id=request.args.id;
+    if(w.spot_coverage?.scope_choices?.sea){
+     const ids=['pier','park','beach'];
+     if(id==='sea') w.selected_spots=ids.every(cid=>w.selected_spots.includes(cid))
+      ?w.selected_spots.filter(cid=>!ids.includes(cid)):[...new Set([...w.selected_spots,...ids])];
+     else {assert.ok(ids.includes(id));w.selected_spots=w.selected_spots.includes(id)?w.selected_spots.filter(cid=>cid!==id):[...w.selected_spots,id]}
+     const count=ids.filter(cid=>w.selected_spots.includes(cid)).length;
+     w.spot_coverage.scope_choices.sea={ids,selected_count:count,all_selected:count===ids.length};
+     w.spot_coverage.parent_coverage=count?{sea:ids.filter(cid=>w.selected_spots.includes(cid))}:{};
+    }else{assert.equal(id,'house');w.selected_spots.push('house')}
+    w.revision++;
     return r.fulfill({contentType:'text/event-stream',body:'event: done\ndata: '+JSON.stringify({id:'j',action:'select',status:'completed',workspace:w,ui:w.ui})+'\n\n'});
    }
    assert.equal(request.action,'search_spots');
@@ -102,6 +112,49 @@ const root=path.resolve(__dirname,'../..'),base='http://127.0.0.1:8767';
   await p.locator('#content [data-candidate=house] [data-select=house]').click();
   await p.waitForFunction(()=>!busy&&workspace.selected_spots.includes('house'));
   assert.equal(await p.locator('#candidate-dialog[open]').count(),0);
+  // The parent is a scope control; only its three actual visits are selected.
+  w=await p.evaluate(()=>workspace);
+  w.catalog=Object.fromEntries([
+   {id:'sea',name:'海滨风景区'},
+   {id:'pier',name:'栈桥',parent_id:'sea'},
+   {id:'park',name:'海边公园',parent_id:'sea'},
+   {id:'beach',name:'海滩',parent_id:'sea'},
+   {id:'other',name:'独立景点'},
+  ].map(row=>[row.id,{...row,kind:'spot',source}]));
+  w.selected_spots=['other'];w.spot_search.ids=['sea','pier','park','beach','other'];
+  w.spot_page.ids=w.spot_search.ids;
+  w.spot_groups=[{key:'sea',title:'海滨风景区',parent_id:'sea',ids:['sea','pier','park','beach'],basis:'地图父子关系'},
+   {key:'other',title:'独立景点',parent_id:null,ids:['other']}];
+  w.spot_coverage={parent_coverage:{},scope_choices:{sea:{ids:['pier','park','beach'],selected_count:0,all_selected:false}}};
+  await p.evaluate(next=>{workspace=next;referenceFocus=null;render()},w);
+  assert.equal(await p.locator('#content [data-candidate=sea] [data-select]').innerText(),'选择全部内部地点');
+  await p.locator('#content [data-candidate=sea] [data-select]').click();
+  await p.waitForFunction(()=>!busy&&workspace.selected_spots.length===4);
+  assert.deepEqual(await p.evaluate(()=>workspace.selected_spots),['other','pier','park','beach']);
+  assert.equal(await p.locator('#content [data-candidate=sea] [data-select]').innerText(),'取消全部内部地点');
+  assert.equal(await p.locator('#content .branch-children .compact-place.selected').count(),3);
+  await p.locator('#content [data-candidate=sea] h3').click();
+  assert.equal(await p.locator('#candidate-dialog [data-select=sea]').innerText(),'取消全部内部地点');
+  await p.locator('#candidate-dialog [data-close=candidate-dialog]').click();
+  await p.locator('#content [data-candidate=park] [data-select]').click();
+  await p.waitForFunction(()=>!busy&&!workspace.selected_spots.includes('park'));
+  assert.equal(await p.locator('#content [data-candidate=sea] [data-select]').innerText(),'补选其余内部地点');
+  await p.locator('#content [data-candidate=sea] [data-select]').click();
+  await p.waitForFunction(()=>!busy&&workspace.selected_spots.includes('park'));
+  await p.locator('#content [data-candidate=sea] [data-select]').click();
+  await p.waitForFunction(()=>!busy&&workspace.selected_spots.length===1);
+  assert.deepEqual(await p.evaluate(()=>workspace.selected_spots),['other']);
+  assert.equal(await p.locator('#candidate-dialog[open]').count(),0);
+  await p.evaluate(()=>{
+   workspace.web_guides=[
+    {id:'web:official',title:'官方游览资料',text:'来源正文',url:'https://example.gov.cn/a',source_kind:'official_web',fetched_at:'2026-10-12',retrieval:'Tavily web search'},
+    {id:'web:popular',title:'平台游览体验',text:'体验正文',url:'https://www.xiaohongshu.com/explore/a',source_kind:'popular_article',likes:12000,comments:23,fetched_at:'2026-10-12',retrieval:'Tavily web search'},
+   ];tab='knowledge';render();
+  });
+  assert.equal(await p.locator('#content .knowledge').count(),2);
+  assert.match(await p.locator('#content').innerText(),/官方资料/);
+  assert.match(await p.locator('#content').innerText(),/点赞 12000 · 评论 23/);
+  assert.doesNotMatch(await p.locator('#content').innerText(),/\bRAG\b/);
   assert.deepEqual(errors,[]);console.log('Recommendation cards, nested scenic details and independent controls passed.');
  }finally{await b.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

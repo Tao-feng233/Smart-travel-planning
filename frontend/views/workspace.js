@@ -298,20 +298,20 @@ function renderWorkspaceContent() {
   if (tab === "weather") return weatherHTML();
   if (tab === "transport") return transportHTML();
   if (tab === "plan") return bookHTML();
-  const guides = w.rag_results || w.plan?.guides || [];
+  const guides = w.web_guides || w.plan?.guides || [];
   return (
-    `<div class="toolbar"><p>官方页面片段，按城市检索并保留采集时间。检索命中不代表规则适用于未来出游日。</p></div>` +
+    `<div class="toolbar"><p>联网旅游资料，优先采用官方信息；平台文章须核实点赞数至少一万。资料保留来源与查询时间，运营信息需核对出游日。</p></div>` +
     (guides.length
       ? guides
           .map(
             (g) =>
-              `<article class="knowledge"><h4>${esc(g.title)}</h4><p>${esc(g.text)}</p>${link(g.url, "查看原文 ↗")}<div class="source">采集 ${esc(g.fetched_at)} · ${esc(g.retrieval || "官方页面快照")} · ${g.score ?? ""}</div></article>`,
+              `<article class="knowledge"><h4>${esc(g.title)}</h4><p>${esc(g.text)}</p>${link(g.url, "查看原文 ↗")}<div class="source">查询 ${esc(g.fetched_at)} · ${esc(g.source_kind === "popular_article" ? `平台文章 · 点赞 ${g.likes} · 评论 ${g.comments ?? "未提供"}` : "官方资料")} · ${esc(g.retrieval || "页面快照")}</div></article>`,
           )
           .join("")
       : empty(
-          "RAG",
+          "资料",
           "介绍也需要有依据",
-          "查询景点时，助手会检索相关官方资料。没有匹配片段时明确保留未知。",
+          "查询景点时，助手会联网收集旅游资料。尚无可核实来源时保留未知。",
         )) +
     `<details><summary>最近的执行记录</summary>${w.trace.map((x) => `<p>${esc(x.time)} · ${esc(x.text)}</p>`).join("")}</details>`
   );

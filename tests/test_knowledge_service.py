@@ -42,7 +42,8 @@ def test_parent_context_contains_exception_and_source(tmp_path,monkeypatch):
     assert result['status']=='degraded'
     assert result['items'][0]['text'].endswith('法定节假日除外。')
     assert result['items'][0]['url']=='https://example.org/guide'
-    assert all(len(c['text'])<=360 for c in loaded['children'])
+    from app.knowledge.tokenization import get_counter
+    assert all(get_counter().count(c['index_text'],special_tokens=True)<=360 for c in loaded['children'])
 
 
 def test_duplicate_and_invalid_dates_rejected(tmp_path):

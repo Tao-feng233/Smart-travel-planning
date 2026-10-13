@@ -5,13 +5,34 @@ from app.travel.requirements import mark_stale
 
 def remove_selection(w, candidate_id):
     changed = False
-    if candidate_id in w.get("selected_spots", []):
-        w["selected_spots"].remove(candidate_id)
+    from app.travel.spot_hierarchy import ancestors
+
+    cat = w.get("catalog", {})
+    spot_ids = {
+        cid
+        for cid in w.get("selected_spots", [])
+        if cid == candidate_id or candidate_id in ancestors(cat, cid)
+    }
+    if spot_ids:
+        w["selected_spots"] = [
+            cid for cid in w["selected_spots"] if cid not in spot_ids
+        ]
         w["spots_confirmed"] = False
-        w.get("visit_requests", {}).pop(candidate_id, None)
+        for cid in spot_ids | {candidate_id}:
+            w.get("visit_requests", {}).pop(cid, None)
         if "visit_order" in w:
-            w["visit_order"] = [cid for cid in w["visit_order"] if cid != candidate_id]
+            w["visit_order"] = [
+                cid for cid in w["visit_order"] if cid not in spot_ids | {candidate_id}
+            ]
         changed = True
+    if "spot_scope_selections" in w:
+        w["spot_scope_selections"] = {
+            parent: ids
+            for parent, ids in w["spot_scope_selections"].items()
+            if parent != candidate_id
+            and candidate_id not in ancestors(cat, parent)
+            and any(cid in w.get("selected_spots", []) for cid in ids)
+        }
     if "meal_choices" in w:
         kept = {
             key: value

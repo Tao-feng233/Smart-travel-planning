@@ -91,12 +91,6 @@ CITY_REQUIRED_ACTIONS = frozenset(
 
 async def dispatch(w, action, args, progress, services):
     w.setdefault("catalog", {})
-    if action in ("search_spots", "search_hotels", "search_foods") and w[
-        "requirements"
-    ].get("city"):
-        from app.knowledge.coverage import require_city
-
-        require_city(w["requirements"]["city"])
     if action not in DIRECT_ACTIONS:
         w["ui"] = guidance.describe(w, action, args, status="loading")
         progress(w["ui"]["title"])

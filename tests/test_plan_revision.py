@@ -77,7 +77,7 @@ def test_real_plan_revision_preserves_lunch_inside_a_long_scenic_visit(monkeypat
             output={'title':'修订计划','days':[{'date':'2026-10-12','items':[{'candidate_id':'s','period':'any','duration':405,'note':'以核心游览线路为主，午餐后继续游览'}]}]}
         return {'content':json.dumps(output)},{}
     async def tool(name,args):
-        assert name=='retrieve_guides';return {'items':[]}
+        assert name=='search_travel_web';return {'items':[]}
     monkeypatch.setattr(planning,'llm',model);monkeypatch.setattr(planning,'local_tool',tool)
     monkeypatch.setattr(planning,'RUNTIME',tmp_path)
     # meal_choices 不列入快照：用户明确要求超窗餐次自动改为自行安排（会改掉该项）。

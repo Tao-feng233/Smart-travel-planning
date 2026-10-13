@@ -36,6 +36,10 @@ def messages_for(w, items, task, guides):
             {
                 **{key: value for key, value in item.items() if key not in ANNOTATIONS},
                 **({"reference": "城市代表景点"} if item.get("classic") else {}),
+                "evidence": [
+                    {key: source.get(key) for key in ("id", "title", "url", "source_kind", "likes", "comments")}
+                    for source in item.get("evidence", [])
+                ],
             }
             for item in items
         ],
@@ -50,7 +54,7 @@ def messages_for(w, items, task, guides):
             "between_visit_break_minutes": 30,
             "note": "未经过模型细化时的初步预留，人数与天气等条件明确后可调整。",
         },
-        "guides": guides or [],
+        "guides": [{**guide, "text": guide["text"][:2400]} if guide.get("retrieval") == "Tavily web search" else guide for guide in guides or []],
     }
     # Keep the JSON boundary and message shape stable so existing cache entries
     # and provider input semantics survive the refactor.

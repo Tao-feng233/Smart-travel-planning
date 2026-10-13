@@ -120,6 +120,16 @@ async def daily_weather(location: str) -> dict:
 
 
 @mcp.tool()
+async def search_travel_web(
+    query: str, city: str = "", source_type: str = "official", max_results: int = 6,
+) -> dict:
+    """Tavily旅游搜索：官方来源优先；popular仅返回页面点赞至少10000的文章。保留链接、正文与查询时间，不代替实时库存和出游日核实。"""
+    from app.integrations.tavily import search
+
+    return await search(query, city, source_type, max_results)
+
+
+@mcp.tool()
 def retrieve_guides(
     city: str,
     query: str,

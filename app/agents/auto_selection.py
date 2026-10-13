@@ -391,17 +391,18 @@ async def arrange_spots(w, state, category, progress, model, handle):
         model,
         many=True,
     )
-    w["selected_spots"] = (
-        chosen
-        if mode == "replace"
-        else list(dict.fromkeys(w.get("selected_spots", []) + chosen))
-    )
-    w["spots_confirmed"] = True
     if mode == "replace":
+        w["selected_spots"] = []
+        w["spot_scope_selections"] = {}
         w["visit_requests"] = {
             i: v for i, v in w.get("visit_requests", {}).items() if i in chosen
         }
         w["visit_order"] = [i for i in w.get("visit_order", []) if i in chosen]
+    from app.travel.spot_choices import choose as select_spot
+
+    for cid in chosen:
+        select_spot(w, cid, add_only=True)
+    w["spots_confirmed"] = True
     if w.get("plan"):
         w["plan"]["stale"] = True
     from app.planning.visit_analysis import analyze

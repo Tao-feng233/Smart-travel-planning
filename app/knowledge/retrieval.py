@@ -178,4 +178,5 @@ def status():
         "model": (manifest or {}).get("model"),
         "indexed_at": (manifest or {}).get("indexed_at"),
         "corpus_version": loaded["fingerprint"],
+        "split": loaded["split"],
     }

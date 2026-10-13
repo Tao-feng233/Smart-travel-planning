@@ -52,6 +52,7 @@ def configured() -> dict:
             "QWEATHER_API_KEY",
             "QWEATHER_API_HOST",
             "LLM_API_KEY",
+            "TAVILY_API_KEY",
         )
     }
     result["TUNIU_API_KEY"] = bool(tuniu_credentials())

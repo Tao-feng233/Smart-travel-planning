@@ -1,13 +1,24 @@
 """Source-preserving parent/child corpus and lexical retrieval primitives."""
 
-import hashlib, json, math, re, unicodedata
+import hashlib
+import json
+import math
+import re
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 from app.core.config import ROOT
+from app.knowledge.tokenization import (
+    split_text as split_text,
+    split_contract,
+    PARENT_TOKENS,
+    CHILD_TOKENS,
+    OVERLAP_TOKENS,
+)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class CorpusError(ValueError):
@@ -93,31 +104,6 @@ def normalize_record(row):
     return value
 
 
-def split_text(text, max_chars=360, overlap=50):
-    """Paragraph/sentence boundaries first; hard-length split only as a fallback."""
-    if not 0 <= overlap < max_chars:
-        raise ValueError("重叠长度必须小于片段长度")
-    sentences = re.findall(r"[^。！？；\n]+[。！？；\n]?|[。！？；\n]", text)
-    pieces = []
-    for s in sentences:
-        for at in range(0, len(s), max_chars):
-            piece = s[at : at + max_chars].strip()
-            if piece:
-                pieces.append(piece)
-    chunks = []
-    current = ""
-    for piece in pieces:
-        if current and len(current) + len(piece) > max_chars:
-            chunks.append(current)
-            tail = current[-overlap:] if overlap else ""
-            current = (tail + piece) if len(tail) + len(piece) <= max_chars else piece
-        else:
-            current += piece
-    if current:
-        chunks.append(current)
-    return chunks or ([text] if text else [])
-
-
 def merge_snippets(texts):
     """Reconstruct overlapping legacy windows before parent/child splitting."""
     result = ""
@@ -180,7 +166,7 @@ def load_corpus(directory=None):
     children = []
     for key, rows in groups.items():
         joined = merge_snippets(r["text"] for r in rows)
-        parent_parts = split_text(joined, 1400, 0)
+        parent_parts = split_text(joined, PARENT_TOKENS, 0)
         for i, text in enumerate(parent_parts):
             base = rows[0]
             pid = (
@@ -210,18 +196,23 @@ def load_corpus(directory=None):
                 ]
             )
             parents[pid] = parent
-            for j, body in enumerate(split_text(text)):
+            prefix = parent["city"] + " " + parent["title"] + " "
+            for j, body in enumerate(
+                split_text(
+                    text,
+                    CHILD_TOKENS,
+                    OVERLAP_TOKENS,
+                    prefix=prefix,
+                    special_tokens=True,
+                )
+            ):
                 cid = "child:" + digest([pid, j, body])[:28]
                 children.append(
                     {
                         "id": cid,
                         "parent_id": pid,
                         "text": body,
-                        "index_text": parent["city"]
-                        + " "
-                        + parent["title"]
-                        + " "
-                        + body,
+                        "index_text": prefix + body,
                         "city": parent["city"],
                         "entity_ids": parent["entity_ids"],
                         "valid_from": parent.get("valid_from"),
@@ -229,11 +220,12 @@ def load_corpus(directory=None):
                         "content_version": parent["content_version"],
                     }
                 )
+    split = split_contract()
     fingerprint = digest(
         {
             "schema": SCHEMA_VERSION,
             "records": records,
-            "split": {"parent": 1400, "child": 360, "overlap": 50},
+            "split": split,
         }
     )
     return {
@@ -241,6 +233,7 @@ def load_corpus(directory=None):
         "parents": parents,
         "children": children,
         "records": len(records),
+        "split": split,
     }
 
 

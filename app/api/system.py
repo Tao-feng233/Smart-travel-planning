@@ -28,15 +28,14 @@ def health():
 
 @router.get("/api/status")
 def status(request: Request, user=Depends(auth.current_user)):
-    from app.knowledge.retrieval import corpus
-
-    knowledge = corpus()
     return {
         "configured": configured(),
         "tools": getattr(request.app.state, "tool_names", []),
-        "knowledge_cities": sorted({p["city"] for p in knowledge["parents"].values()}),
-        "knowledge_records": knowledge["records"],
-        "knowledge_scope": "已收录的官方特色、历史背景及部分运营快照；出游日适用性需核实",
+        "data_source": "tavily",
+        "rag_enabled_in_app": False,
+        "knowledge_cities": [],
+        "knowledge_records": None,
+        "knowledge_scope": "本地RAG工具独立保留，当前应用使用联网资料，不以本地资料限制城市覆盖。",
     }
 
 

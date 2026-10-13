@@ -94,10 +94,18 @@ async def apply_choices(workspace, intent, progress, handler):
         if key in intent
     }
     for cid in selected:
-        if draft["catalog"][cid].get("kind") == "spot" and cid in draft.get(
-            "selected_spots", []
-        ):
-            continue
-        answers.append(await handler(draft, "select", {"id": cid, **slots}, progress))
+        if draft["catalog"][cid].get("kind") == "spot":
+            from app.travel.spot_hierarchy import selection_info
+
+            info = selection_info(draft, cid)
+            if info["all_selected"] and (
+                info["ids"] == [cid] or cid in draft.get("spot_scope_selections", {})
+            ):
+                continue
+        answers.append(
+            await handler(
+                draft, "select", {"id": cid, **slots, "add_only": True}, progress
+            )
+        )
     commit(workspace, draft)
     return "\n".join(answer for answer in answers if answer)

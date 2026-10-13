@@ -34,7 +34,7 @@ def build(include_env=False):
     release_name = "识途体验版-Windows64-" + tag
     stage = ROOT / "data/runtime/package-build" / release_name
     stage.mkdir(parents=True, exist_ok=False)
-    for folder in ("app", "frontend", "data/knowledge", "data/catalog"):
+    for folder in ("app", "frontend", "data/knowledge", "data/catalog", "data/tokenizers"):
         copy_files(ROOT / folder, stage / folder)
     (stage / "scripts").mkdir()
     shutil.copy2(ROOT / "scripts/launch.py", stage / "scripts/launch.py")

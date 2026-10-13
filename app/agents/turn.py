@@ -52,13 +52,6 @@ def prepare(s, services):
     w["turn_result"] = ""
     before = dict(w["requirements"])
     patch = intent.get("patch", {})
-    if intent.get("requested_place"):
-        from app.knowledge.coverage import require_place
-
-        require_place(
-            patch.get("city") or w["requirements"].get("city"),
-            intent["requested_place"],
-        )
     update_requirements(w, patch, preference_updates=intent.get("preference_updates"))
     action = intent.get("action", "chat")
     if action == "spots_page" and not intent.get("page") and w.get("spot_search"):

@@ -1,6 +1,5 @@
 from app.travel.requirements import update_requirements
 import asyncio
-import copy
 import pytest
 from app.knowledge import coverage as data_coverage
 from app.agents import planner as agent
@@ -15,32 +14,32 @@ def test_directory_is_finite_and_tied_to_saved_corpus():
     assert data_coverage.canonical_city('山东省青岛市')=='青岛'
 
 
-def test_unsupported_destination_fails_before_mutating_selections():
+def test_destination_outside_local_corpus_can_update_requirements():
     w={'requirements':{'city':'青岛'},'catalog':{'a':{'id':'a'}},'selected_spots':['a'],'hotel':{'id':'h'},'plan':{'stale':False}}
-    original=copy.deepcopy(w)
-    with pytest.raises(agent.DataError,match='数据库暂时缺失.*苏州.*请选择其他地区'):
-        update_requirements(w,{'city':'苏州'})
-    assert w==original
+    update_requirements(w,{'city':'苏州'})
+    assert w['requirements']['city']=='苏州' and w['selected_spots']==[]
+    assert w['plan']['stale']
 
 
-def test_explicit_uncovered_place_is_rejected_before_preference_or_query(monkeypatch):
+def test_explicit_uncovered_place_reaches_search_instead_of_local_rejection(monkeypatch):
     w={'requirements':{'city':'青岛'},'catalog':{},'selected_spots':[],'messages':[]}
-    async def forbidden(*_):pytest.fail('Uncovered place cannot query providers')
-    monkeypatch.setattr(discovery,'local_tool',forbidden)
-    with pytest.raises(agent.DataError,match='数据库暂时缺失'):
-        asyncio.run(agent.execute({'workspace':w,'text':'推荐不存在的奇幻景区','intent':{'action':'search_spots','patch':{},'requested_place':'不存在的奇幻景区'},'progress':lambda _:None}))
-    assert not w.get('spot_preference') and not w['catalog']
+    seen=[]
+    async def search(w,action,args,progress):seen.append(args);return '本次未核实到该地点'
+    monkeypatch.setattr(agent,'handle',search)
+    asyncio.run(agent.execute({'workspace':w,'text':'推荐一个资料名单外的地点','intent':{
+        'action':'search_spots','patch':{},'requested_place':'名单外的地点',
+        'mission':{'mode':'query','objective':'查询地点','scopes':['spots'],'multi_step':False}},'progress':lambda _:None}))
+    assert seen[0]['requested_place']=='名单外的地点' and not w['catalog']
 
 
-def test_external_map_results_cannot_expand_local_place_coverage(monkeypatch):
+def test_web_candidates_can_expand_beyond_local_place_coverage(monkeypatch,web_candidates):
     w={'requirements':{'city':'青岛'},'selected_spots':[],'catalog':{}}
-    async def tool(name, args):
-        if name == 'retrieve_guides':
-            return {'items': []}
-        return {'items':[{'id':'real','name':'栈桥景区','kind':'spot','location':'120.31,36.06'},{'id':'outside','name':'外部新景点','kind':'spot','location':'120.32,36.06'}], 'exhausted': True}
+    rows=[{'id':'real','name':'栈桥景区','kind':'spot','location':'120.31,36.06'},{'id':'outside','name':'外部新景点','kind':'spot','location':'120.32,36.06'}]
+    web_candidates(rows)
+    async def tool(name, args):return {'items':rows}
     async def recommend(*_):
         return ''
     monkeypatch.setattr(discovery,'local_tool',tool)
     asyncio.run(discovery.search(w, {'keywords': ['风景']}, lambda _: None, recommend))
-    assert w['spot_search']['ids'] == ['real']
+    assert w['spot_search']['ids'] == ['real','outside']
     assert data_coverage.place_known('青岛','青岛市崂山景区')

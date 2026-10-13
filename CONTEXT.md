@@ -1,3 +1,9 @@
+## Tavily web-backed discovery and retained RAG tools (2026-10-12)
+
+The app's destination/scenic discovery and formal planning evidence now use model-controlled MCP search_travel_web with Tavily. Existing retrieve_guides/knowledge_status, corpus and Qdrant index remain independently available, but app flows do not call them. Local city/place admission guards and the unused covered-batch collector were removed from active discovery. Map POI identity and coordinates still gate selectable candidates; only evidence-mentioned alternate names can resolve naming differences. Official government/reviewed institution hosts are admitted; social-platform articles need a standalone page like counter >=10000 (comments supplementary), never search relevance or snippet popularity. Unavailable platform counts mean exclusion, not invented counters. Source texts remain data and do not grant tool permissions. Search caches/coalesces requests and bounds each research to three searches; model evidence text is clipped and duplicate full references avoided.
+
+573 backend regressions and recommendation/plan-session browser fixtures pass; live model+MCP长沙 probes obtain previously uncovered real POIs with zero RAG calls. Probes use isolated databases. Card selection is direct business mutation without LLM; synchronous post-processing may await road preview. Destination selection/complete-spots can launch model queries/analysis, meal choice can check access. No selection-latency fix was applied. Source/config-template/docs backup: repository-backups/before-tavily-search-20261012-221204/source.zip. Details: docs/releases/Tavily搜索接入与选择耗时排查-20261012.md. Detailed venue guides and the other enterprise product changes remain deferred. No remote publication for this stage.
+
 ## Nested scenic card details click fix (2026-10-12)
 
 The delegated detail-click handler ignored every details ancestor, so cards within branch-children could not open their detail dialog. Scope the interactive-control exclusion to elements contained by the clicked card; preserve enclosing branch toggles, source disclosures and selection buttons. The recommendation browser fixture now covers nested title/description/hint clicks for two child levels, keyboard access, branch/source toggles and selection without opening the dialog. Recommendation, optional-room and plan/session browser suites pass; no supplier calls or user data changes. Backup: repository-backups/before-nested-spot-click-20261012-004022.
@@ -276,3 +282,21 @@ app/request_cache.py提供进程内相同请求合并、取消等待者隔离及
 固定复核成员二42a6e28、成员三90de7f2。独立吸收最新Repository/JobContext公共契约与语义夹具、餐饮关键词/5至10公里/城市范围兜底与单餐取消，不启用MySQL或Worker。保留通行筛选与提前候选预览；供应商查询失败停止兜底并保留旧候选，范围与适配器实际发送值一致。补充阶段夹具原子写入竞态回归、撤销返回及额度申请口径。
 
 完整平台与逐晚规划暂不吸收：实际Worker最终发布未封住取消/租约/版本，新旅行存储与MySQL任务外键未对接，业务阶段恢复未接入；逐晚住宿的界面分配与计划、路线、预算仍不一致。另有额度并发、知识过滤/日期范围与导入版本问题。详见docs/collaboration/分支整合复核与待修事项-20261009.md，PR #2保持待修。接口夹具通过不代表完整业务迁移完成。
+
+
+## Scenic scope selection and grouping (2026-10-12)
+
+选择已查询的大景区时，以地图 parent_id 链展开已展示、有效且未拒绝的内部实际游玩地点；更深层已知子地点覆盖中间容器，不重复选择或计时父景区。未查询的子地点、名称相似关联和循环父子资料不会用于批量选取。spot_scope_selections 保存显式选取过的范围，继续支持父项日期/时段传递和整组取消；用户逐个取消后不会自动补回。模型选择使用 add_only 保持幂等，自动代选复用相同领域逻辑。
+
+卡片和详情弹窗共用后端 scope_choices，展示选择全部、部分选中补选与整组取消。取消范围仅清理该范围的已选地点、日期请求和顺序，不影响无关选择。
+
+scenic_grouping 根据真实所属关系提供同日、连续半天的软偏好：初估仅在扣除餐次、休息与转场余量后可容纳时集中日期；固定不同日期或容量不足可拆分，合理时长不因此缩短。模型分析、计划与时间轴调整均接收 scenic_groups；可避免的跨日分散触发一次内部修订建议，不成为用户的硬性错误。正式计划仍核对实际道路、开放条件与抵达返程窗口。模型分批保留较小景区组合，同日可变地点优先相邻，用户明确顺序优先。旧保存选择不会因读取页面自动批量改变；重新点击父项即可展开，旧计划标记需要更新。
+
+验证：新增12项合成领域/计划测试（含完整计划生成），并扩充浏览器验证父项批选、部分取消补选、详情弹窗及取消整组。测试不请求真实供应商，不修改用户记录；备份位于 repository-backups/before-scenic-group-selection-20261012-010249/source.zip。
+
+
+## Token-based parent/child corpus (2026-10-12)
+
+切分使用与当前 BGE-small-zh-v1.5 相同的 Tokenizer，优先句子与换行边界，过长单句按原文字符位置切开。父块上限1400 BGE Token，不直接向量化；子块完整索引输入上限360 BGE Token，包含城市、标题和特殊标记，适用时保留50 Token重叠。计数禁用截断与padding，FastEmbed推理实例不受影响；不把字符数等同于Token数。小型分词器独立保存在 data/tokenizers，BM25与语料加载不依赖模型权重初始化。切分参数与分词器指纹参与语料版本，旧索引需要重建；新代次完成后才原子发布清单。
+
+原始116条记录不变；新索引121父块、339子块、512维，已重建并验证就绪。全量543项后端测试通过；真实本地BGE计数与339个索引输入逐一一致，完整子块最大360 Token。13个原有旅游问题修改前后均检索到标注依据，仅作为回归检查，不宣称最优切分或普遍召回率。正式汇报和技术说明同步单位及当前规模。备份：repository-backups/before-token-chunking-20261012-025541/source-and-index.zip；验证记录：data/runtime/token-chunking-20261012/verification.json。

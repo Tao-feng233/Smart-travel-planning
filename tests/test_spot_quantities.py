@@ -11,9 +11,10 @@ def trip(days=2):
     return {'requirements':{'city':'青岛','days':days},'catalog':{},'selected_spots':[],'messages':[]}
 
 
-def test_ranking_one_item_cannot_collapse_two_day_candidate_set(monkeypatch):
+def test_ranking_one_item_cannot_collapse_two_day_candidate_set(monkeypatch,web_candidates):
     w=trip();rows=[{'id':f's{i}','name':name,'kind':'spot','location':f'120.{310+i},36.06'} for i,name in enumerate(NAMES)]
-    async def tool(name,args):return {'items':[]} if name=='retrieve_guides' else {'items':rows,'next_offset':len(rows),'exhausted':True}
+    web_candidates(rows)
+    async def tool(name,args):return {'items':rows}
     async def rank(w,items,*_):items[0]['recommendation_rank']=0;return '优先栈桥'
     monkeypatch.setattr(discovery,'local_tool',tool)
     asyncio.run(discovery.search(w,{},lambda _:None,rank))
@@ -28,33 +29,32 @@ def test_existing_official_background_entities_are_recognized():
     assert not data_coverage.place_known('青岛','凭空产生的景点')
 
 
-def test_three_days_collects_multiple_four_item_tool_batches(monkeypatch):
+def test_three_days_keeps_at_least_six_web_candidates(monkeypatch,web_candidates):
     w=trip(3);calls=[]
     rows=[{'id':f's{i}','name':name,'kind':'spot','location':f'120.{310+i},36.06'} for i,name in enumerate(NAMES)]
+    web_candidates(rows)
     async def tool(name,args):
-        if name=='retrieve_guides':return {'items':[]}
-        calls.append((name,args));offset=args.get('offset',0)
-        return {'items':rows[offset:offset+4],'next_offset':offset+4,'exhausted':offset+4>=len(rows)}
+        calls.append((name,args))
+        return {'items':rows}
     async def rank(*_):return '三天候选'
     monkeypatch.setattr(discovery,'local_tool',tool)
     asyncio.run(discovery.search(w,{},lambda _:None,rank))
     assert len(w['spot_search']['ids'])>=6
-    assert [name for name,_ in calls]==['get_spot_candidates','get_spot_candidates']
-    assert [args['offset'] for _,args in calls]==[0,4]
+    assert len(calls)==6 and all(name=='search_places' for name,_ in calls)
 
 
-def test_more_with_changed_topic_restarts_batch_cursor_and_preserves_choices(monkeypatch):
+def test_more_with_changed_topic_excludes_previous_places_and_preserves_choices(monkeypatch,web_candidates):
     w=trip();w['catalog']['old']={'id':'old','name':'崂山风景区','kind':'spot'}
     w.update(selected_spots=['old'],spots_confirmed=True,spot_search={'city':'青岛','ids':['old'],'provider_page':9,'keywords':['崂山']})
     calls=[]
+    observed=web_candidates([{'name':'栈桥景区'}])
     async def tool(name,args):
-        if name=='retrieve_guides':return {'items':[]}
         calls.append(args)
         return {'items':[{'id':'new','name':'栈桥景区','kind':'spot','location':'120.3,36.05'}],'exhausted':True,'next_offset':1}
     async def rank(*_):return '补充'
     monkeypatch.setattr(discovery,'local_tool',tool)
     answer=asyncio.run(discovery.search(w,{'expand_spots':True,'keywords':['休闲','海滨','公园']},lambda _:None,rank))
-    assert calls[0]['offset']==0 and calls[0]['exclude_ids']==['old']
+    assert calls[0]['keywords']=='栈桥景区' and '崂山风景区' in observed[0]['excluded']
     assert w['selected_spots']==['old'] and w['spots_confirmed'] and w['spot_search']['ids']==['new']
     assert '少于本次至少4个' in answer
 

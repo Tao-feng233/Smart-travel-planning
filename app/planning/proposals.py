@@ -1,7 +1,8 @@
 """Bounded proposal batches for long trips; every selected ID is validated once."""
 
-from app import prompts
-import json, math, re
+import json
+import math
+import re
 
 
 async def create(w, spots, payload, prompt, progress, model, runtime):
@@ -10,6 +11,7 @@ async def create(w, spots, payload, prompt, progress, model, runtime):
 
     requests = w.get("visit_requests", {})
     from app.planning import visit_analysis
+    from app.planning.scenic_grouping import batches, ordered, split_advice
 
     estimates = {i["candidate_id"]: i for i in visit_analysis.preview(w)}
     spots = sorted(
@@ -18,7 +20,7 @@ async def create(w, spots, payload, prompt, progress, model, runtime):
         or (p.get("visit_suggestion") or {}).get("date")
         or "9999",
     )
-    chunks = [spots[i : i + 16] for i in range(0, len(spots), 16)]
+    chunks = batches(w, spots)
     dates = payload["dates"]
     tour_dates = payload["tour_dates"]
     by_date = {}
@@ -182,6 +184,15 @@ async def create(w, spots, payload, prompt, progress, model, runtime):
                 advisories = visit_analysis.distribution_warnings(
                     w, allocation, allowed_tour
                 )
+                advisories += split_advice(
+                    w,
+                    allocation,
+                    {
+                        b["date"]: b
+                        for b in visit_analysis.budgets(w)
+                        if b["date"] in allowed_tour
+                    },
+                )
             except (ValueError, TypeError, KeyError, AttributeError):
                 errors.append("JSON日程结构或时长无效")
             if not errors and (not advisories or attempt):
@@ -234,4 +245,6 @@ async def create(w, spots, payload, prompt, progress, model, runtime):
         [{**i, "date": d["date"]} for d in by_date.values() for i in d["items"]],
         tour_dates,
     )
+    for day in by_date.values():
+        day["items"] = ordered(w, day["items"])
     return draft, list(by_date.values()), usage

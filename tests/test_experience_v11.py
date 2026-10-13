@@ -86,7 +86,7 @@ def test_model_can_execute_detail_and_date_arguments(monkeypatch):
 def test_actual_route_conflict_repairs_flexible_day_without_changing_selections(monkeypatch,tmp_path):
  w=draft_workspace();w['requirements'].update(start_date='2026-10-09',days=2);w['selected_spots']=['a'];w['selected_return']['departure']='2026-10-10 12:00';w['selected_return']['arrival']='2026-10-10 16:00';calls=[]
  async def tool(name,args):
-  if name=='retrieve_guides':return {'items':[]}
+  if name=='search_travel_web':return {'items':[]}
   return {'mode':args['mode'],'available':True,'minutes':60,'distance':20000}
  async def model(messages,**kw):
   if kw.get('label')=='review':return {'content':json.dumps({'issues':[]})},{}

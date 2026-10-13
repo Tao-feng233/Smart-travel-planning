@@ -91,7 +91,7 @@ def context(w, instruction, conflict=None):
             "weather": w.get("weather"),
             "weather_note": w.get("weather_note"),
             "route_preview": route_preview,
-            "official_guides": w.get("rag_results", []),
+            "official_guides": w.get("web_guides", []),
             "editable": [
                 "灵活景点的游玩日和顺序",
                 "建议时长与游览范围",

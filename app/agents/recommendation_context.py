@@ -23,6 +23,7 @@ def needs_preferences(w, args):
     # Explicit named/topic queries and authorized delegation already provide a direction.
     if (
         args.get("keywords")
+        or args.get("requested_place")
         or args.get("prefer_known")
         or w.get("auto_selection_run")
         or w.get("pending_auto_selection")

@@ -1,6 +1,10 @@
 """Versioned Qdrant generations, atomically published after complete indexing."""
 
-import json, os, re, threading, uuid
+import json
+import os
+import re
+import threading
+import uuid
 from app.core.data_settings import index_root, option, model_name
 from app.knowledge.corpus import digest
 from app.knowledge.embeddings import get_encoder
@@ -181,6 +185,7 @@ def _build(corpus, encoder=None, force=False):
         "parents": len(corpus["parents"]),
         "children": len(points),
         "indexed_at": now(),
+        "split": corpus["split"],
     }
     cache_tmp = cache_path.with_suffix("." + generation + ".tmp")
     cache_tmp.write_text(json.dumps(cache), encoding="utf-8")

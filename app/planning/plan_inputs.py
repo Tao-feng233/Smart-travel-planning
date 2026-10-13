@@ -4,12 +4,24 @@ from app import prompts
 import json
 from datetime import date, timedelta
 from app.core.errors import DataError
-from app.integrations.contracts import guide_conditions
 from app.planning.proposals import create
 
 
+async def acquire_guides(ctx):
+    from app.travel.web_research import research
+
+    result = await research(
+        ctx.requirements,
+        "核对以下已选景点的游览特色、开放和预约资料，保留发布日期，不假设查询时资料必然适用出游日："
+        + "、".join(x["name"] for x in ctx.spots),
+        ctx.services.model, ctx.services.tool, ctx.progress,
+        city=ctx.requirements["city"],
+    )
+    return result["guides"]
+
+
 async def prepare(ctx):
-    from app.travel.spot_hierarchy import state, parent_facts
+    from app.travel.spot_hierarchy import state, parent_facts, scenic_groups
 
     ctx.hierarchy = state(ctx.workspace)
     if ctx.hierarchy["issues"]:
@@ -40,20 +52,9 @@ async def prepare(ctx):
         raise DataError("请先确定出游日期")
     ctx.days = int(ctx.requirements.get("days", 2))
     ctx.start = date.fromisoformat(ctx.requirements["start_date"])
-    ctx.guides = (
-        ctx.workspace.get("rag_results", [])
-        if ctx.preview
-        else (
-            await ctx.services.tool(
-                "retrieve_guides",
-                guide_conditions(
-                    ctx.requirements["city"],
-                    " ".join((x["name"] for x in ctx.spots)) + " 开放 预约",
-                    ctx.requirements,
-                ),
-            )
-        )["items"]
-    )
+    ctx.guides = list(ctx.workspace.get("web_guides", []))
+    if not ctx.preview:
+        ctx.guides = await acquire_guides(ctx)
     if not ctx.preview:
         ctx.progress("主助手正在组织每天的景点顺序与游览建议")
     schema = '{"title":"旅行主题","days":[{"date":"YYYY-MM-DD","theme":"当日主题","items":[{"candidate_id":"真实候选ID","period":"morning/afternoon/evening/any","duration":90,"note":"游玩建议与日期时段安排理由","evidence_ids":["资料ID"]}]}],"packing":["携带建议"],"todos":["出发前待办"]}'
@@ -77,6 +78,7 @@ async def prepare(ctx):
         "requirements": ctx.requirements,
         "parent_coverage": ctx.hierarchy["parent_coverage"],
         "parent_context": parent_facts(ctx.workspace),
+        "scenic_groups": scenic_groups(ctx.workspace),
         "dates": [
             (date.fromisoformat(begin) + timedelta(days=i)).isoformat()
             for i in range(span)

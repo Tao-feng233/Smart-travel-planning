@@ -109,7 +109,7 @@ def test_review_survives_overview_guide_that_has_scope_instead_of_date_scope(mon
         if kwargs.get('label')=='review':return {'content':'{"issues":[],"summary":"审核完成"}'},{}
         return {'content':json.dumps({'days':[{'date':dt,'items':[{'candidate_id':'spot:1','duration':120}]}]})},{}
     async def fake_tool(name,args):
-        if name=='retrieve_guides':
+        if name=='search_travel_web':
             return {'items':[{'id':'destination-qingdao','title':'青岛目的地概览','text':'背景介绍，不使用页面历史交通价格作当前报价。',
                               'scope':'背景介绍，不使用页面历史交通价格作当前报价','city':'青岛','url':'https://example.com','fetched_at':'2026-10-01'}]}
         return {'items':[]}

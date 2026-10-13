@@ -1,6 +1,6 @@
 """Chunk-size comparison for the parent/child retrieval pipeline.
 
-Parent size stays at the production 1400; only the child size varies.
+Parent size stays at the production 1400 BGE tokens; only the child token budget varies.
 For each split size we measure, against a hand-labelled needle set:
   1. how many children exceed the encoder's 512-token limit (silent truncation),
   2. whether the needle sentence survives inside the encoder window,
@@ -11,25 +11,24 @@ Writes a JSON report to --out. Read-only against app/.
 
 import argparse
 import json
-import math
 import statistics
 import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.knowledge.corpus import load_corpus, split_text, bm25, fuse, applicable
 from app.knowledge.embeddings import get_encoder
-from app.core.data_settings import model_name, model_root
+from app.core.data_settings import model_name
+from app.knowledge.tokenization import get_counter
 
 SIZES = [128, 256, 360, 500, 512, 700, 1400]
 OVERLAP = 50
 DENSE_MIN_SCORE = 0.58
 CONTEXT_CHARS = 6000
 CONTEXT_LIMIT = 5
-ENCODER_LIMIT = 510  # 512 minus [CLS]/[SEP]
+ENCODER_LIMIT = 512  # Complete encoded input, including [CLS]/[SEP].
 
 
 def needles():
@@ -56,11 +55,7 @@ def needles():
 
 
 def load_tokenizer():
-    root = model_root() / "models--Qdrant--bge-small-zh-v1.5"
-    snap = next((root / "snapshots").iterdir())
-    from tokenizers import Tokenizer
-
-    return Tokenizer.from_file(str(snap / "tokenizer.json"))
+    return get_counter().tokenizer
 
 
 def build_children(parents, size, tokenizer):
@@ -68,8 +63,10 @@ def build_children(parents, size, tokenizer):
     children = []
     for pid, parent in parents.items():
         overlap = OVERLAP if size < 1400 else 0
-        for body in split_text(parent["text"], size, overlap):
-            prefix = parent["city"] + " " + parent["title"] + " "
+        prefix = parent["city"] + " " + parent["title"] + " "
+        for body in split_text(
+            parent["text"], size, overlap, prefix=prefix, special_tokens=True
+        ):
             children.append(
                 dict(
                     id=f"{pid}@c{len(children)}",
@@ -114,6 +111,8 @@ def main():
     report = {
         "model": model_name(),
         "parent_size": 1400,
+        "size_unit": "BGE tokens",
+        "child_includes_prefix_and_special_tokens": True,
         "overlap": OVERLAP,
         "encoder_token_limit": 512,
         "context_chars": CONTEXT_CHARS,

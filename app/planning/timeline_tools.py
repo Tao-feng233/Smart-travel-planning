@@ -296,6 +296,7 @@ async def optimize(w, model, progress, *, conflict=None, force=False):
         "selected_places": [
             {k: p.get(k) for k in visit_analysis.FACT_KEYS} for p in spots
         ],
+        "scenic_groups": spot_hierarchy.scenic_groups(w),
         "current_visits": visit_analysis.preview(w),
         "timeline": timeline,
         "meals": w.get("meal_choices", {}),

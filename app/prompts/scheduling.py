@@ -1,5 +1,11 @@
 """Scheduling responsibilities; tool schemas own field contracts."""
 
+SCENIC_GROUPS = (
+    "scenic_groups列出同一景区内部已选地点，优先安排在同一天、连续半天，减少跨日往返；"
+    "以实际游玩、交通、用餐休息和开放条件判断是否放得下，不压缩合理时长；"
+    "明确指定不同日期时保留用户要求，确需拆开时说明原因，不作为普通选择的报错。"
+)
+
 VISIT = (
     "分析全部已选实际游玩地点，判断体验范围、建议时长、日期和时段。"
     "结合偏好、同行能力、有效天气、位置与daily_time_budgets，均衡负担并减少折返。"
@@ -12,7 +18,7 @@ VISIT = (
     "有revision_context时结合原计划与冲突提出真实改进，保留已选地点、班次、餐厅和固定安排。"
     "返回JSON items，每项含candidate_id、date、period、duration和reason；日期来自tour_dates，时长15至720分钟。"
     "可附day_pacing，字段和范围见pacing_contract；固定条件放不下时明确说明。"
-)
+) + SCENIC_GROUPS
 
 PLAN = (
     "组织完整旅行计划，按output_schema返回JSON。"
@@ -26,7 +32,7 @@ PLAN = (
     "未知抵达时间保持假设草稿，未核实费用、营业和预约列待办；报价失效与位置失效分开处理。"
     "用户要求完整修订时回应原计划与冲突，而非只重复提示。"
     "游玩说明面向用户，附相关资料ID。"
-)
+) + SCENIC_GROUPS
 
 ADJUST = (
     "你是可调用工具的旅行排程助手。"
@@ -35,4 +41,4 @@ ADJUST = (
     "保留已选地点、酒店、餐厅、班次和用户固定日期/时段/顺序，不把大型景区压成几分钟，也不取消用户明确要求的休息来掩盖负担。"
     "普通不均衡或轻微偏晚直接优化，不制造警告；已合理或固定条件无法满足时调用keep_timeline说明具体原因。"
     "工具失败反馈表示未应用，需要修正后再提交。"
-)
+) + SCENIC_GROUPS

@@ -1,10 +1,8 @@
 """Bounded candidate collection and publication for one scenic search request."""
 
 from dataclasses import dataclass
-import math
 
 from app.core.errors import DataError
-from app.knowledge import coverage
 from app.travel.spot_hierarchy import candidates
 
 
@@ -77,8 +75,8 @@ class SpotSearch:
                 + " 个候选与已有选择。可以调整偏好或说明具体景点名称后继续查询。"
             )
         if self.expanding:
-            return "本轮暂未找到新的相关景点，已有推荐与选择已保留。已有资料的候选已查到末尾或位置暂未核实，可以更换主题或地区；不会重复推荐已看过的地点。"
-        return "本次已有资料中的景点暂未取得可用地图候选，当前选择保留。可以稍后重试；不会以背景介绍代替已核对的地点。"
+            return "本轮搜索暂未核对到新的相关景点，已有推荐与选择已保留。可以更换主题或地区；不会重复推荐已看过的地点。"
+        return "本次搜索未取得资料与地图位置均可核对的景点，当前选择保留。可以调整主题或稍后重试。"
 
     def recommendation_task(self, count):
         lead = (
@@ -117,45 +115,6 @@ class SpotBatch:
     items: list
     next_offset: int
     source_exhausted: bool
-
-
-async def collect(w, query, progress, tool, filter_pois, maximum):
-    items, offset, seen, source_exhausted = [], 0, set(), False
-    for batch in range(math.ceil(maximum / 4)):
-        progress(
-            "正在获取第"
-            + str(batch + 1)
-            + "批景点（每批最多4个），目标至少"
-            + str(query.minimum)
-            + "个候选"
-        )
-        result = await tool(
-            "get_spot_candidates",
-            {
-                "city": query.city,
-                "keywords": query.keywords,
-                "offset": offset,
-                "exclude_ids": query.excluded_ids,
-                "exclude_names": query.excluded_names,
-            },
-        )
-        for item in filter_pois(result.get("items", []))[:4]:
-            if not coverage.place_known(query.city, item["name"]):
-                continue
-            if item["id"] in seen or item["id"] in query.excluded_ids:
-                continue
-            seen.add(item["id"])
-            items.append(item)
-        merged = {**w["catalog"], **{item["id"]: item for item in items}}
-        items = candidates(merged, items)
-        next_offset = result.get("next_offset")
-        source_exhausted = result.get("exhausted") is True
-        advanced = isinstance(next_offset, int) and next_offset > offset
-        if advanced:
-            offset = next_offset
-        if len(items) >= query.minimum or source_exhausted or not advanced:
-            break
-    return SpotBatch(items, offset, source_exhausted)
 
 
 def stage_candidates(w, query, items):

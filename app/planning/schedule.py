@@ -314,8 +314,6 @@ def clip_visit(w, dt, start, duration, period, lunch_used):
 
     约束优先级：返程/日程硬边界 → 午餐窗口前收尾 → 保留原时长。
     """
-    from app.planning import pacing
-
     hard = min(windows(w, dt)[1], day_end(w, dt), 24 * 60)
     budget = hard - start
     if budget >= duration:
@@ -335,10 +333,12 @@ def provisional(w):
 
     hierarchy = state(w)
     ds = visits.dates(w)
-    cat = w.get("catalog", {})
     pins = hierarchy["visit_requests"]
     hotel = w.get("hotel")
     selected = visit_analysis.selected(w)
+    from app.planning.scenic_grouping import membership
+
+    scopes = membership(w)
     if not ds:
         return []
     estimates = {x["candidate_id"]: x for x in visit_analysis.preview(w)}
@@ -385,6 +385,11 @@ def provisional(w):
                     ),
                     order.get(p["id"], 9999),
                     estimates[p["id"]].get("sequence", 9999),
+                    0
+                    if last
+                    and scopes.get(last.get("id")) is not None
+                    and scopes.get(p["id"]) == scopes[last["id"]]
+                    else 1,
                     coordinate_distance(last, p)
                     if last and last.get("location") and p.get("location")
                     else 0,

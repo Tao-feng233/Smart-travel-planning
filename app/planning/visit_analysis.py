@@ -50,7 +50,7 @@ def signature(w):
     value = {
         "prompt_version": prompts.VERSION,
         "nightly_stays": facts(w),
-        "hierarchy_version": 1,
+        "hierarchy_version": 2,
         "parent_coverage": hierarchy["parent_coverage"],
         "parent_context": parent_facts(w),
         "chosen": w.get("selected_spots", []),
@@ -197,6 +197,9 @@ def allocate(w, estimates=None):
         items.append(item)
         groups[dt].append(p)
         loads[dt] += item["duration"] + bs[dt]["transfer_buffer_minutes"]
+    from app.planning.scenic_grouping import together
+
+    items = together(w, items, bs)
     order = {cid: n for n, cid in enumerate(w.get("visit_order", []))}
     return sorted(items, key=lambda x: (x["date"], order.get(x["candidate_id"], 9999)))
 
@@ -299,7 +302,13 @@ def distribution_warnings(w, items, allowed_dates=None):
                 )
     usable = [d for d in bs if bs[d]["visit_minutes"] >= 30]
     if len(usable) > 1 and len(items) > 1:
-        ratio = lambda d, load: load / max(1, bs[d]["visit_minutes"])
+        from app.planning.scenic_grouping import membership
+
+        scopes = membership(w)
+
+        def ratio(d, load):
+            return load / max(1, bs[d]["visit_minutes"])
+
         before = max(ratio(d, loads[d]) for d in usable) - min(
             ratio(d, loads[d]) for d in usable
         )
@@ -311,6 +320,14 @@ def distribution_warnings(w, items, allowed_dates=None):
                 d not in usable
                 or d == light
                 or w.get("visit_requests", {}).get(item["candidate_id"], {}).get("date")
+                or any(
+                    other["candidate_id"] != item["candidate_id"]
+                    and scopes.get(item["candidate_id"]) is not None
+                    and scopes.get(other["candidate_id"])
+                    == scopes[item["candidate_id"]]
+                    and other["date"] == d
+                    for other in items
+                )
             ):
                 continue
             if loads[light] + length > bs[light]["visit_minutes"]:
@@ -355,7 +372,7 @@ def notices(w, items):
     result = []
     if capacity and needed < capacity * 0.5:
         result.append(
-            "当前景点较少，已分散安排并保留较多自由时间；可增加感兴趣的地点，或保持慢节奏游览。"
+            "当前景点较少，已保留较多自由时间；可增加感兴趣的地点，或保持慢节奏游览。"
         )
     if needed > capacity:
         result.append(
@@ -401,7 +418,7 @@ def summary(w, value):
 
 
 async def analyze(w, model, progress, force=False):
-    from app.travel.spot_hierarchy import state, notes, parent_facts
+    from app.travel.spot_hierarchy import state, notes, parent_facts, scenic_groups
 
     hierarchy = state(w)
     if hierarchy["issues"]:
@@ -441,11 +458,12 @@ async def analyze(w, model, progress, force=False):
         "selected_return": w.get("selected_return"),
         "parent_coverage": hierarchy["parent_coverage"],
         "parent_context": parent_facts(w),
+        "scenic_groups": scenic_groups(w),
         "recommendation_context": context(w),
         "initial_day_pacing": [
             {"date": dt, **pacing.for_day(w, dt)} for dt in visits.dates(w)
         ],
-        "official_guides": w.get("rag_results", []),
+        "official_guides": w.get("web_guides", []),
         "initial_balanced_estimate": allocate(w),
         "interaction_state": prompts.interaction_state(w),
         "pacing_contract": pacing.contract(),
@@ -553,6 +571,19 @@ async def analyze(w, model, progress, force=False):
                     {**w, "_pacing_override": day_pacing}, items
                 )
                 if serious(x)
+            ]
+            from app.planning.scenic_grouping import split_advice
+
+            advisories += [
+                x["message"]
+                for x in split_advice(
+                    w,
+                    items,
+                    {
+                        b["date"]: b
+                        for b in budgets({**w, "_pacing_override": day_pacing})
+                    },
+                )
             ]
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             errors.append("候选ID、日期、时段或JSON结构未通过校验：" + str(e))

@@ -118,13 +118,12 @@ def test_directory_city_override_is_explicit_and_does_not_invent_an_introduction
     assert all(r['city']=='济宁' and '未提供详细介绍' in r['text'] for r in rows)
 
 
-def test_status_reports_actual_corpus_coverage():
-    from types import SimpleNamespace
-    from app.api.system import status
-    result=status(request=SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace())),user={'id':'test'})
+def test_independent_rag_status_reports_actual_corpus_coverage():
+    from app.knowledge.retrieval import status
+    result=status()
     # 目的地新增洛阳（河南）后 19 → 20 个城市。
-    assert len(result['knowledge_cities'])==20 and '日照' in result['knowledge_cities']
+    assert len(result['cities'])==20 and '日照' in result['cities']
     # 记录数随采集增长（新增成都官方来源后 90 → 105）。这里与语料实际数量比对，
     # 不写死数字，避免每次扩采都要改测试。
     from app.knowledge.retrieval import corpus
-    assert result['knowledge_records']==corpus()['records']
+    assert result['records']==corpus()['records']

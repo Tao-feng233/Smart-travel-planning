@@ -74,14 +74,9 @@ async def do_select(w, action, args, progress, services):
     answer_extra = ""
     detail_error = ""
     if p["kind"] == "spot":
-        w["spots_confirmed"] = False
-        removed = cid in w["selected_spots"]
-        if removed:
-            w["selected_spots"].remove(cid)
-        elif len(w["selected_spots"]) < 120:
-            w["selected_spots"].append(cid)
-        else:
-            raise DataError("当前选择已超过120个地点，请先确定优先级后分段规划")
+        from app.travel.spot_choices import choose
+
+        removed, children = choose(w, cid, add_only=args.get("add_only", False))
     elif p["kind"] == "food":
         return foods.select_meal(w, {**args, "food_id": cid})
     elif p["kind"] == "hotel":
@@ -127,6 +122,13 @@ async def do_select(w, action, args, progress, services):
     mark_stale(w)
     if p["kind"] == "spot":
         answer = f"{'已取消选择' if removed else '已选择'}：{p['name']}。当前已选{len(w['selected_spots'])}个景点。\n可继续比较候选，或点击“完成景点选择”进入下一步。"
+        if children:
+            names = "、".join(w["catalog"][child]["name"] for child in children)
+            answer = (
+                f"{'已取消' if removed else '已选择'}{p['name']}内部的{len(children)}个游玩地点：{names}。"
+                "父景区不再单独计时，内部地点优先连续安排在同一天；实际交通与开放条件核对后再细化。"
+                f"当前已选{len(w['selected_spots'])}个景点。"
+            )
     elif p["kind"] == "hotel":
         from app.travel import stay_plan as _stay
 

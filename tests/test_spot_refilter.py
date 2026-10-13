@@ -17,9 +17,10 @@ def workspace():
 
 
 @pytest.mark.parametrize('response', ['empty', 'missing_location', 'failure'])
-def test_unsuccessful_refilter_keeps_visible_candidates(monkeypatch, response):
+def test_unsuccessful_refilter_keeps_visible_candidates(monkeypatch, response,web_candidates):
     w = workspace()
     before = copy.deepcopy(w)
+    web_candidates([{'name':'五四广场'}] if response!='empty' else [])
 
     async def tool(name, args):
         if response == 'failure':
@@ -39,13 +40,11 @@ def test_unsuccessful_refilter_keeps_visible_candidates(monkeypatch, response):
     assert w == before
 
 
-def test_successful_refilter_dismisses_only_unselected_old_candidates(monkeypatch):
+def test_successful_refilter_dismisses_only_unselected_old_candidates(monkeypatch,web_candidates):
     w = workspace()
+    observed=web_candidates([{'name':'五四广场'}])
 
     async def tool(name, args):
-        if name == 'retrieve_guides':
-            return {'items': []}
-        assert {'chosen', 'old'} <= set(args['exclude_ids'])
         return {'items': [{'id': 'new', 'kind': 'spot', 'name': '五四广场', 'location': '120.38,36.06'}], 'exhausted': True}
 
     async def recommend(*args):
@@ -56,16 +55,16 @@ def test_successful_refilter_dismisses_only_unselected_old_candidates(monkeypatc
     assert w['selected_spots'] == ['chosen']
     assert w['rejected_spots'] == ['old']
     assert discovery.visible(w) == ['new']
+    assert {'栈桥','八大关'} <= set(observed[0]['excluded'])
 
 
-def test_all_selected_page_can_still_query_more_candidates(monkeypatch):
+def test_all_selected_page_can_still_query_more_candidates(monkeypatch,web_candidates):
     w = workspace()
     w['selected_spots'] = ['chosen', 'old']
     calls = []
+    web_candidates([{'name':'五四广场'}])
 
     async def tool(name, args):
-        if name == 'retrieve_guides':
-            return {'items': []}
         calls.append(args)
         return {'items': [{'id': 'new', 'kind': 'spot', 'name': '五四广场', 'location': '120.38,36.06'}], 'exhausted': True}
 

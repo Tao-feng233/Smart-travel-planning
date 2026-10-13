@@ -1,18 +1,18 @@
 """Bounded, source-backed destination discovery and distinct POI recommendation pages."""
 
 import re, math
+import json
+from app.core.config import ROOT
 from app.integrations.tools import local_tool
 from app.core.errors import DataError
-from app.integrations.contracts import guide_conditions
 
 PAGE_SIZE = 4
 MAX_RECOMMENDATIONS = 24
 
 
 def destinations():
-    from app.knowledge.coverage import snapshot
-
-    return list(snapshot()["cities"].values())
+    return [row for path in sorted((ROOT / "data/catalog").glob("*destinations.json"))
+            for row in json.loads(path.read_text(encoding="utf-8-sig"))]
 
 
 def classic_names(city):
@@ -163,22 +163,26 @@ def recommendation_minimum(w, args):
     )
 
 
-async def search(w, args, progress, recommend):
-    from app.knowledge.coverage import require_city, require_place
-    from app.travel import spot_search
+async def search(w, args, progress, recommend, *, model=None):
+    from app.travel import spot_search, web_research, web_spots
     from app.travel.locations import ready_candidates
+    from app.integrations.providers import llm
 
     city = w["requirements"]["city"]
-    require_city(city)
-    if args.get("requested_place"):
-        require_place(city, args["requested_place"])
     displayed = page_info(w)["ids"] if args.get("reject_current") else []
     query = spot_search.SpotSearch.prepare(
         w, args, classic_names(city), displayed, recommendation_minimum(w, args)
     )
-    batch = await spot_search.collect(
-        w, query, progress, local_tool, main_pois, MAX_RECOMMENDATIONS
+    facts = await web_research.research(
+        w["requirements"],
+        query.recommendation_task(0) + "；搜索主题：" + "、".join(query.keywords)
+        + ("；指定地点：" + args["requested_place"] if args.get("requested_place") else ""),
+        model or llm, local_tool, progress, city=city, excluded=query.excluded_names,
     )
+    resolved = await web_spots.resolve(
+        city, facts["places"], local_tool, main_pois, query.excluded_ids, query.excluded_names,
+    )
+    batch = spot_search.SpotBatch(resolved, len(facts["places"]), True)
     if not batch.items:
         if query.previous.get("city") == city and query.previous.get("ids"):
             w["spot_search"] = query.previous
@@ -194,16 +198,7 @@ async def search(w, args, progress, recommend):
         )
         if item["classic"]:
             item["discovery_label"] = "城市代表景点"
-    guides = (
-        await local_tool(
-            "retrieve_guides",
-            guide_conditions(
-                city,
-                " ".join(item["name"] for item in items) + " 游览 特色",
-                w["requirements"],
-            ),
-        )
-    )["items"]
+    guides = facts["guides"]
     progress("正在按旅行偏好比较推荐顺序")
     summary = await recommend(w, items, query.recommendation_task(len(items)), guides)
     spot_search.rank(items, args.get("prefer_known"))
@@ -217,7 +212,7 @@ async def search(w, args, progress, recommend):
         reject_one(w, cid)
     w["catalog"].update({item["id"]: item for item in items})
     w["candidates"] = items
-    w["rag_results"] = guides
+    w["web_guides"] = guides
     await spot_search.enrich_parents(w, items, local_tool)
     spot_search.publish(w, query, batch, items, location_excluded + excluded)
     return query.summary(len(items), summary)

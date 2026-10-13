@@ -113,9 +113,9 @@ def update_requirements(w, patch, *, preference_updates=None):
     }
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None}
     if "city" in clean:
-        from app.knowledge.coverage import require_city
-
-        require_city(clean["city"])
+        if not isinstance(clean["city"], str) or not 1 <= len(clean["city"].strip()) <= 80:
+            raise DataError("请提供有效的目的地名称。")
+        clean["city"] = clean["city"].strip()
     if clean.get("end_date") and (
         clean.get("start_date") or w["requirements"].get("start_date")
     ):
@@ -227,6 +227,7 @@ def update_requirements(w, patch, *, preference_updates=None):
         )
         for key in (
             "spot_search",
+            "web_guides",
             "spot_page",
             "destinations",
             "rejected_spots",

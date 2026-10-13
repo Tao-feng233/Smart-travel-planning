@@ -53,7 +53,7 @@ def test_cross_midnight_transfer_is_not_fabricated_within_a_single_day():
 def test_generated_book_includes_arrival_and_return_driving_links(monkeypatch,tmp_path):
     w=trip();w['requirements']['day_end']='22:00';w['selected_spots']=['s'];w['catalog']={'s':{'id':'s','name':'游览地点','kind':'spot','location':'120.31,36.07'}}
     async def tool(name,args):
-        if name=='retrieve_guides':return {'items':[]}
+        if name=='search_travel_web':return {'items':[]}
         return {'items':[{'id':args['kind'],'name':'青岛北站' if args['kind']=='station' else '青岛胶东国际机场','location':'120.2,36.1','endpoint_scope':'primary'}]}
     async def road(*args):return [{'mode':'driving','available':True,'status':'available','minutes':25,'source':{'queried_at':'2026-10-09'}}]
     async def model(*args,**kwargs):return {'content':json.dumps({'issues':[],'summary':'建议'} if kwargs.get('label')=='review' else {'days':[{'date':'2026-10-12','items':[{'candidate_id':'s','duration':60}]}]})},{}

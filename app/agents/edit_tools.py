@@ -220,15 +220,23 @@ async def select(workspace, cid, arguments, handler, progress):
     authorize_candidate(workspace, place)
     if place.get("stale"):
         raise DataError("候选条件已变化，请重新查询后选择。")
-    if place.get("kind") == "spot" and cid in workspace.get("selected_spots", []):
-        return "已保留该景点的选择。"
+    if place.get("kind") == "spot":
+        from app.travel.spot_hierarchy import selection_info
+
+        info = selection_info(workspace, cid)
+        if info["all_selected"] and (
+            info["ids"] == [cid] or cid in workspace.get("spot_scope_selections", {})
+        ):
+            return "已保留该景点的选择。"
     if place.get("kind") == "hotel" and not (
         arguments.get("stay_date")
         or arguments.get("stay_dates")
         or place.get("stay_date")
     ):
         raise DataError("请选择要入住的夜晚，不自动覆盖其他晚。")
-    return await handler(workspace, "select", {"id": cid, **arguments}, progress)
+    return await handler(
+        workspace, "select", {"id": cid, **arguments, "add_only": True}, progress
+    )
 
 
 async def perform(workspace, name, arguments, handler, progress):

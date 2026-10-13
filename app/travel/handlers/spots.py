@@ -12,17 +12,23 @@ from app.integrations.responses import unwrap
 async def do_discover_destinations(w, action, args, progress, services):
     r = w["requirements"]
     progress("正在比较目的地特色与旅行偏好")
-    items = discovery.destinations()
-    guides = (
-        await services.local_tool(
-            "retrieve_guides",
-            {
-                "city": "",
-                "query": " ".join(r.get("preferences", []))
-                + " 目的地概览 海滨 历史 自然",
-            },
-        )
-    )["items"]
+    from app.travel.web_research import research
+    import hashlib
+
+    result = await research(
+        r, "根据用户偏好比较4至6个国内旅行城市，name填写城市名，介绍引用真实搜索资料。",
+        services.llm, services.local_tool, progress,
+    )
+    items = [{
+        "id": "destination:" + hashlib.sha256(p["name"].encode()).hexdigest()[:16],
+        "name": p["name"], "kind": "destination", "description": p["description"],
+        "highlights": [], "tags": r.get("preferences", []), "evidence": p["evidence"],
+        "source": {"name": "联网旅游资料", "url": p["evidence"][0]["url"]},
+    } for p in result["places"]]
+    if not items:
+        return "本次未取得足够可靠的目的地资料，可以直接告诉我想去的国内城市或调整偏好。"
+    guides = result["guides"]
+    w["web_guides"] = guides
     summary = await services.recommend(
         w,
         items,
@@ -106,7 +112,7 @@ async def do_search_spots(w, action, args, progress, services):
 
     if needs_preferences(w, args):
         return ask(w)
-    return await discovery.search(w, args, progress, services.recommend)
+    return await discovery.search(w, args, progress, services.recommend, model=services.llm)
 
 
 async def do_spots_page(w, action, args, progress, services):

@@ -17,7 +17,8 @@ def main():
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     try:
-        result = build(load_corpus(), get_encoder(args.download_model), args.force)
+        encoder = get_encoder(args.download_model)
+        result = build(load_corpus(), encoder, args.force)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as exc:
         print(

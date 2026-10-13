@@ -21,14 +21,8 @@ def intent_context(w, text):
         if p and p.get("id")
     ]
 
-    from app.knowledge.coverage import snapshot, canonical_city
-
-    coverage = snapshot()
     context = {
-        "covered_cities": [x["name"] for x in coverage["cities"].values()],
-        "covered_spots": sorted(
-            coverage["names"].get(canonical_city(w["requirements"].get("city")), set())
-        ),
+        "search_policy": "国内地点通过Tavily发现资料并用地图核对，不受本地知识覆盖名单限制；查不到保留未知。",
         "current_view": w.get("ui", {}).get("view"),
         "today": date.today().isoformat(),
         "requirements": w["requirements"],
@@ -69,7 +63,7 @@ def intent_context(w, text):
             if cid in w.get("catalog", {})
             for x in [w["catalog"][cid]]
         ],
-        "official_guides": w.get("rag_results", []),
+        "official_guides": w.get("web_guides", []),
         "plan_summary": plan_context(w),
         "previous_goal": w.get("assistant_goal"),
         "has_current_plan": bool(w.get("plan") and not w["plan"].get("stale")),
