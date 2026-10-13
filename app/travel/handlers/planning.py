@@ -105,6 +105,13 @@ async def do_analyze_visits(w, action, args, progress, services):
 
 async def do_plan(w, action, args, progress, services):
     from app.travel.locations import coordinate, locate_hotel
+    from app.travel import transport_required
+
+    # 往返交通必填项未齐时不允许生成计划（用户明确选择的强必填：
+    # 到达站/到达时间/返程站/返程时间；自驾无需这些）。
+    # 校验放在这里而不是 engine.generate()：引擎也会被测试与其它内部流程调用，
+    # 只有用户点"生成计划"这条路径才应该被拦住。
+    transport_required.require_complete(w.get("requirements"))
 
     h = w["catalog"].get((w.get("hotel") or {}).get("id"))
     if h and not coordinate((w.get("hotel") or {}).get("location")):

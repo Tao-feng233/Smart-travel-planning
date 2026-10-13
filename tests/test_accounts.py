@@ -150,7 +150,7 @@ def test_followup_optimization_keeps_previous_conflict_through_loading_ui(client
 
 def test_plan_warning_is_completed_request_with_explicit_approval_before_publication(client,monkeypatch):
     from app.agents import planner as agent, replies
-    signup(client);w=create(client);w['requirements']={'city':'青岛','start_date':'2026-10-12','days':1}
+    signup(client);w=create(client);w['requirements']={'city':'青岛','start_date':'2026-10-12','days':1,'arrival_station':'青岛站','arrival_time':'10:00','return_station':'青岛站','return_time':'18:00'}
     w['catalog']={'s':{'id':'s','kind':'spot','name':'崂山风景区','location':'120.6,36.2'}};w['selected_spots']=['s'];storage.save(w)
     calls=[]
     async def generate(*args):

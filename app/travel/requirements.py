@@ -111,7 +111,7 @@ def update_requirements(w, patch, *, preference_updates=None):
         "local_trip",
         "intercity_mode",
         # 往返交通改为用户填写（见《往返交通改为用户填写-设计文档》3.1）
-        "origin_station",
+        # 去程【出发站】按用户要求删除：只填到达站与到达时间、返程站与返程时间。
         "arrival_station",
         "arrival_time",
         "arrival_period",
@@ -120,6 +120,8 @@ def update_requirements(w, patch, *, preference_updates=None):
         "return_time",
         "return_period",
         "intercity_ticket_cost",
+        # 出行方式：火车 / 高铁 / 飞机 / 自驾。自驾时上列站点与时刻不适用。
+        "intercity_vehicle",
     }
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None}
     if "city" in clean:
@@ -187,6 +189,20 @@ def update_requirements(w, patch, *, preference_updates=None):
     for key in ("arrival_period", "return_period"):
         if key in clean and clean[key] not in (None, "", "morning", "afternoon", "evening"):
             raise DataError("时段只能是上午、下午或晚上")
+    # 出行方式：火车 / 高铁 / 飞机 / 自驾。这里同时把它折算成既有的
+    # intercity_mode（self_drive / self_arranged），使 transport_optional()、
+    # 行程合成等既有逻辑无需改动即可继续工作。
+    if "intercity_vehicle" in clean and clean["intercity_vehicle"] not in (
+        "train",
+        "highspeed",
+        "flight",
+        "drive",
+    ):
+        raise DataError("出行方式只能是火车、高铁、飞机或自驾")
+    if "intercity_vehicle" in clean:
+        clean["intercity_mode"] = (
+            "self_drive" if clean["intercity_vehicle"] == "drive" else "self_arranged"
+        )
     old = w["requirements"]
     for key in (
         "preferences",
