@@ -31,6 +31,11 @@ def return_date_bounds(w):
     用户的明确日期优先：推荐班次自己的出发日期不能把住宿晚数截短
     （用户说 10-14 返程、推荐班次 10-13 出发时，13 日那晚仍要住）。
     班次的确定出发时刻只在用户没有明确日期时才决定"当天走、不算住宿"。
+
+    用户既没填返程日期、也没有班次时，按已确认口径推导：
+    **默认返程日 = 最后一个游玩日的次日**（start_date + days）。
+    例如 start=10-11、days=3 → 游玩日 10-11~10-13 → 默认返程日 10-14。
+    推导结果必须回显给用户（晚数直接影响预算与酒店候选）。
     """
     r = w.get("requirements") or {}
     explicit = _d(r.get("return_date"))
@@ -39,7 +44,18 @@ def return_date_bounds(w):
         return explicit, "用户明确的返程日期（" + explicit.isoformat() + "）；班次日期 "
     if explicit:
         return explicit, "用户明确的返程日期"
-    return (stamp, "已选返程班次的出发日期") if stamp else (None, "尚未选定返程班次")
+    if stamp:
+        return stamp, "已选返程班次的出发日期"
+    derived = default_return_date(r)
+    if derived:
+        return derived, "未填返程日期，按最后一个游玩日推导"
+    return None, "尚未选定返程班次"
+
+
+def default_return_date(requirements):
+    from app.travel.travel_time import default_return_date as resolve
+
+    return resolve(requirements)
 
 
 def _return_departure(w):
