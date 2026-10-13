@@ -122,7 +122,10 @@ def new_workspace(owner_id=None):
         archived=False,
         revision=0,
         updated=now(),
-        requirements={},
+        # 往返交通改为用户填写后，不再有独立的"交通"步骤去选自驾/自行安排。
+        # 新旅行默认按"自行安排"（用户在旅行信息里填到达站与时间、返程站与时间）；
+        # 选择自驾时由 requirements 覆盖为 self_drive。
+        requirements={"intercity_mode": "self_arranged"},
         candidates=[],
         selected_spots=[],
         hotel=None,

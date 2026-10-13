@@ -29,14 +29,9 @@ function planningNavigation() {
       "住宿",
       selectedStayUsable() || !!w.stay_skipped || Number(r.days) === 1,
     ],
-    [
-      "transport",
-      "交通",
-      ["self_drive", "self_arranged"].includes(r.intercity_mode) ||
-        !!w.local_trip ||
-        (!!w.selected_transport && !!w.selected_return) ||
-        (r.origin && r.origin === r.city),
-    ],
+    // 往返交通不再是独立步骤：本项目不出票，班次不再作为可选项，
+    // 城际交通由用户在「旅行信息」里填到达站/时间、返程站/时间。
+    // 因此这里不再保留"交通"这一格，避免点进去没有可做的事。
     ["food", "餐饮", !!Object.keys(w.meal_choices || {}).length],
     ["weather", "天气", !!w.weather],
     ["plan", "计划", !!w.plan && !w.plan.stale],
