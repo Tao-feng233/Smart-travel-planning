@@ -239,7 +239,14 @@ $("#settings-form").onsubmit = async (e) => {
   const patch = {};
   for (const [k, v] of new FormData(e.target))
     if (v.trim()) {
-      patch[k] = ["days", "adults", "children", "rooms", "budget"].includes(k)
+      patch[k] = [
+        "days",
+        "adults",
+        "children",
+        "rooms",
+        "budget",
+        "intercity_ticket_cost",
+      ].includes(k)
         ? Number(v)
         : k === "child_ages"
           ? v.split(/[,，]/).map((x) => Number(x.trim()))
@@ -309,6 +316,24 @@ for (const id of [
     )
       d.close();
   });
+
+// 返程出发站默认同到达站：只是【减少输入】，不替用户做决定。
+// 用户若从别处返程，改这一栏即可；这里只在用户从未动过它时才预填。
+(() => {
+  const form = $("#settings-form");
+  if (!form) return;
+  const arrival = form.elements["arrival_station"];
+  const back = form.elements["return_station"];
+  if (!arrival || !back) return;
+  back.addEventListener("input", () => {
+    back.dataset.touched = "1";
+  });
+  arrival.addEventListener("blur", () => {
+    const value = (arrival.value || "").trim();
+    if (value && !back.dataset.touched && !(back.value || "").trim())
+      back.value = value;
+  });
+})();
 
 document.addEventListener("DOMContentLoaded", bootAccount);
 

@@ -121,9 +121,22 @@ def markdown(w):
     if not w.get("meal_choices") and not included_notes:
         lines += ["用餐自行安排，可临时调整，不影响其他选择。"]
     lines += ["", "## 往返交通", ""]
+    basis_label = {"precise": "", "period": "（按填写的时段估算）",
+                   "unknown": "（时刻未定，按下午预留）"}
     for label, key in [("去程", "selected_transport"), ("返程", "selected_return")]:
         tr = w.get(key)
-        if tr:
+        if tr and tr.get("source") == "user_entered":
+            # 往返交通由用户填写：只展示用户提供的信息，不声称已出票。
+            station = tr.get("arrival_station") or tr.get("departure_station")
+            moment = tr.get("arrival") or tr.get("departure")
+            lines += [
+                f"- {label}：{tr.get('name') or ''}，{moment or '时刻未填'}"
+                + basis_label.get(tr.get("time_basis"), "")
+                + "；交通由你自行安排，本项目不出票。",
+            ]
+            if not station:
+                lines += ["  站点未填，接驳时间暂未核对；补填后可更准确。"]
+        elif tr:
             lines += [
                 f"- {label}：{tr['name']}，{tr.get('departure')} → {tr.get('arrival')}；仅选定，尚未预订。",
                 f"  来源：{tr['source']['name']}，查询：{tr['source']['queried_at']}",
@@ -135,10 +148,10 @@ def markdown(w):
                 + "："
                 + (
                     {"self_drive": "自驾", "self_arranged": "自行安排"}.get(
-                        r.get("intercity_mode"), "班次未选（可选）"
+                        r.get("intercity_mode"), "未填写"
                     )
                 )
-                + "，实际抵达与离开时间需核实。"
+                + "，可在「旅行信息」里补填站点与时间；实际抵达与离开时间需核实。"
             ]
     lines += ["", "## 每日安排", ""]
     for d in p["days"]:

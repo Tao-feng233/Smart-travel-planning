@@ -319,6 +319,49 @@
           ><label
             >返程日期（可选）<input type="date" name="return_date" /></label
           ><label
+            >去程出发站<input
+              name="origin_station"
+              placeholder="例如：郑州东站"
+              maxlength="40" /></label
+          ><label
+            >到达站<input
+              name="arrival_station"
+              placeholder="例如：洛阳龙门站"
+              maxlength="40" /></label
+          ><label
+            >到达时段<select name="arrival_period">
+              <option value="">未定（按下午预留）</option>
+              <option value="morning">上午</option>
+              <option value="afternoon">下午</option>
+              <option value="evening">晚上</option>
+            </select></label
+          ><label
+            >到达时刻（可选）<input
+              type="time"
+              name="arrival_time"
+              placeholder="填了更准" /></label
+          ><label
+            >返程出发站<input
+              name="return_station"
+              placeholder="默认同到达站，请确认"
+              maxlength="40" /></label
+          ><label
+            >返程时段<select name="return_period">
+              <option value="">未定（按下午预留）</option>
+              <option value="morning">上午</option>
+              <option value="afternoon">下午</option>
+              <option value="evening">晚上</option>
+            </select></label
+          ><label
+            >返程时刻（可选）<input type="time" name="return_time" /></label
+          ><label
+            >往返交通费用（可选）<input
+              name="intercity_ticket_cost"
+              type="number"
+              min="0"
+              placeholder="未填则不计入预算"
+          /></label>
+          ><label
             >成人数<input
               name="adults"
               type="number"

@@ -286,7 +286,8 @@ def fill_budget(plan, w):
     # 待核实项：只保留真的没有数据的
     pending = []
     if "往返交通" not in items:
-        pending.append("往返交通（尚未选定或未取到票价）")
+        # 往返交通改为用户填写：票价是选填项，未填时不按零计入，也不假装已知。
+        pending.append("往返交通：未填写票价，暂不计入预算")
     pending.append("门票实际日期及适用票种（平台未提供票价资料）")
     if "餐饮" not in items:
         pending.append("餐饮（尚未选定餐厅或未取到参考人均）")
