@@ -64,7 +64,46 @@ FUNCTION = {
                     "properties": {
                         "intercity_mode": {
                             "type": "string",
-                            "enum": ["tickets", "self_drive", "self_arranged"],
+                            "enum": ["self_drive", "self_arranged"],
+                            "description": "往返城际交通由谁负责：自驾，或用户自行安排。本项目不出票，不提供“选班次”；用户自行安排时请一并提取到离站与时刻。",
+                        },
+                        "origin_station": {
+                            "type": "string",
+                            "description": "去程出发站名称，如“郑州东站”；用户未说就不填。",
+                        },
+                        "arrival_station": {
+                            "type": "string",
+                            "description": "去程到达站名称，如“洛阳龙门站”；用户未说就不填。",
+                        },
+                        "arrival_time": {
+                            "type": "string",
+                            "description": "去程到达精确时刻，HH:MM；只说时段就不要填这里。",
+                        },
+                        "arrival_period": {
+                            "type": "string",
+                            "enum": ["morning", "afternoon", "evening"],
+                            "description": "去程到达时段；用户只给了大概时间时填这里。",
+                        },
+                        "return_station": {
+                            "type": "string",
+                            "description": "返程出发站名称；用户未说就不填（可能默认同到达站，但需用户确认）。",
+                        },
+                        "return_arrival_station": {
+                            "type": "string",
+                            "description": "返程到达站名称；用户未说就不填。",
+                        },
+                        "return_time": {
+                            "type": "string",
+                            "description": "返程开车精确时刻，HH:MM；只说时段就不要填这里。",
+                        },
+                        "return_period": {
+                            "type": "string",
+                            "enum": ["morning", "afternoon", "evening"],
+                            "description": "返程出发时段；用户只给了大概时间时填这里。",
+                        },
+                        "intercity_ticket_cost": {
+                            "type": "number",
+                            "description": "往返交通费用合计（用户主动提供时才填）；未提供不填，系统不按零计入预算。",
                         },
                         "end_date": {
                             "type": "string",

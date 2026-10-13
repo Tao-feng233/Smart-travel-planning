@@ -179,7 +179,6 @@ def update_requirements(w, patch, *, preference_updates=None):
     ):
         clean["transport_mode"] = "driving"
     if "intercity_mode" in clean and clean["intercity_mode"] not in (
-        "tickets",
         "self_drive",
         "self_arranged",
     ):
@@ -290,7 +289,9 @@ def update_requirements(w, patch, *, preference_updates=None):
         w.pop("transport_queries", None)
         invalidate_transport_queries(w, "outbound")
         invalidate_transport_queries(w, "return")
-    if "intercity_mode" in changed and clean["intercity_mode"] != "tickets":
+    # 往返安排方式变化即作废此前的交通记录（自动代选班次已移除；
+    # 用户填写的记录会在函数末尾由 travel_synthesis.apply 重建）。
+    if "intercity_mode" in changed:
         w["selected_transport"] = None
         w["selected_return"] = None
         w.pop("transport_links", None)

@@ -12,8 +12,13 @@ from app.integrations.responses import unwrap
 async def do_transport_arrangement(w, action, args, progress, services):
     r = w["requirements"]
     choice = args.get("mode") or r.get("intercity_mode")
-    if choice not in ("tickets", "self_drive", "self_arranged"):
-        raise DataError("请选择自驾、往返自行安排或查询班次。")
+    # 往返交通改为用户填写：不再提供"查询班次并选定"这一项。
+    # 原有的 "tickets" 取值等价于"自行安排 + 填写到离站与时刻"，
+    # 因此统一收敛到 self_arranged。
+    if choice == "tickets":
+        choice = "self_arranged"
+    if choice not in ("self_drive", "self_arranged"):
+        raise DataError("请选择自驾，或往返自行安排并填写到离站与时刻。")
     update_requirements(
         w,
         {
@@ -21,18 +26,13 @@ async def do_transport_arrangement(w, action, args, progress, services):
             **({"transport_mode": "driving"} if choice == "self_drive" else {}),
         },
     )
-    w["ui"] = guidance.describe(
-        w,
-        action,
-        view="transport" if choice == "tickets" else "food",
-        status="ready",
-    )
+    w["ui"] = guidance.describe(w, action, view="transport", status="ready")
     return (
-        "可按需要查询班次，车票与机票由你自行选定。"
-        if choice == "tickets"
-        else "已设为"
-        + ("自驾游" if choice == "self_drive" else "往返自行安排")
-        + "，无需选择车票或机票，可以继续规划。出发与抵达时刻尚未明确时，首尾日保持弹性。"
+        "已设为自驾游，可以继续规划。出发与抵达时刻尚未明确时，首尾日保持弹性。"
+        if choice == "self_drive"
+        else "已设为往返自行安排。请在「旅行信息」里填**到达站与到达时间**、"
+        "**返程站与返程时间**；班次信息仍可查询作参考，本项目不出票。"
+        "出发与抵达时刻尚未明确时，首尾日保持弹性。"
     )
 
 
