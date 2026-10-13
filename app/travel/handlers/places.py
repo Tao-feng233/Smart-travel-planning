@@ -4,7 +4,6 @@ from app.core.errors import DataError
 from app.persistence.storage import now
 from app.travel.requirements import mark_stale
 from app.travel import foods
-from app.travel.choices import transport_select
 
 
 async def do_place_detail(w, action, args, progress, services):
@@ -110,14 +109,12 @@ async def do_select(w, action, args, progress, services):
         w["stay_hotels"] = w.get("stay_hotels") or {}
         w["stay_skipped"] = False
     elif p["kind"] in ("train", "flight"):
-        transport_select(w, p, args.get("replace", False))
-        # 选定班次后自动审查：提前抵达日要吃住、返程过早则剔除当天住宿。
-        # 只说清结论与依据，不在这些天写死时刻。
-        from app.planning import travel_review
-
-        review_notices, review_dropped = travel_review.apply(w)
-        answer_extra = (
-            "\n" + "\n".join("· " + x for x in review_notices) if review_notices else ""
+        # 往返交通改为用户填写（见《往返交通改为用户填写-设计文档》）：
+        # 本项目无法完成真正的订票（不能支付、出票、锁座），因此不再提供"选班次"。
+        # 班次查询本身保留，仅作时刻参考；实际交通由用户自行安排并填写站点与时间。
+        raise DataError(
+            "往返交通已改为由你填写：请在「旅行信息」里填到达站与到达时间、"
+            "返程站与返程时间；班次信息仅作参考，不再作为可选项。"
         )
     mark_stale(w)
     if p["kind"] == "spot":

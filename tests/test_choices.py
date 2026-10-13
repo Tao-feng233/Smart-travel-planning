@@ -26,14 +26,6 @@ def test_room_insufficient_capacity_blocks_mutation():
  with pytest.raises(DataError,match='容纳'):run(w,'select_room',{'id':rooms[0]['id']})
  assert not w.get('selected_room')
 
-def test_multiple_same_direction_requires_explicit_replacement_and_mixed_return_allowed():
- w=work();w['catalog']={i:{'id':i,'kind':k,'name':i,'direction':d} for i,k,d in [('t1','train','outbound'),('t2','train','outbound'),('f1','flight','return')]}
- run(w,'select',{'id':'t1'})
- with pytest.raises(DataError,match='替换'):run(w,'select',{'id':'t2'})
- assert w['selected_transport']['id']=='t1'
- run(w,'select',{'id':'t2','replace':True});run(w,'select',{'id':'f1'})
- assert w['selected_transport']['kind']=='train' and w['selected_return']['kind']=='flight'
-
 def test_requested_hotel_brand_passed_and_empty_results_not_old_recommendations(monkeypatch):
  import app.agents.planner as a
  w=work();w['selected_spots']=['s1'];w['catalog']['s1']={'id':'s1','kind':'spot','name':'栈桥'};seen=[]
@@ -65,18 +57,3 @@ def test_no_result_query_clears_only_current_transport_batch(monkeypatch):
  monkeypatch.setattr(a,'tuniu',provider);answer=run(w,'flight',{'direction':'return'})
  assert not w['transport_queries']['flight:return']['items'] and w['selected_transport']['id']=='chosen'
  assert '未查到' in answer
-
-def test_completion_prefills_both_directions_and_keeps_existing_confirmation(monkeypatch):
- import app.agents.planner as a
- from app.travel.choices import room_choices
- w=assign_nights(work());h=hotel(w);w['selected_room']=room_choices(h,w['requirements'])[0]
- seen=[]
- async def provider(s,t,p):
-  seen.append(p);day=p['departureDate']
-  return {'data':{'data':[{'trainNum':'G123','departureTime':day+' 10:00','arrivalTime':day+' 13:00','price':{'edzPrice':'299'},'seatAvailable':{'edzNum':99}}]},'source':{'name':'测试'}}
- monkeypatch.setattr(a,'tuniu',provider);answer=run(w,'complete_hotel',{})
- assert w['selected_transport']['selection_status']=='recommended' and w['selected_return']['selection_status']=='recommended'
- assert seen[0]['departureCityName']=='郑州' and seen[1]['departureCityName']=='青岛'
- assert '推荐' in answer
- run(w,'select',{'id':w['selected_transport']['id']});assert w['selected_transport']['selection_status']=='confirmed'
- before=w['selected_transport'].copy();run(w,'complete_hotel',{});assert w['selected_transport']==before and len(seen)==2

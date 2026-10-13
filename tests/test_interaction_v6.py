@@ -71,15 +71,6 @@ def test_meals_are_optional_replaceable_and_can_be_cleared():
  assert w['meal_choices']=={} and foods.choice(w,'2026-10-13','lunch') is None
 
 
-def test_natural_language_select_saves_hotel_and_confirms_transport(monkeypatch):
- w=work();w['hotel']=None;w['selected_room']=None;w['selected_transport']=None;w['selected_return']=None
- w['catalog']={'h1':{'id':'h1','kind':'hotel','name':'汉庭青岛酒店'},'t1':{'id':'t1','kind':'train','direction':'outbound','name':'G1852','departure':'2026-10-12 07:00','arrival':'2026-10-12 12:00'}};w['hotel_query']={'ids':['h1']};w['transport']={'items':[w['catalog']['t1']]}
- async def weather(*args):pass
- monkeypatch.setattr(agent,'ensure_weather',weather)
- for text,cid in [('帮我选择汉庭青岛酒店','h1'),('帮我选择G1852','t1')]:
-  asyncio.run(agent.execute({'workspace':w,'text':text,'intent':{'action':'chat','patch':{},'answer':'知道了'},'progress':lambda _:None}))
- assert w['hotel']['id']=='h1' and w['selected_transport']['id']=='t1' and w['selected_transport']['selection_status']=='confirmed'
-
 
 def test_next_step_requires_real_choice_and_does_not_repeat_weather():
  from app.travel.journey import next_step, refine_intent
@@ -128,16 +119,6 @@ def test_plan_includes_selected_lunch_and_optional_meals_with_real_routes(monkey
  foods.select_meal(w,{'meal_mode':'self'});again=asyncio.run(planning.generate(w,lambda _:None))
  assert not any(e.get('food') for d in again['days'] for e in d['events'])
 
-
-def test_requery_same_effective_date_preserves_manual_confirmation(monkeypatch):
- w=work();w['selected_transport'].update(name='G1',departure='2026-10-12 07:00');w['selected_return'].update(name='G2',departure='2026-10-15 12:00')
- before=copy.deepcopy(w)
- async def provider(*args):return {'data':{'data':[]},'source':{}}
- monkeypatch.setattr(agent,'tuniu',provider)
- for direction,day in [('outbound','2026-10-12'),('return','2026-10-15')]:
-  asyncio.run(agent.handle(w,'train',{'direction':direction,'departure_date':day},lambda _:None))
- assert w['selected_transport']==before['selected_transport'] and w['selected_return']==before['selected_return']
- assert w['selected_transport']['selection_status']=='confirmed' and w['selected_return']['selection_status']=='confirmed'
 
 
 def test_natural_meal_choice_executes_once_and_preserves_room(monkeypatch):

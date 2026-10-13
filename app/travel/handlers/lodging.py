@@ -76,51 +76,29 @@ async def do_complete_hotel(w, action, args, progress, services):
             "住宿步骤已确认。请补充**" + "、".join(missing) + "**，随后推荐往返交通。"
         )
     errors = []
-    for direction, slot in [
-        ("outbound", "selected_transport"),
-        ("return", "selected_return"),
+    # 往返交通改为用户填写（见《往返交通改为用户填写-设计文档》）。
+    # 本项目无法完成真正的订票，因此【不再自动代选班次】——
+    # 系统替用户挑一趟车，既没有真正订票，也不该替用户决定行程。
+    # 这里只检查用户该填的信息是否齐全，不写 selected_transport。
+    for direction, slot, keys in [
+        ("outbound", "selected_transport",
+         ("outbound_date", "arrival_period", "arrival_station", "arrival_time")),
+        ("return", "selected_return",
+         ("return_period", "return_station", "return_time")),
     ]:
         if w.get(slot):
             continue
-        try:
-            await services.handle(
-                w, "train", {"direction": direction, "recommend": True}, progress
-            )
-            candidates = [
-                p
-                for p in w["transport"]["items"]
-                if str(p.get("seats")) != "0"
-                and (
-                    direction == "return"
-                    or (p.get("arrival") or "")[:10] <= journey.travel_date(r)
-                )
-            ]
-            candidates.sort(
-                key=lambda p: (
-                    0 if p.get("train_type") == "highspeed" else 1,
-                    p.get("departure", ""),
-                )
-            )
-            if candidates:
-                transport_select(w, candidates[0], recommended=True)
-            else:
-                errors.append(
-                    "未找到符合日期的"
-                    + ("返程" if direction == "return" else "去程")
-                    + "列车"
-                )
-        except DataError as e:
-            errors.append(str(e))
+        if not any(r.get(k) for k in keys):
+            label = "返程" if direction == "return" else "去程"
+            errors.append("未填" + label + "站点与时间")
     w["ui"] = guidance.describe(w, action, view="transport", status="loading")
-    if (w.get("selected_transport") or {}).get("selection_status") == "confirmed" and (
-        w.get("selected_return") or {}
-    ).get("selection_status") == "confirmed":
-        return "已保留您确认的往返班次。" + journey.next_step(w)["message"]
+    if not errors:
+        return "往返交通已按你填写的信息记录。" + journey.next_step(w)["message"]
     return (
-        "已整理推荐往返交通，请在右侧核对时间，可改为其他车次或飞机。推荐尚待确认。"
-        if w.get("selected_transport") or w.get("selected_return")
-        else "本次尚未取得可推荐班次。请在右侧调整时段或切换飞机继续查询。"
-    ) + ("\n" + "；".join(errors) if errors else "")
+        "往返交通由你自行安排：请在「旅行信息」里填**到达站与到达时间**、"
+        "**返程站与返程时间**。班次信息仍可查询作参考，但不再作为可选项。"
+        + ("\n待补充：" + "、".join(errors) + "。")
+    )
 
 
 async def do_hotel_detail(w, action, args, progress, services):

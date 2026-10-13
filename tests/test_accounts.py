@@ -341,15 +341,6 @@ def test_manual_ticket_query_only_updates_workbench(client,monkeypatch):
  assert result['ui']['controls']['time_start']=='11:00'
 
 
-def test_final_transport_selection_has_one_needed_message_and_dining_target(client):
- signup(client);w=create(client);stored=storage.get(w['id']);stored.update(requirements={'city':'杭州','origin':'郑州','start_date':'2026-10-10','days':3,'adults':1},selected_spots=['s'],spots_confirmed=True,stay_skipped=True,selected_transport={'id':'g','name':'G1','kind':'train','selection_status':'confirmed','arrival':'2026-10-10 12:00'})
- stored['catalog']={'s':{'id':'s','kind':'spot','name':'西湖'},'b':{'id':'b','name':'G2','kind':'train','direction':'return','departure':'2026-10-13 18:00','arrival':'2026-10-13 22:00','seats':99}};storage.save(stored)
- result=wait(client,submit(client,stored,'select',{'id':'b'}).json()['job_id']);assert result['ui']['suggested_view']=='food'
- assert '往返班次已确认' in result['workspace']['messages'][-1]['content']
- assert len(result['workspace']['messages'])==2, '没有严重影响的选票不应追加警告'
- result2=wait(client,submit(client,result['workspace'],'select',{'id':'b'}).json()['job_id'])
- assert len(result2['workspace']['messages'])==len(result['workspace']['messages'])
-
 def test_map_image_requires_owner_and_uses_provider_coordinates(client,monkeypatch):
  from app.integrations import maps
  assert client.get('/api/workspaces/unknown/map-image').status_code==401
