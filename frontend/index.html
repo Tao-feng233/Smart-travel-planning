@@ -319,41 +319,34 @@
           ><label
             >返程日期（可选）<input type="date" name="return_date" /></label
           ><label
-            >去程出发站<input
-              name="origin_station"
-              placeholder="例如：郑州东站"
-              maxlength="40" /></label
+            >出行方式<select name="intercity_vehicle">
+              <option value="highspeed">高铁</option>
+              <option value="train">火车</option>
+              <option value="flight">飞机</option>
+              <option value="drive">自驾</option>
+            </select></label
           ><label
             >到达站<input
               name="arrival_station"
-              placeholder="例如：洛阳龙门站"
-              maxlength="40" /></label
+              list="arrival-station-options"
+              placeholder="选择或输入到达站"
+              maxlength="40"
+              autocomplete="off" /><datalist id="arrival-station-options"></datalist></label
           ><label
-            >到达时段<select name="arrival_period">
-              <option value="">未定（按下午预留）</option>
-              <option value="morning">上午</option>
-              <option value="afternoon">下午</option>
-              <option value="evening">晚上</option>
+            >到达时间<select name="arrival_time" data-timeslot="arrival_time">
+              <option value="">请选择到达时间</option>
             </select></label
           ><label
-            >到达时刻（可选）<input
-              type="time"
-              name="arrival_time"
-              placeholder="填了更准" /></label
-          ><label
-            >返程出发站<input
+            >返程站<input
               name="return_station"
-              placeholder="默认同到达站，请确认"
-              maxlength="40" /></label
+              list="return-station-options"
+              placeholder="选择或输入返程站"
+              maxlength="40"
+              autocomplete="off" /><datalist id="return-station-options"></datalist></label
           ><label
-            >返程时段<select name="return_period">
-              <option value="">未定（按下午预留）</option>
-              <option value="morning">上午</option>
-              <option value="afternoon">下午</option>
-              <option value="evening">晚上</option>
+            >返程时间<select name="return_time" data-timeslot="return_time">
+              <option value="">请选择返程时间</option>
             </select></label
-          ><label
-            >返程时刻（可选）<input type="time" name="return_time" /></label
           ><label
             >往返交通费用（可选）<input
               name="intercity_ticket_cost"
@@ -361,6 +354,10 @@
               min="0"
               placeholder="未填则不计入预算"
           /></label>
+          <p class="form-note" data-transport-note>
+            到达时间与返程时间为必填，系统据此核对抵达日与返程日的可用时间；
+            选择自驾则无需填写站点与时间。
+          </p>
           ><label
             >成人数<input
               name="adults"
@@ -598,7 +595,8 @@
     <script defer src="/assets/views/messages.js"></script>
     <script defer src="/assets/views/candidates.js"></script>
     <script defer src="/assets/views/workspace.js"></script>
-    <script defer src="/assets/app.js"></script>
+    <script defer src="/assets/components/transport-fields.js"></script>
+<script defer src="/assets/app.js"></script>
     <script defer src="/assets/components/workbench.js"></script>
     <script defer src="/assets/components/candidate-details.js"></script>
     <script defer src="/assets/components/map.js"></script>

@@ -1379,6 +1379,20 @@ dialog {
 #settings label {
   font-size: 12px;
 }
+/* 自驾/交通必填的说明文字：占整行，避免被挤成窄条看不清 */
+#settings .form-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted, #6b7280);
+}
+/* 置灰的交通字段：自驾时保留可见但不让填 */
+#settings :disabled {
+  background: var(--surface-muted, #f3f4f6);
+  color: var(--muted, #9ca3af);
+  cursor: not-allowed;
+}
 @media (min-width: 1700px) {
   #application main {
     grid-template-columns: 48px minmax(0, 3fr) minmax(410px, 1fr);

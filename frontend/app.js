@@ -232,6 +232,9 @@ $("#conditions").onclick = () => {
     const el = $("#settings-form").elements[k];
     if (el) el.value = Array.isArray(v) ? v.join(",") : (v ?? "");
   }
+  // 出行方式与站点/时间下拉要单独同步：它们有联动（自驾置灰、站点按城市查）
+  if (typeof syncTransportFields === "function")
+    syncTransportFields($("#settings-form"));
   $("#settings").showModal();
 };
 
@@ -239,8 +242,17 @@ $("#close-settings").onclick = () => $("#settings").close();
 
 $("#settings-form").onsubmit = async (e) => {
   e.preventDefault();
+  const form = e.target;
+  // 非自驾时到达站/到达时间/返程站/返程时间必填：先在前端拦住，提示缺哪几项
+  if (typeof transportProblem === "function") {
+    const problem = transportProblem(form);
+    if (problem) {
+      error(problem);
+      return;
+    }
+  }
   const patch = {};
-  for (const [k, v] of new FormData(e.target))
+  for (const [k, v] of new FormData(form))
     if (v.trim()) {
       patch[k] = [
         "days",
@@ -255,6 +267,10 @@ $("#settings-form").onsubmit = async (e) => {
           ? v.split(/[,，]/).map((x) => Number(x.trim()))
           : v;
     }
+  // 出行方式折算成既有的互斥模式，避免两个字段不一致
+  if (patch.intercity_vehicle)
+    patch.intercity_mode =
+      patch.intercity_vehicle === "drive" ? "self_drive" : "self_arranged";
   $("#settings").close();
   await action("requirements", { patch });
 };
@@ -320,23 +336,8 @@ for (const id of [
       d.close();
   });
 
-// 返程出发站默认同到达站：只是【减少输入】，不替用户做决定。
-// 用户若从别处返程，改这一栏即可；这里只在用户从未动过它时才预填。
-(() => {
-  const form = $("#settings-form");
-  if (!form) return;
-  const arrival = form.elements["arrival_station"];
-  const back = form.elements["return_station"];
-  if (!arrival || !back) return;
-  back.addEventListener("input", () => {
-    back.dataset.touched = "1";
-  });
-  arrival.addEventListener("blur", () => {
-    const value = (arrival.value || "").trim();
-    if (value && !back.dataset.touched && !(back.value || "").trim())
-      back.value = value;
-  });
-})();
+// 时间档下拉与出行方式联动由 transport-fields.js 负责；这里只做初始化。
+if (typeof initTransportFields === "function") initTransportFields();
 
 document.addEventListener("DOMContentLoaded", bootAccount);
 

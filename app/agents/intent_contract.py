@@ -62,31 +62,32 @@ FUNCTION = {
                     "type": "object",
                     "description": "仅本轮明确提供的条件，未提供不填写",
                     "properties": {
+                        "intercity_vehicle": {
+                            "type": "string",
+                            "enum": ["train", "highspeed", "flight", "drive"],
+                            "description": "出行方式：火车 train、高铁 highspeed、飞机 flight、自驾 drive。用户说了哪种就填哪种；自驾时到达站与到达/返程时刻都不适用。",
+                        },
                         "intercity_mode": {
                             "type": "string",
                             "enum": ["self_drive", "self_arranged"],
-                            "description": "往返城际交通由谁负责：自驾，或用户自行安排。本项目不出票，不提供“选班次”；用户自行安排时请一并提取到离站与时刻。",
-                        },
-                        "origin_station": {
-                            "type": "string",
-                            "description": "去程出发站名称，如“郑州东站”；用户未说就不填。",
+                            "description": "往返城际交通由谁负责：自驾，或用户自行安排。本项目不出票，不提供“选班次”。一般不必直接填这一项，填 intercity_vehicle 即可由系统推导。",
                         },
                         "arrival_station": {
                             "type": "string",
-                            "description": "去程到达站名称，如“洛阳龙门站”；用户未说就不填。",
+                            "description": "去程到达站名称（飞机则为机场），如“洛阳龙门站”；用户未说就不填。去程出发站不需要。",
                         },
                         "arrival_time": {
                             "type": "string",
-                            "description": "去程到达精确时刻，HH:MM；只说时段就不要填这里。",
+                            "description": "去程到达时刻，HH:MM；只说时段就不要填这里。",
                         },
                         "arrival_period": {
                             "type": "string",
                             "enum": ["morning", "afternoon", "evening"],
-                            "description": "去程到达时段；用户只给了大概时间时填这里。",
+                            "description": "去程到达时段；用户只给了大概时间（且未给具体时刻）时填这里。",
                         },
                         "return_station": {
                             "type": "string",
-                            "description": "返程出发站名称；用户未说就不填（可能默认同到达站，但需用户确认）。",
+                            "description": "返程出发站名称（飞机则为机场）；用户未说就不填。",
                         },
                         "return_arrival_station": {
                             "type": "string",

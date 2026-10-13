@@ -59,23 +59,40 @@ def _price(requirements, direction):
         return None
 
 
+def _vehicle_label(requirements):
+    """出行方式展示名；自驾时站点与时刻不适用。"""
+    from app.travel.transport_required import VEHICLE_LABELS, vehicle_of
+
+    return VEHICLE_LABELS.get(vehicle_of(requirements), "交通")
+
+
 def outbound(requirements):
-    """合成去程记录；无法确定到达时刻（缺日期）时返回 None。"""
+    """合成去程记录；无法确定到达时刻（缺日期）时返回 None。
+
+    名称带上出行方式，让计划书与时间轴能看出是高铁/飞机还是自驾，而不是只有站名。
+    去程出发站已按用户要求移除，因此不再写入 origin_station。
+    """
     requirements = requirements or {}
     moment, basis = travel_time.resolve(requirements, "outbound")
     if moment is None:
         return None
-    origin = _clean(requirements.get("origin_station"))
     arrival = _clean(requirements.get("arrival_station"))
-    name = (origin + " → " + arrival) if origin and arrival else (arrival or origin or "用户填写的去程")
+    label = _vehicle_label(requirements)
+    city = _clean(requirements.get("city"))
+    if arrival:
+        name = arrival if label == "自驾" else label + "・" + arrival
+    elif label == "自驾":
+        name = "自驾前往" + (city or "目的地")
+    else:
+        name = label + "前往" + (city or "目的地")
     return {
         "id": OUTBOUND_ID,
         "kind": "transport",
         "direction": "outbound",
         "name": name,
+        "vehicle": label,
         "departure": None,          # 用户只填到达时刻；出发时刻不猜
         "arrival": _stamp(moment),
-        "origin_station": origin or None,
         "arrival_station": arrival or None,
         "station_pending": not arrival,
         "time_basis": basis,
@@ -97,17 +114,23 @@ def inbound(requirements):
     if moment is None:
         return None
     station = _clean(requirements.get("return_station"))
-    target = _clean(requirements.get("return_arrival_station"))
-    name = (station + " → " + target) if station and target else (station or "用户填写的返程")
+    label = _vehicle_label(requirements)
+    city = _clean(requirements.get("origin")) or "出发地"
+    if station:
+        name = station if label == "自驾" else label + "・" + station
+    elif label == "自驾":
+        name = "自驾返回" + city
+    else:
+        name = label + "返回" + city
     return {
         "id": RETURN_ID,
         "kind": "transport",
         "direction": "return",
         "name": name,
+        "vehicle": label,
         "departure": _stamp(moment),
         "arrival": None,            # 用户只填开车时刻；到达时刻不猜
         "departure_station": station or None,
-        "arrival_station": target or None,
         "station_pending": not station,
         "time_basis": basis,
         "price": _price(requirements, "return"),

@@ -103,6 +103,28 @@ def delete(wid, user=Depends(auth.current_user)):
     return {"ok": True}
 
 
+@router.get("/api/workspaces/{wid}/stations")
+async def stations(
+    wid: str,
+    kind: str = Query("train", pattern="^(train|flight)$"),
+    city: str = Query("", max_length=40),
+    user=Depends(auth.current_user),
+):
+    """到达站/返程站下拉的选项来源：按城市取火车站或机场清单。
+
+    缺省用工作区的目的地城市；同时也允许显式传 city（返程站通常是出发城市）。
+    查询失败或城市为空时返回空列表，前端退化为可手动输入，不阻断表单。
+    """
+    from app.travel import stations as station_lookup
+
+    w = owned(wid, user)
+    target = (city or "").strip() or str(
+        (w.get("requirements") or {}).get("city") or ""
+    ).strip()
+    rows = await station_lookup.list_stations(target, kind)
+    return {"city": target, "kind": kind, "items": rows}
+
+
 class Action(BaseModel):
     revision: int = Field(ge=0)
     action: str = Field(max_length=40)
