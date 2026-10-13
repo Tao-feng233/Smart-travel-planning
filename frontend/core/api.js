@@ -273,14 +273,35 @@ function applyWorkspacePreview(preview) {
   render();
 }
 
-function applyJobResult(j, name, args) {
+async function applyJobResult(j, name, args) {
   applyQueryControls(j.ui?.controls, false);
   runningJobId = null;
   jobUI = null;
   liveReply = "";
   liveSteps = [];
   setBusy(false);
-  if (!j.workspace) return;
+  // 失败的任务不会带回 workspace（例如提交时 revision 已被其它标签页推进，
+  // 后端会以 "旅行已被更新，请刷新后重试" 拒绝）。此时若直接 return，
+  // 错误提示永远显示不出来，用户看到的只是"点了没反应"。
+  // 因此失败必须先报错。若是版本过期，先取回最新状态再提示，用户可直接重试。
+  // 注意：loadWorkspace 内部会清空错误提示与忙碌状态，所以顺序必须是"先刷新、后报错"。
+  if (!j.workspace) {
+    const stale =
+      j.error && String(j.error).includes("旅行已被更新");
+    if (stale) {
+      try {
+        await loadWorkspace(workspace?.id || null);
+      } catch (e) {
+        /* 刷新失败也要把原因告诉用户 */
+      }
+    }
+    if (j.error)
+      error(
+        j.error +
+          (stale ? "（右侧已刷新为最新内容，请重试刚才的操作）" : ""),
+      );
+    return;
+  }
   workspace = j.workspace;
   const performed =
     (name || j.action) === "chat" ? workspace.last_action : name || j.action;
