@@ -89,7 +89,16 @@ function stayPlanHTML() {
       const body = found.length
         ? `<details class="stay-candidates"${expanded ? " open" : ""}><summary>${chosen ? "想换这一晚的住宿" : "这一晚的候选"}（${found.length} 家）</summary><div class="cards stay-cards">${found.map(card).join("")}</div></details>`
         : "";
-      return `<div class="stay-row${chosen ? "" : " needs-hotel"}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length ? `<small>晚餐顺路：${esc(onway.join("、"))}</small>` : ""}</div><div class="stay-actions">${found.length ? `<small>${found.length} 家候选</small>` : `<small class="stay-unqueried">尚未查询</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`}</div>${body}</div>`;
+      // 「查这晚」只用于"还没选、也还没查过"的夜晚。
+      // 已经选好的那一晚若没有候选列表，再显示这个按钮会自相矛盾：
+      // 点了后端确实会查（也会完成），但这一晚的显示没有需要变的地方，
+      // 看起来就像"点了没反应"。已选定的夜晚改为不给查询入口。
+      const actions = found.length
+        ? `<small>${found.length} 家候选</small>`
+        : chosen
+          ? "<small>已选定</small>"
+          : `<small class="stay-unqueried">尚未查询</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`;
+      return `<div class="stay-row${chosen ? "" : " needs-hotel"}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length ? `<small>晚餐顺路：${esc(onway.join("、"))}</small>` : ""}</div><div class="stay-actions">${actions}</div>${body}</div>`;
     })
     .join("");
   const pending = (stay.unassigned || []).length;
