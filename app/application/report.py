@@ -2,6 +2,52 @@ from app.travel.locations import quote_stale
 from app.travel.spot_hierarchy import duplicate_plan
 
 
+def transport_confirmations(w):
+    """往返交通里【缺什么】，逐条说清，供"出发前必须确认"使用。
+
+    背景：此前计划书在往返交通段只写"自行安排，可在旅行信息里补填",
+    读起来像是用户主动选择了不填，于是没有任何提醒——而实际上站点/时刻的
+    缺失会让抵达日与返程日的可用时间无法核对，是必须让用户知道的缺项。
+    """
+    r = w.get("requirements") or {}
+    drive = r.get("intercity_mode") == "self_drive"
+    items = []
+
+    # 去程
+    if not (r.get("arrival_station") or "").strip():
+        items.append(
+            "去程"
+            + ("车库/停车地点与出发时间" if drive else "到达站")
+            + "未填：无法核对抵达日从几点开始可用，"
+            + "当日安排暂按下午到达预留"
+        )
+    if not (r.get("arrival_time") or r.get("arrival_period")):
+        items.append(
+            "去程到达时间未填：抵达日可用窗口按“下午”保守预留，未按实际时刻收窄"
+        )
+
+    # 返程
+    if not (r.get("return_station") or "").strip():
+        items.append(
+            "返程"
+            + ("出发地点与时间" if drive else "出发站")
+            + "未填：返程日的截止时间无法核对，当天活动未按返程时刻收窄"
+        )
+    if not (r.get("return_time") or r.get("return_period")):
+        items.append(
+            "返程出发时间未填：返程日窗口暂未按具体时刻收窄"
+        )
+
+    # 抵达信息缺失时，住宿起点是否合理也无法判断
+    if r.get("outbound_date") and not r.get("arrival_station"):
+        items.append(
+            "已按出发日 "
+            + str(r.get("outbound_date"))
+            + " 安排当晚住宿；该日期是否为出行日请一并确认"
+        )
+    return items
+
+
 def route_lines(rt, self_drive=False):
     """Export reference costs without turn-by-turn navigation instructions."""
     if rt.get("mode") == "driving":
@@ -48,6 +94,18 @@ def markdown(w):
         if p.get("stale") or duplicate_plan(w, p)
         else "**状态：草稿，关键未知需确认**",
         "",
+    ]
+    # 把"关键未知"具体列出来：只写一句"关键未知需确认"等于没提醒。
+    confirmations = transport_confirmations(w)
+    if confirmations and not (p.get("stale") or duplicate_plan(w, p)):
+        lines += ["## 出发前必须确认", ""]
+        lines += ["- " + x for x in confirmations]
+        lines += [
+            "",
+            "以上缺项会影响抵达日与返程日的可用时间；补齐后重新生成计划书即可按实际时刻核对。",
+            "",
+        ]
+    lines += [
         "## 旅行条件",
         "",
         f"目的地：{r.get('city')}；开始日期：{r.get('start_date')}；天数：{r.get('days')}；成人：{r.get('adults', '未确定')}；儿童：{r.get('children', 0)}",
@@ -142,6 +200,8 @@ def markdown(w):
                 f"  来源：{tr['source']['name']}，查询：{tr['source']['queried_at']}",
             ]
         else:
+            station_missing = not (r.get("arrival_station") or "").strip()
+            drive = r.get("intercity_mode") == "self_drive"
             lines += [
                 "- "
                 + label
@@ -151,7 +211,12 @@ def markdown(w):
                         r.get("intercity_mode"), "未填写"
                     )
                 )
-                + "，可在「旅行信息」里补填站点与时间；实际抵达与离开时间需核实。"
+                + (
+                    "；站点尚未填写，接驳时间无法核对——请在「旅行信息」里补填"
+                    if station_missing
+                    else "，可在「旅行信息」里补填站点与时间"
+                )
+                + "；实际抵达与离开时间需核实。"
             ]
     lines += ["", "## 每日安排", ""]
     for d in p["days"]:
