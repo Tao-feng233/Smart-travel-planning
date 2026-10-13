@@ -105,9 +105,12 @@ document.addEventListener("click", async (e) => {
   }
   if (b.dataset.action) {
     const row = b.closest(".stay-row");
-    const stayArgs = row?.dataset.stayDate
-      ? { stay_date: row.dataset.stayDate }
-      : {};
+    // 按钮自己可以带 data-stay-date（逐晚的"查这晚"），它比所在行更精确，
+    // 因此优先取它；否则退回所在"住宿晚"行。
+    // 此前只从行上取，导致点了某一晚的"查这晚"却按行日期去查，
+    // 界面看起来就是"这一晚点了没反应"。
+    const stayDate = b.dataset.stayDate || row?.dataset.stayDate;
+    const stayArgs = stayDate ? { stay_date: stayDate } : {};
     if (stayArgs.stay_date && b.dataset.action === "search_hotels")
       stayOpenDate = stayArgs.stay_date;
     await action(b.dataset.action, {
