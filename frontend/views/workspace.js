@@ -95,9 +95,14 @@ function stayPlanHTML() {
       //   found.length      有可用候选
       //   row.empty === true 已查过，但这一晚没有找到可核实的酒店（原因见 excluded）
       //   否则               确实还没查过
+      // 后端在"当天收尾地点附近查不到可核实酒店"时会自动逐级扩大检索范围
+      // （1 锚定 → 2 景点一带 → 3 全城）。这里必须把"范围已扩大"说出来，
+      // 否则用户会以为这些酒店就在当天收尾地点旁边。
+      const widen = Number(row.widen_level) || 0;
+      const widenLabel = widen === 2 ? "已扩大到景点一带" : widen === 3 ? "已扩大到全城" : "";
       const queriedEmpty = row.empty === true;
       const actions = found.length
-        ? `<small>${found.length} 家候选</small>`
+        ? `<small>${found.length} 家候选${widenLabel ? "・" + widenLabel : ""}</small>`
         : chosen
           ? "<small>已选定</small>"
           : queriedEmpty
@@ -110,10 +115,16 @@ function stayPlanHTML() {
         .slice(0, 3);
       const emptyNote =
         queriedEmpty && !found.length && !chosen
-          ? `<p class="panel-footnote">这一晚查到过酒店，但没有可用坐标或未通过通行核对，因此未列出${
+          ? `<p class="panel-footnote">已在${
+              (row.widen_tried || []).length > 1 ? "锚定地点、景点一带与全城" : "这一晚"
+            }都查过，仍没有可用坐标或未通过通行核对的酒店${
               excludedNames.length ? "（已排除：" + esc(excludedNames.join("、")) + "）" : ""
             }。可换一个收尾地点或稍后重试。</p>`
-          : "";
+          : widen && found.length
+            ? `<p class="panel-footnote">当天收尾地点附近没有可核实的酒店，已把检索范围扩大到${
+                widen === 2 ? "景点一带" : "全城"
+              }；以下候选均已核对位置与通行。</p>`
+            : "";
       return `<div class="stay-row${chosen ? "" : " needs-hotel"}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length ? `<small>晚餐顺路：${esc(onway.join("、"))}</small>` : ""}</div><div class="stay-actions">${actions}</div>${emptyNote}${body}</div>`;
     })
     .join("");

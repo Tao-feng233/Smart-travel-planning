@@ -58,18 +58,8 @@ async def prepare_nights(w, args, services):
     return stay, explicit, budget, targets
 
 
-async def query_night(w, day, progress, services):
-    row = next(row for row in w["stay_plan"]["rows"] if row["date"] == day)
-    progress(
-        "以"
-        + str(row.get("anchor_name") or w["requirements"]["city"])
-        + "为中心（"
-        + str(row.get("anchor_basis") or "当天收尾地点")
-        + "）查询 "
-        + day
-        + " 当晚住宿"
-    )
-    params = stay_plan.day_search_plan(w, day)
+async def query_zone(w, day, row, params, progress, services):
+    """在给定查询参数下取一次候选，并做位置与通行核对。返回可用 items。"""
     add_children(params, w["requirements"])
     result = await services.tuniu("hotel", "tuniuHotelSearch", params)
     items = [
@@ -86,23 +76,101 @@ async def query_night(w, day, progress, services):
                 "stay_anchor_name": row.get("anchor_name"),
             },
         )
-        for hotel in records(result)[:4]
+        for hotel in records(result)[:8]
     ]
+    if not items:
+        return [], [], []
+    items, location_excluded = await locations.ready_candidates(
+        w, items, services.local_tool, locate_hotels=True
+    )
+    if not items:
+        return [], location_excluded, []
+    anchor = (w.get("catalog") or {}).get(row.get("anchor_id"))
+    items, excluded = await access.screen(
+        w, items, lambda _: anchor, services.route_options, services.choose_route
+    )
+    return items, location_excluded, excluded
+
+
+async def query_night(w, day, progress, services):
+    """查某一晚的酒店：锚定检索为空时【逐级扩大范围】，直到有可核实候选。
+
+    实测依据（洛阳 2026-10-14，白马寺一带）：
+      一级 poiName=白马寺     → 途牛 1 条 → 可核实 0 家
+      二级 poiName=景点中心一带 → 途牛 8 条 → 可核实 5 家
+      三级 整城（无 poiName）   → 途牛 8 条 → 可核实 5 家
+    只做一级时用户得到"暂无可用酒店"，而往外退一级就有 5 家。
+
+    注意：扩大范围只扩大【检索范围】，坐标与通行核对【不允许放宽】——
+    没有核实到坐标的酒店仍然不进候选，只是让检索有机会遇到能核实的酒店。
+    """
+    row = next(row for row in w["stay_plan"]["rows"] if row["date"] == day)
+    base_params = stay_plan.day_search_plan(w, day)
+
+    # 第 1 级：当天收尾地点锚定
+    progress(
+        "以"
+        + str(row.get("anchor_name") or w["requirements"]["city"])
+        + "为中心（"
+        + str(row.get("anchor_basis") or "当天收尾地点")
+        + "）查询 "
+        + day
+        + " 当晚住宿"
+    )
+    candidates = [(1, dict(base_params))]
+    # 第 2 级：改用全部已选景点中心一带检索；第 3 级：整城检索。
+    params_center, _nearest, _count = stay_plan.center_search_plan(w)
+    if params_center:
+        center = dict(params_center)
+        center["checkIn"] = day
+        center["checkOut"] = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        if center.get("poiName") != base_params.get("poiName"):
+            candidates.append((2, center))
+    city_only = {k: v for k, v in base_params.items() if k != "poiName"}
+    candidates.append((3, city_only))
+
+    attempted, items, location_excluded, excluded = [], [], [], []
+    for level, params in candidates[:3]:
+        attempted.append(level)
+        if level > 1:
+            progress(
+                "这一晚在"
+                + ("景点一带" if level == 2 else "全城范围")
+                + "扩大检索"
+            )
+        try:
+            found, loc_ex, ex = await query_zone(
+                w, day, row, params, progress, services
+            )
+        except DataError:
+            found, loc_ex, ex = [], [], []
+        location_excluded = location_excluded + loc_ex
+        excluded = excluded + ex
+        if found:
+            items = found
+            if level > 1:
+                progress("核对 " + day + " 候选酒店的位置与到当天收尾地点的通行")
+                for item in found:
+                    item["anchor_route"] = item["access"].get("route")
+                    item["route_options"] = item["access"].get("options", [])
+                    item["anchor_name"] = row.get("anchor_name")
+                    item["recommendation_basis"] = (
+                        "当天收尾地点「"
+                        + str(row.get("anchor_name"))
+                        + "」附近没有可核实的酒店，已把检索范围扩大到"
+                        + ("景点一带" if level == 2 else "全城")
+                        + "；以下候选均经位置与通行核对。"
+                    )
+                    item["dinner_hint"] = stay_plan.dinner_options(w, day, item)
+            break
+
     if items:
-        progress("核对 " + day + " 候选酒店的位置与到当天收尾地点的通行")
-        items, location_excluded = await locations.ready_candidates(
-            w, items, services.local_tool, locate_hotels=True
-        )
-        anchor = (w.get("catalog") or {}).get(row.get("anchor_id"))
-        items, excluded = await access.screen(
-            w, items, lambda _: anchor, services.route_options, services.choose_route
-        )
-        row["excluded"] = location_excluded + excluded
         for item in items:
-            item["anchor_route"] = item["access"].get("route")
-            item["route_options"] = item["access"].get("options", [])
-            item["anchor_name"] = row.get("anchor_name")
-            item["recommendation_basis"] = (
+            item.setdefault("anchor_route", item["access"].get("route"))
+            item.setdefault("route_options", item["access"].get("options", []))
+            item.setdefault("anchor_name", row.get("anchor_name"))
+            item.setdefault(
+                "recommendation_basis",
                 "以当天收尾地点「"
                 + str(row.get("anchor_name"))
                 + "」为参照（"
@@ -110,12 +178,19 @@ async def query_night(w, day, progress, services):
                 + "），核对 "
                 + day
                 + " 当晚通行；"
-                + ("已核算该路段。" if item["anchor_route"] else "实际通行尚待核实。")
+                + ("已核算该路段。" if item.get("anchor_route") else "实际通行尚待核实。"),
             )
-            item["dinner_hint"] = stay_plan.dinner_options(w, day, item)
+            item.setdefault("dinner_hint", stay_plan.dinner_options(w, day, item))
         w["catalog"].update({item["id"]: item for item in items})
+
+    widened = attempted[-1] if items and len(attempted) > 1 else 0
     row.update(
-        candidate_ids=[item["id"] for item in items], queried_at=now(), empty=not items
+        candidate_ids=[item["id"] for item in items],
+        queried_at=now(),
+        empty=not items,
+        excluded=location_excluded + excluded,
+        widen_level=widened,
+        widen_tried=attempted,
     )
     return items
 
