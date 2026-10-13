@@ -24,3 +24,6 @@ tmp/
 *.db
 *.db-wal
 *.db-shm
+
+# Installed front-end dependencies (not part of the source tree)
+node_modules/

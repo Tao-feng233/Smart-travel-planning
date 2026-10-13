@@ -240,7 +240,9 @@ function transportHTML() {
   const w = workspace;
   const own = w.requirements.intercity_mode === "self_drive",
     arranged = w.requirements.intercity_mode === "self_arranged";
-  const optional = `<div class="panel-intro"><h3>往返交通（可选）</h3><p>自驾或已安排往返时，无需选择车票和机票；市内通行仍会按地点计算。</p><div class="panel-footer-actions"><button data-trip-transport="self_drive" class="${own ? "" : "ghost"}">自驾游，继续规划</button><button data-trip-transport="self_arranged" class="${arranged ? "" : "ghost"}">往返自行安排</button>${own || arranged ? '<button class="ghost" data-trip-transport="tickets">改为查询车票／机票</button>' : ""}</div></div>`;
+  // 往返交通改为用户填写：不再提供"选班次"。班次查询保留，仅作时刻参考，
+  // 但不存在"把某趟车选进行程"这一步——本项目不出票。
+  const optional = `<div class="panel-intro"><h3>往返交通（可选）</h3><p>城际交通由你自行安排：在「旅行信息」里填到达站与到达时间、返程站与返程时间。自驾可跳过。市内通行仍会按地点计算。</p><div class="panel-footer-actions"><button data-trip-transport="self_drive" class="${own ? "" : "ghost"}">自驾游，继续规划</button><button data-trip-transport="self_arranged" class="${arranged ? "" : "ghost"}">往返自行安排</button></div></div>`;
   if (own || arranged)
     return (
       optional +
