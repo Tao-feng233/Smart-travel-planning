@@ -89,16 +89,32 @@ function stayPlanHTML() {
       const body = found.length
         ? `<details class="stay-candidates"${expanded ? " open" : ""}><summary>${chosen ? "想换这一晚的住宿" : "这一晚的候选"}（${found.length} 家）</summary><div class="cards stay-cards">${found.map(card).join("")}</div></details>`
         : "";
-      // 「查这晚」只用于"还没选、也还没查过"的夜晚。
-      // 已经选好的那一晚若没有候选列表，再显示这个按钮会自相矛盾：
-      // 点了后端确实会查（也会完成），但这一晚的显示没有需要变的地方，
-      // 看起来就像"点了没反应"。已选定的夜晚改为不给查询入口。
+      // 「查这晚」的显示必须区分三种状态，否则"查过但没有符合条件的酒店"会被
+      // 显示成"尚未查询"：用户点一次、后端确实查了、结果为空、界面一字不变，
+      // 看起来就是"点了没反应"，于是反复点。
+      //   found.length      有可用候选
+      //   row.empty === true 已查过，但这一晚没有找到可核实的酒店（原因见 excluded）
+      //   否则               确实还没查过
+      const queriedEmpty = row.empty === true;
       const actions = found.length
         ? `<small>${found.length} 家候选</small>`
         : chosen
           ? "<small>已选定</small>"
-          : `<small class="stay-unqueried">尚未查询</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`;
-      return `<div class="stay-row${chosen ? "" : " needs-hotel"}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length ? `<small>晚餐顺路：${esc(onway.join("、"))}</small>` : ""}</div><div class="stay-actions">${actions}</div>${body}</div>`;
+          : queriedEmpty
+            ? `<small class="stay-unqueried">已查询，暂无可用酒店</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">重新查询</button>`
+            : `<small class="stay-unqueried">尚未查询</small><button class="ghost" data-action="search_hotels" data-stay-date="${esc(row.date)}">查这晚</button>`;
+      // 查过却没结果时，把被排除的原因说清楚，用户才知道是定位核实没过、不是系统没反应。
+      const excludedNames = (row.excluded || [])
+        .map((x) => x && x.name)
+        .filter(Boolean)
+        .slice(0, 3);
+      const emptyNote =
+        queriedEmpty && !found.length && !chosen
+          ? `<p class="panel-footnote">这一晚查到过酒店，但没有可用坐标或未通过通行核对，因此未列出${
+              excludedNames.length ? "（已排除：" + esc(excludedNames.join("、")) + "）" : ""
+            }。可换一个收尾地点或稍后重试。</p>`
+          : "";
+      return `<div class="stay-row${chosen ? "" : " needs-hotel"}" data-stay-date="${esc(row.date)}"><div class="stay-date"><strong>${esc(row.date)}</strong><small>住 1 晚</small></div><div class="stay-anchor"><span>${label}</span><small>${sub}</small>${onway.length ? `<small>晚餐顺路：${esc(onway.join("、"))}</small>` : ""}</div><div class="stay-actions">${actions}</div>${emptyNote}${body}</div>`;
     })
     .join("");
   const pending = (stay.unassigned || []).length;
