@@ -28,8 +28,15 @@ def clock(n):
 
 
 def transport_time(p, key):
+    # 注意：dict.get(key, "") 只在【键不存在】时给默认值；键存在但值为 None
+    # （例如用户只填了到达时刻、出发时刻留空的交通记录）仍会返回 None，
+    # .replace 会抛 AttributeError。因此先取值、判空，再解析；
+    # 无法解析（含 None 与空串）一律返回 None，表示"时刻未知"。
+    raw = (p or {}).get(key) or ""
+    if not isinstance(raw, str):
+        raw = str(raw)
     try:
-        return datetime.fromisoformat((p or {}).get(key, "").replace(" ", "T"))
+        return datetime.fromisoformat(raw.replace(" ", "T"))
     except (ValueError, TypeError):
         return None
 

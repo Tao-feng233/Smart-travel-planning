@@ -141,7 +141,7 @@ def refine_intent(w, text, intent):
     )
     if return_only:
         target = patch.pop("start_date", None)
-        base = (w.get("selected_return") or {}).get("departure", "")[
+        base = ((w.get("selected_return") or {}).get("departure") or "")[
             :10
         ] or travel_date(r)
         delta = re.search(r"(?:往后|延后|推迟|后移)(?:一|1)天|后一天", text)

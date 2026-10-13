@@ -112,8 +112,8 @@ class DailySchedule:
             )
         if (
             self.ctx.transport
-            and self.ctx.transport.get("departure", "")[:10] == self.group["date"]
-            and (self.ctx.transport.get("arrival", "")[:10] == self.group["date"])
+            and (self.ctx.transport.get("departure") or "")[:10] == self.group["date"]
+            and ((self.ctx.transport.get("arrival") or "")[:10] == self.group["date"])
         ):
             self.events.append(
                 {
@@ -294,8 +294,8 @@ class DailySchedule:
                 )
             back = self.ctx.workspace["selected_return"]
             finish = (
-                back.get("arrival", "")[-5:]
-                if back.get("arrival", "")[:10] == self.group["date"]
+                (back.get("arrival") or "")[-5:] or "23:59"
+                if (back.get("arrival") or "")[:10] == self.group["date"]
                 else "23:59"
             )
             self.events.append(
@@ -974,8 +974,8 @@ class DailySchedule:
                 )
             back = self.ctx.workspace["selected_return"]
             finish = (
-                back.get("arrival", "")[-5:]
-                if back.get("arrival", "")[:10] == self.group["date"]
+                (back.get("arrival") or "")[-5:] or "23:59"
+                if (back.get("arrival") or "")[:10] == self.group["date"]
                 else "23:59"
             )
             self.events.append(

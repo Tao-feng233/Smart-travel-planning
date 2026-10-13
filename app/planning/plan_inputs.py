@@ -62,13 +62,13 @@ async def prepare(ctx):
     tour_dates = [(ctx.start + timedelta(days=i)).isoformat() for i in range(ctx.days)]
     finish = max(
         tour_dates[-1],
-        (ctx.workspace.get("selected_return") or {}).get("departure", "")[:10]
+        ((ctx.workspace.get("selected_return") or {}).get("departure") or "")[:10]
         or ctx.requirements.get("return_date")
         or tour_dates[-1],
     )
     begin = min(
         ctx.start.isoformat(),
-        (ctx.workspace.get("selected_transport") or {}).get("departure", "")[:10]
+        ((ctx.workspace.get("selected_transport") or {}).get("departure") or "")[:10]
         or ctx.start.isoformat(),
     )
     span = (date.fromisoformat(finish) - date.fromisoformat(begin)).days + 1
