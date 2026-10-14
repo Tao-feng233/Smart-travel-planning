@@ -9,7 +9,15 @@ async def local_tool(name, arguments):
         raise DataError("本地 MCP 工具服务尚未连接")
     result = await SESSION.call_tool(name, arguments)
     if result.isError:
-        raise DataError("本地数据工具查询失败，请稍后重试")
+        # MCP 把工具的 DataError 折成 isError=True + 文本。以前这里一律换成
+        # 「查询失败，请稍后重试」，把「这个城市没数据」说成了「系统坏了」。
+        # 有原文就透传原文，没有才回落到泛化提示。
+        detail = " ".join(
+            str(x.text).strip()
+            for x in result.content or []
+            if getattr(x, "type", None) == "text" and getattr(x, "text", None)
+        ).strip()
+        raise DataError(detail[:200] or "本地数据工具查询失败，请稍后重试")
     data = result.structuredContent
     if data is not None:
         # SDK wraps some primitive return types; our tools all return dicts.

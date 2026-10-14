@@ -1,6 +1,12 @@
 import asyncio,uuid,time,secrets
 from contextlib import asynccontextmanager
+from datetime import date, timedelta
 import pytest
+
+
+def rel_day(offset):
+    # 相对今天生成日期：硬编码日期过期后会被校验拒绝（请使用今天或之后的出游日期）。
+    return (date.today()+timedelta(days=offset)).isoformat()
 from fastapi.testclient import TestClient
 from app import main
 from app.api import auth
@@ -343,7 +349,9 @@ def test_manual_ticket_query_only_updates_workbench(client,monkeypatch):
 
 def test_final_transport_selection_has_one_needed_message_and_dining_target(client):
  signup(client);w=create(client);stored=storage.get(w['id']);stored.update(requirements={'city':'杭州','origin':'郑州','start_date':'2026-10-10','days':3,'adults':1},selected_spots=['s'],spots_confirmed=True,stay_skipped=True,selected_transport={'id':'g','name':'G1','kind':'train','selection_status':'confirmed','arrival':'2026-10-10 12:00'})
- stored['catalog']={'s':{'id':'s','kind':'spot','name':'西湖'},'b':{'id':'b','name':'G2','kind':'train','direction':'return','departure':'2026-10-13 18:00','arrival':'2026-10-13 22:00','seats':99}};storage.save(stored)
+ # 选中返程会把班次出发日写成 return_date 并校验，必须是今天或之后；原硬编码日期次日即过期。
+ back=rel_day(1)
+ stored['catalog']={'s':{'id':'s','kind':'spot','name':'西湖'},'b':{'id':'b','name':'G2','kind':'train','direction':'return','departure':back+' 18:00','arrival':back+' 22:00','seats':99}};storage.save(stored)
  result=wait(client,submit(client,stored,'select',{'id':'b'}).json()['job_id']);assert result['ui']['suggested_view']=='food'
  assert '往返班次已确认' in result['workspace']['messages'][-1]['content']
  assert len(result['workspace']['messages'])==2, '没有严重影响的选票不应追加警告'

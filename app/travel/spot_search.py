@@ -46,14 +46,16 @@ class SpotSearch:
         excluded_names = list(w.get("rejected_spot_names", [])) + [
             w["catalog"][cid]["name"] for cid in excluded_ids if cid in w["catalog"]
         ]
-        keywords = [
-            str(keyword)[:40]
-            for keyword in (
-                args.get("keywords")
-                or (previous.get("keywords") if expanding else None)
-                or classic[:3]
-            )[:4]
-        ]
+        if args.get("keywords"):
+            wanted = args["keywords"]
+        elif expanding:
+            # 扩充时改问「还没查过」的代表景点名。以前沿用上一轮关键词，
+            # 同样的词问第二遍自然还是那几个结果 —— 这就是「换一批却空手而归」的原因。
+            used = set(previous.get("keywords") or [])
+            wanted = [k for k in classic if k not in used][:4] or classic[:4]
+        else:
+            wanted = classic[:3]
+        keywords = [str(keyword)[:40] for keyword in list(wanted)[:4]]
         return cls(
             city,
             classic,

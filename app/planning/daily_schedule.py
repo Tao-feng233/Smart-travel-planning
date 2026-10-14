@@ -446,6 +446,7 @@ class DailySchedule:
             self.point.get("name"),
             self.time,
             self.duration + meal_minutes,
+            self.group.get("date"),
         )
         if not _ok:
             _opens, _closes, _last = _oh.parse(self.point.get("opening"))
@@ -468,6 +469,7 @@ class DailySchedule:
                     self.point.get("name"),
                     self.time,
                     self.duration + meal_minutes,
+                    self.group.get("date"),
                 )
         if not _ok:
             _cap = _limit if _limit is not None else 24 * 60
@@ -488,15 +490,16 @@ class DailySchedule:
                         "available_minutes": _usable,
                     },
                 )
-            self.ctx.boundary_issues.append(
-                {
-                    "code": "opening_hours",
-                    "level": "warning",
-                    "view": "spot",
-                    "date": self.group["date"],
-                    "candidate_ids": [self.point["id"]],
-                    "overrun_minutes": max(0, self.duration - _usable),
-                    "available_minutes": _usable,
+            # "当天闭馆"和"超出开放时段"共用 opening_hours 这个 code，
+            # 多带一个字段才分得清一个景点到底是被哪条规则挡下的。
+            _issue = {
+                "code": "opening_hours",
+                "level": "warning",
+                "view": "spot",
+                "date": self.group["date"],
+                "candidate_ids": [self.point["id"]],
+                "overrun_minutes": max(0, self.duration - _usable),
+                "available_minutes": _usable,
                     "message": self.group["date"]
                     + " "
                     + self.point["name"]
@@ -505,8 +508,14 @@ class DailySchedule:
                     + "。该时段可用游玩时间约 "
                     + str(_usable)
                     + " 分钟；不足15分钟的景点未放入日程，选择仍保留，请改到开放时段或调整顺序。",
-                }
-            )
+            }
+            if _oh.closed_today(self.point.get("opening"), self.group.get("date")):
+                _issue["closed_on_weekday"] = True
+                # 明文写的闭馆 vs "开放日里没列出今天"推出来的，强度不同
+                _issue["closure_strength"] = _oh.closed_day_strength(
+                    self.point.get("opening"), self.group.get("date")
+                )
+            self.ctx.boundary_issues.append(_issue)
             self.duration = max(0, _usable)
             if self.duration < 15:
                 return True

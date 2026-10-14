@@ -94,9 +94,28 @@ async def dispatch(w, action, args, progress, services):
     if action in ("search_spots", "search_hotels", "search_foods") and w[
         "requirements"
     ].get("city"):
-        from app.knowledge.coverage import require_city
+        from app.knowledge import coverage, web_fallback
 
-        require_city(w["requirements"]["city"])
+        _city = w["requirements"]["city"]
+        if web_fallback.require_city_or_web(w, _city) == "web" and action == "search_spots":
+            # 联网只证明「这是个真实目的地」，景点候选仍只从已核实的地方名录取。
+            # 名录没覆盖的城市放下去，会在 get_spot_candidates 里被同一条门禁挡回，
+            # 但那时提示只剩「数据库暂时缺失」，说不清「城市刚被接受为什么又不行」。
+            # 在这里挡，把两件事都讲明白。
+            raise DataError(
+                "已联网确认“"
+                + str(_city)
+                + "”是目的地，但景点候选目前只来自已核实的地方资料"
+                "（覆盖 "
+                + str(len(coverage.snapshot()["cities"]))
+                + " 个城市），暂不能为它生成行程。可以换成已覆盖的目的地。",
+                {
+                    "phase": "coverage",
+                    "view": "spot",
+                    "requested_location": _city,
+                    "city_source": "web",
+                },
+            )
     if action not in DIRECT_ACTIONS:
         w["ui"] = guidance.describe(w, action, args, status="loading")
         progress(w["ui"]["title"])

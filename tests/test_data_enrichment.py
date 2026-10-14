@@ -1,6 +1,12 @@
 import asyncio, copy
+from datetime import date, timedelta
 import pytest
 from app.integrations import providers
+
+
+def rel_day(offset):
+    # 相对今天生成日期：硬编码日期过期后 ticket_date 会抛错（spots.py 里未兜底，直接冒泡）。
+    return (date.today()+timedelta(days=offset)).isoformat()
 from app.agents import planner as agent
 from app.travel.choices import room_choices, select_room
 from app.core.errors import DataError
@@ -49,14 +55,16 @@ def test_hotel_details_keep_all_rooms_and_cancel_desc_without_tokens(monkeypatch
 
 def test_ticket_uses_actual_visit_date_and_keeps_late_admission_products(monkeypatch):
     w=work();p={'id':'amap:s','kind':'spot','name':'杜甫草堂博物馆'};w['catalog'][p['id']]=p;w['selected_spots']=[p['id']]
-    w['visit_requests']={p['id']:{'date':'2026-10-21','period':'afternoon'}};calls=[]
+    # 门票游玩日期经 ticket_date 校验（spots.py 未包 try，过期直接抛），必须是今天或之后。
+    visit=rel_day(8)
+    w['visit_requests']={p['id']:{'date':visit,'period':'afternoon'}};calls=[]
     rows=[{'resId':str(i),'resName':'文创/纪念品','startPrice':'20','departsDate':'2026-12-31','scenicName':'杜甫草堂'} for i in range(14)]
     rows.append({'resId':'admission','resName':'成人门票','startPrice':'50','departsDate':'2026-12-31','scenicName':'杜甫草堂','personTypeName':'成人票'})
     async def tuniu(s,t,args):
         calls.append(args);return {'data':{'tickets':[] if len(calls)==1 else rows},'source':{'name':'途牛'}}
     monkeypatch.setattr(agent,'tuniu',tuniu)
     asyncio.run(agent.handle(w,'ticket',{'id':p['id']},lambda _:None))
-    assert all(c['depart_date']=='2026-10-21' for c in calls) and calls[-1]['scenic_name']=='杜甫草堂'
+    assert all(c['depart_date']==visit for c in calls) and calls[-1]['scenic_name']=='杜甫草堂'
     t=w['tickets'][p['id']];assert t['items'][0]['resId']=='admission'
     assert t['items'][0]['price_basis']=='interval_minimum' and t['items'][0]['requested_date_price'] is None
     assert t['items'][0]['inventory_status']=='unknown' and t['status']=='available'

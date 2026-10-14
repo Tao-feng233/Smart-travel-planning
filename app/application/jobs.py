@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 
 from app.travel import actions as travel_actions
 from app.application import guidance, post_processing, job_results
@@ -17,6 +18,19 @@ LOCKS = {}
 TASKS = {}
 CANCELLED = set()
 SHUTTING_DOWN = False
+
+
+def grace_seconds():
+    """How long an in-flight action may finish on its own before it is cancelled.
+
+    Two-phase on purpose: `SHUTTING_DOWN` already stops *new* work, so the only
+    question is what to do with work already running. Cutting it immediately
+    turns a restart into lost turns; waiting forever turns a restart into a hang.
+    """
+    try:
+        return max(0.0, float(os.environ.get("SHUTDOWN_GRACE_SECONDS", "20")))
+    except ValueError:
+        return 20.0
 
 
 def initialize():
@@ -46,13 +60,20 @@ def cancel_running(jid):
 
 
 async def shutdown():
+    """Stop accepting work, let in-flight actions finish, then cancel the rest."""
     global SHUTTING_DOWN
     SHUTTING_DOWN = True
     tasks = list(TASKS.values())
-    for task in tasks:
+    if not tasks:
+        return
+    pending = set(tasks)
+    grace = grace_seconds()
+    if grace:
+        _, pending = await asyncio.wait(tasks, timeout=grace)
+    for task in pending:
         task.cancel()
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def dispatch(workspace, action, args, progress):

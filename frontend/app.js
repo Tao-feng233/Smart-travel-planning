@@ -234,19 +234,57 @@ $("#conditions").onclick = () => {
 
 $("#close-settings").onclick = () => $("#settings").close();
 
+const SETTINGS_NUMERIC = ["days", "adults", "children", "rooms", "budget"];
+
 $("#settings-form").onsubmit = async (e) => {
   e.preventDefault();
+  const form = e.target;
+  // 字段名取中文标签，避免再维护一份「字段 -> 中文」映射表。
+  const labelOf = (name) => {
+    const el = form.querySelector(`[name="${name}"]`);
+    const text = el?.closest("label")?.textContent?.trim();
+    return (text || name).replace(/（可选）|\(可选\)/g, "").trim() || name;
+  };
   const patch = {};
-  for (const [k, v] of new FormData(e.target))
-    if (v.trim()) {
-      patch[k] = ["days", "adults", "children", "rooms", "budget"].includes(k)
-        ? Number(v)
+  const saved = [];
+  const cleared = [];
+  const current = workspace?.requirements || {};
+  for (const [k, raw] of new FormData(form)) {
+    const value = String(raw ?? "").trim();
+    if (value) {
+      patch[k] = SETTINGS_NUMERIC.includes(k)
+        ? Number(value)
         : k === "child_ages"
-          ? v.split(/[,，]/).map((x) => Number(x.trim()))
-          : v;
+          ? value.split(/[,，]/).map((x) => Number(x.trim()))
+          : value;
+      saved.push(`${labelOf(k)}=${value}`);
+    } else if (String(current[k] ?? "") !== "") {
+      // 原来有值、本次留空 = 用户想清掉。以前 `if (v.trim())` 直接跳过，
+      // 导致旧值根本清不掉，还让人以为没保存上。空串后端按「未设置」处理。
+      patch[k] = "";
+      cleared.push(labelOf(k));
     }
-  $("#settings").close();
+  }
+  if (!Object.keys(patch).length) {
+    toast("没有需要保存的改动");
+    $("#settings").close();
+    return;
+  }
+  if (
+    cleared.length &&
+    !confirm(`清空「${cleared.join("、")}」将恢复为未设置，确定？`)
+  )
+    return;
+  const dialog = $("#settings");
+  // action() 内部已捕获异常并写入 #error，不会向外抛，成败要查错误条。
   await action("requirements", { patch });
+  const err = $("#error").hidden ? "" : $("#error").textContent;
+  if (err) {
+    toast(`保存失败：${err}`);
+    return; // 失败不关窗，留在表单里改完可重试
+  }
+  dialog.close();
+  toast(saved.length ? `已保存：${saved.join("，")}` : "已保存");
 };
 
 $("#new").onclick = newTrip;

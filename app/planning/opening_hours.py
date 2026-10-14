@@ -7,6 +7,13 @@
   3月至6月,9月至11月 周一至周日 07:00-17:30；7月至8月 周一至周日 06:00-19:00；12月,1月至2月 周一至周日 07:30-17:00
   5月至10月:周二至周日:09:00-17:00(16:30停止入场),11月至次年4月:09:00-16:30(16:00停止入场法定节假日除外)
   01/01-06/30 09:00–18:00开放 最晚售票17:00；07/01-08/31 08:30–18:30开放 最晚售票17:30
+  周一闭馆 国家法定节假日除外；11月1日至次年4月30日 周二至周日 09:00-16:30(16:00停止入馆)
+  周一全天关闭（法定节假日除外），周二至周日:9:00-18:00
+  4月1日-10月31日:09:00-17:30；11月1日-3月31日:周二-周日:09:00-17:30
+
+星期维度的闭馆日由 `opening_days` 单独承载（真实资料里"周一闭馆"与时段常常
+混写在同一行，塞进本模块的区间解析会互相污染）。`check(..., day=...)` 传入
+出游日期时才启用；不传日期的行为与改造前完全一致。
 
 设计取舍：
 * 资料是"地图当前营业资料，出游日期需核实"，可能含季节性多时段。这里取**所有时段的并集**作为
@@ -18,6 +25,8 @@
 
 import re
 from datetime import date
+
+from app.planning import opening_days
 
 # 夜市、灯光秀等本就适合夜间的地点
 NIGHT_HINTS = ("夜市", "夜景", "灯光", "夜游", "酒吧", "演出", "秀场", "啤酒街", "夜宵")
@@ -69,6 +78,16 @@ def parse(opening):
     return opens, closes, last
 
 
+def closed_today(opening, day):
+    """当天是否因星期规则闭馆（与"超出开放时段"区分开用的可归因标记）。"""
+    return opening_days.closed_on(opening, day) is True
+
+
+def closed_day_strength(opening, day):
+    """"explicit" 明文闭馆 / "inferred" 开放日未列出推断 / None 未判闭馆。"""
+    return opening_days.closure_strength(opening, day)
+
+
 def is_night_venue(name):
     return any(h in str(name or "") for h in NIGHT_HINTS)
 
@@ -86,17 +105,23 @@ def allowed_end(opening, name=""):
     return closes
 
 
-def check(opening, name, start, duration):
+def check(opening, name, start, duration, day=None):
     """判断某景点能否在 [start, start+duration] 安排。
 
     返回 (是否可行, 说明, 当天最晚结束时刻)。
     只依据已有资料判断；资料不足时返回可行且不设限。
+    ``day`` 传入出游日期（date 或 YYYY-MM-DD）时才做星期闭馆日判定。
     """
     if not opening:
         return True, "", None
     opens, closes, last = parse(opening)
     end = start + duration
     limit = allowed_end(opening, name)
+
+    # 整天闭馆优先于时段判断：时段再合适，这天不开门就是不开门。
+    if opening_days.closed_on(opening, day) is True:
+        # 当天可用时长给 0，日程侧会把这个景点当作放不进来处理。
+        return False, opening_days.closed_reason(opening, day), 0
 
     if last is not None and start > last:
         return (

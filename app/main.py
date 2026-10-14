@@ -1,6 +1,7 @@
 """Compose HTTP routes and own external-resource startup/shutdown."""
 
 import sys
+import time
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,6 +21,9 @@ from app.integrations import maps, request_cache, tools
 
 @asynccontextmanager
 async def lifespan(app):
+    from app.core import logging as app_logging
+
+    app_logging.configure()
     job_runner.initialize()
     async with AsyncExitStack() as stack:
         params = StdioServerParameters(
@@ -56,5 +60,36 @@ for router in (
 ):
     app.include_router(router)
 app.mount("/assets", StaticFiles(directory=ROOT / "frontend"), name="assets")
+
+
+@app.middleware("http")
+async def trace(request, call_next):
+    """Attach one id to a whole request: logs, and the response header a user can quote."""
+    from app.core import logging as app_logging
+
+    value = request.headers.get(app_logging.TRACE_HEADER) or app_logging.new_trace()
+    token = app_logging.TRACE_ID.set(value)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Still inside the binding: the record must carry the id of the request that failed.
+        app_logging.emit_access(
+            request.url.path, request.method, 500, started, {"outcome": "unhandled"}
+        )
+        raise
+    else:
+        # Also inside the binding -- resetting first would log trace_id "-".
+        response.headers[app_logging.TRACE_HEADER] = value
+        app_logging.emit_access(
+            request.url.path, request.method, response.status_code, started
+        )
+    finally:
+        app_logging.TRACE_ID.reset(token)
+    return response
+
+
+# Registered after `trace`, so trace is the outermost layer and the id is already
+# bound when the security middleware rejects a request.
 app.middleware("http")(security)
 app.exception_handler(RequestValidationError)(validation_error)

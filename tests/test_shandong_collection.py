@@ -99,7 +99,12 @@ def test_shandong_catalogue_is_source_backed_and_keeps_existing_destinations():
     assert cities <= {d['name'] for d in items}
     assert {'成都','杭州','西安'} <= {d['name'] for d in items}
     assert len(items)==len({d['id'] for d in items})==20
-    assert discovery.classic_names('济南市')==['趵突泉','大明湖','千佛山','九如山']
+    # 本用例守的是「既有代表景点不能被删掉」(keeps existing)，不是「数量不许变」。
+    # 原来写成精确 ==4 个，导致按官方 A 级名录扩充时无法新增。改为包含式断言：
+    # 原有 4 个必须在，其余随名录扩充增长（每个新增项仍受下方 source-backed 约束）。
+    classic=discovery.classic_names('济南市')
+    assert {'趵突泉','大明湖','千佛山','九如山'} <= set(classic)
+    assert len(classic) >= 4
     original=json.loads((ROOT/'data/catalog/destinations.json').read_text('utf-8'))
     assert next(d for d in items if d['name']=='青岛')==original[0]
     rows={r['id']:r for r in json.loads((ROOT/'data/knowledge/shandong.json').read_text('utf-8'))}

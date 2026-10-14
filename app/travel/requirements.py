@@ -113,9 +113,10 @@ def update_requirements(w, patch, *, preference_updates=None):
     }
     clean = {k: v for k, v in patch.items() if k in allowed and v is not None}
     if "city" in clean:
-        from app.knowledge.coverage import require_city
+        # 本地命中保持原逻辑；仅当上游已联网取证准入时才放行（本函数不做任何网络请求）。
+        from app.knowledge.web_fallback import require_city_or_web
 
-        require_city(clean["city"])
+        require_city_or_web(w, clean["city"])
     if clean.get("end_date") and (
         clean.get("start_date") or w["requirements"].get("start_date")
     ):

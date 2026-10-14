@@ -164,13 +164,15 @@ def recommendation_minimum(w, args):
 
 
 async def search(w, args, progress, recommend):
-    from app.knowledge.coverage import require_city, require_place
+    from app.knowledge.coverage import require_place
+    from app.knowledge.web_fallback import require_city_or_web
     from app.travel import spot_search
     from app.travel.locations import ready_candidates
 
     city = w["requirements"]["city"]
-    require_city(city)
-    if args.get("requested_place"):
+    origin = require_city_or_web(w, city)
+    # 联网准入的城市没有本地景点词条，无法核对具体景点；不猜测、直接跳过该检查。
+    if args.get("requested_place") and origin != "web":
         require_place(city, args["requested_place"])
     displayed = page_info(w)["ids"] if args.get("reject_current") else []
     query = spot_search.SpotSearch.prepare(

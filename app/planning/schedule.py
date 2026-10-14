@@ -891,6 +891,7 @@ def build(w):
 
 def conflicts(w):
     from app.travel.spot_hierarchy import state
+    from app.planning import constraint_engine
 
     hierarchy = state(w)
     result = list(hierarchy["issues"])
@@ -1007,4 +1008,5 @@ def conflicts(w):
                         + "）已不适合当前日期或交通时段，请修改餐次、日期或班次。",
                     }
                 )
-    return result
+    people = [f for f in constraint_engine.examine(w) if f.get("status") == "warn"]
+    return result + people

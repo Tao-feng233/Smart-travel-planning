@@ -1,0 +1,176 @@
+/* Design tokens — the single source of truth for 识途 visual language.
+ *
+ * Load order: this file MUST be the first stylesheet in index.html, before
+ * base.css / workspace.css / product.css. Those files must no longer declare
+ * their own :root blocks (see docs/design/DESIGN.md §10 migration).
+ *
+ * All values below are the ONLY place raw colour literals are allowed.
+ * Every other stylesheet must reference these via var().
+ *
+ * Guard-rule compliance (tests/test_design_tokens.py):
+ *   - exactly one literal ":root" in this file  (reduced-motion uses "html")
+ *   - every var() reference is defined here
+ *   - every var() carries a fallback
+ */
+
+:root {
+  /* ── A1 · Identity ─────────────────────────────────────────────────────
+   * Values are taken from the skin that actually wins the current cascade
+   * (product.css is loaded last, so its palette is what users see today).
+   * Kept as-is so this consolidation is visually a no-op, except where a
+   * measured WCAG failure forced a fix (see --muted and --line-strong). */
+
+  --bg: #f6f7fa; /* page background              */
+  --surface: #ffffff; /* cards, blocks, panels         */
+  --surface-2: #f7f8fa; /* nested / recessed surface    */
+  --paper: #ffffff; /* legacy alias of --surface     */
+  --ink: #263249; /* primary text                  */
+  --fg-2: #3d4a63; /* secondary text                */
+  --muted: #5f6a7d; /* tertiary text / metadata      */
+  --meta: #656f80; /* timestamps, placeholders      */
+
+  --accent: #3657b5; /* brand accent (blue)           */
+  --accent-on: #ffffff; /* text on accent                */
+  --accent-hover: #2c4899;
+  --accent-active: #24407f;
+  --accent-soft: #eef2fc; /* tint wash                    */
+
+  --line: #e5e8f0; /* decorative hairline           */
+  --line-strong: #80899e; /* meaningful boundary (3.51:1) */
+  --soft: #edf3f1;
+
+  /* ── Backward-compatibility aliases ─────────────────────────────────────
+   * ~200 existing var() references use these names. They now point at the
+   * semantic tokens so nothing must be rewritten during migration.
+   * NOTE: --green holds BLUE today (product.css wins), so the name is a
+   * misnomer and is deprecated — new code MUST use --accent. */
+  --green: var(--accent, #3657b5);
+  --yellow: #e5b754; /* decorative fill only, never text */
+
+  /* ── A2 · Semantic ──────────────────────────────────────────────────── */
+  --success: #1c6b4f;
+  --success-soft: #eaf5ef;
+  --warn: #7a5200;
+  --warn-soft: #fdf3d7;
+  --danger: #b3261e;
+  --danger-soft: #fdecea;
+  --info: var(--accent, #3657b5);
+  --info-soft: var(--accent-soft, #eef2fc);
+
+  /* ── Typography ─────────────────────────────────────────────────────────
+   * A webfont CDN is IMPOSSIBLE here: the app ships CSP "style-src 'self'",
+   * so @import from fonts.googleapis.com is blocked. The stack is therefore
+   * a local system stack with full Chinese coverage. */
+  --font-display: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
+    system-ui, sans-serif;
+  --font-body: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui,
+    sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+
+  --text-xs: 12px; /* floor — never render below 12px */
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+
+  --leading-body: 1.65;
+  --leading-tight: 1.3;
+  --tracking-normal: 0;
+  --tracking-tight: -0.01em;
+
+  --weight-read: 400;
+  --weight-emphasize: 500;
+  --weight-announce: 600;
+
+  /* ── Spacing · 4px grid ─────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Radius ─────────────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px; /* card ceiling — never >= 24px */
+  --radius-pill: 9999px;
+
+  /* ── Elevation ──────────────────────────────────────────────────────── */
+  --elev-flat: none;
+  --elev-ring: 0 0 0 1px var(--line, #e5e8f0);
+  --elev-raised: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.06);
+  --elev-overlay: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* ── Focus ──────────────────────────────────────────────────────────── */
+  --focus-ring: 0 0 0 3px rgba(54, 87, 181, 0.35);
+  --focus-ring-offset: 0 0 0 1px var(--surface, #ffffff);
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --motion-instant: 80ms;
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  --container-max: 1560px;
+  --touch-target: 44px;
+
+  /* ── C · Extension — itinerary block kinds ──────────────────────────────
+   * Each kind = a dark foreground (AA on its own tint) plus a tint wash.
+   * Kind is NEVER conveyed by colour alone: every block also carries a
+   * 16px SVG icon and a visible text label (WCAG 1.4.1). */
+
+  --kind-spot-fg: #2b4a9e;
+  --kind-spot-soft: #eef2fc;
+  --kind-transport-fg: #5a3d82;
+  --kind-transport-soft: #f3eefb;
+  --kind-meal-fg: #8a4a1f;
+  --kind-meal-soft: #fdf1e7;
+  --kind-free-fg: #1c6b4f;
+  --kind-free-soft: #eaf5ef;
+  --kind-rest-fg: #1c6b4f;
+  --kind-rest-soft: #eaf5ef;
+  --kind-route-fg: #3d4a63;
+  --kind-route-soft: #f1f3f6;
+
+  /* ── C · Extension — locked (non-editable) blocks ────────────────────── */
+  --surface-locked: #f1f3f6;
+  --border-locked: #8a95a8; /* always dashed — shape carries meaning */
+  --fg-locked: #5b6678;
+
+  /* ── C · Extension — credibility badge ───────────────────────────────── */
+  --credibility-verified-fg: var(--success, #1c6b4f);
+  --credibility-verified-soft: var(--success-soft, #eaf5ef);
+  --credibility-queried-fg: var(--accent, #3657b5);
+  --credibility-queried-soft: var(--accent-soft, #eef2fc);
+  --credibility-unverified-fg: var(--warn, #7a5200);
+  --credibility-unverified-soft: var(--warn-soft, #fdf3d7);
+}
+
+/* Reduced motion — collapse every transition/animation to near-zero.
+ * Uses the "html" selector (identical element to :root) so this file keeps
+ * exactly ONE literal ":root" block, as the token guard requires. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    --motion-instant: 1ms;
+    --motion-fast: 1ms;
+    --motion-base: 1ms;
+    --motion-slow: 1ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

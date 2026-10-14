@@ -1,10 +1,12 @@
 import asyncio,copy,json
+from datetime import date, timedelta
 import pytest
 from app.agents.planner import handle, execute
 from app.core.errors import DataError
 
 def work():
- return {'requirements':{'city':'青岛','origin':'郑州','start_date':'2026-10-12','days':3,'adults':2,'rooms':1},'catalog':{},'selected_spots':[],'hotel':None,'selected_transport':None,'selected_return':None,'messages':[],'tickets':{}}
+ # 出游日期用相对今天生成：硬编码日期过期后会被 requirements 校验拒绝（请使用今天或之后的出游日期）。
+ return {'requirements':{'city':'青岛','origin':'郑州','start_date':(date.today()+timedelta(days=1)).isoformat(),'days':3,'adults':2,'rooms':1},'catalog':{},'selected_spots':[],'hotel':None,'selected_transport':None,'selected_return':None,'messages':[],'tickets':{}}
 def run(w,a,args):return asyncio.run(handle(w,a,args,lambda _:None))
 def hotel(w):
  h={'id':'h1','kind':'hotel','name':'示例酒店','detail':{'roomTypes':[{'roomTypeId':1,'roomTypeName':'悦享大床房','maxOccupancy':2,'ratePlans':[{'vendorRatePlanId':'rate1','ratePlanName':'标准价','rmbPrices':'289','mealText':'无早餐','cancelText':'入住前取消'}]}]}}
@@ -12,7 +14,9 @@ def hotel(w):
 
 # 住宿按晚指定：fixture 里把三晚都指定给同一家，代表用户逐晚选好。
 def assign_nights(w,hid='h1'):
- w['stay_hotels']={d:hid for d in ('2026-10-12','2026-10-13','2026-10-14')};return w
+ # 三晚住宿跟随出游日期推导，保持与行程天数对齐（原本硬编码的三天已过期）。
+ start=date.fromisoformat(w['requirements']['start_date'])
+ w['stay_hotels']={(start+timedelta(days=i)).isoformat():hid for i in range(w['requirements']['days'])};return w
 
 def test_room_click_saves_actual_rate_and_replaces_without_extra_rooms():
  from app.travel.choices import room_choices

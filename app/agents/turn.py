@@ -33,7 +33,7 @@ class Turn:
     patch: dict
 
 
-def prepare(s, services):
+async def prepare(s, services):
     w = s["workspace"]
     semantic = goal_agent.mission(s["intent"])
     parsed = (
@@ -52,7 +52,16 @@ def prepare(s, services):
     w["turn_result"] = ""
     before = dict(w["requirements"])
     patch = intent.get("patch", {})
-    if intent.get("requested_place"):
+    # 本地语料未覆盖的目的地：先联网取证（Tavily + trust_score），拿不到可信资料仍按原样拒绝。
+    from app.knowledge import web_fallback
+
+    city = patch.get("city")
+    origin = (
+        await web_fallback.admit(w, city, s.get("progress"))
+        if city
+        else web_fallback.source(w, w["requirements"].get("city"))
+    )
+    if intent.get("requested_place") and origin != "web":
         from app.knowledge.coverage import require_place
 
         require_place(
@@ -238,7 +247,7 @@ async def finish_goal(turn, answer, tool_error, first):
 async def execute(s, services):
     if not isinstance(s.get("intent"), dict):
         raise DataError("模型没有返回可执行动作，请重新描述需求")
-    turn = prepare(s, services)
+    turn = await prepare(s, services)
     w, intent, goal, action = turn.workspace, turn.intent, turn.goal, turn.action
     if action == "search_spots" and needs_preferences(w, intent):
         answer = ask(w)

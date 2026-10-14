@@ -1,0 +1,490 @@
+openapi: 3.0.3
+info:
+  title: 识途 TravelSense · 计划书块级编辑 API
+  version: 1.0.0
+  description: |
+    块级编辑**不新增 REST 端点**，全部复用现有单入口动作通道
+    `POST /api/workspaces/{wid}/actions`（`app/api/workspaces.py:114`）。
+
+    理由：现有写入路径已把「revision 乐观锁 → 单 workspace 串行 job → SSE 进度 →
+    undo 快照 → 409 冲突」打包成一个契约。再开同步 PATCH 写路径 = 两套 revision 语义。
+
+    流程：POST 动作 → 202 {job_id} → SSE `GET /api/jobs/{jid}/events`
+    或轮询 `GET /api/jobs/{jid}` → 完成时 `job.ui.block_cascade` 携带级联 diff。
+
+    图标：Lucide（ISC），以 `index.html` 内联 SVG sprite 交付。
+    本文件与 API 文档中禁止 emoji。
+servers:
+  - url: http://127.0.0.1:8767
+    description: 本地开发（项目实际端口）
+
+paths:
+  /api/workspaces/{wid}/actions:
+    post:
+      summary: 提交动作（块级编辑复用此入口）
+      operationId: submitAction
+      parameters:
+        - $ref: '#/components/parameters/Wid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ActionEnvelope'
+                - type: object
+                  properties:
+                    action:
+                      type: string
+                      enum: [edit_block, remove_block, add_block]
+                    args:
+                      oneOf:
+                        - $ref: '#/components/schemas/EditBlockArgs'
+                        - $ref: '#/components/schemas/RemoveBlockArgs'
+                        - $ref: '#/components/schemas/AddBlockArgs'
+                  required: [action, args]
+      responses:
+        '202':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id: { type: string, example: "9f3c1a2b7e01" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            revision 不匹配（"旅行已更新，请刷新后重试"）；
+            该 workspace 有正在运行的任务（"这次旅行正在处理，请等待或停止当前任务"）；
+            该旅行已归档。
+        '429':
+          description: 同一用户并发任务 ≥2，或当日处理次数已达 500 次上限
+        '503':
+          description: 全局运行任务 ≥4（"服务当前繁忙，请稍后再试"）
+
+  /api/jobs/{jid}:
+    get:
+      summary: 轮询任务状态；完成时返回完整 workspace
+      operationId: getJob
+      parameters:
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: 任务状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Job'
+                  - type: object
+                    properties:
+                      workspace:
+                        description: 仅当 status != running 时返回（present() 结果）
+                        type: object
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/jobs/{jid}/events:
+    get:
+      summary: SSE 进度流；done 事件携带 job 结果（含 ui.block_cascade）
+      operationId: streamJob
+      parameters:
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: text/event-stream，事件类型 delta / replace / progress / done
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+components:
+
+  parameters:
+    Wid:
+      name: wid
+      in: path
+      required: true
+      description: workspace id
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: 参数或业务校验失败（含"不支持的操作"）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Detail' }
+    Unauthorized:
+      description: 未登录或登录已过期
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Detail' }
+    NotFound:
+      description: 资源不存在或不属于当前用户
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Detail' }
+
+  schemas:
+
+    Detail:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string, example: "不支持的操作" }
+
+    ActionEnvelope:
+      type: object
+      required: [revision, action, request_id]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+          description: 乐观锁版本号；不匹配返回 409
+        action:
+          type: string
+          maxLength: 40
+        text:
+          type: string
+          maxLength: 3000
+          default: ""
+          description: 块级编辑不使用（非 chat 动作）
+        args:
+          type: object
+        request_id:
+          type: string
+          format: uuid
+          description: 幂等键；(owner_id, request_id) 重复提交返回原 job_id
+
+    # ---------- 块级编辑 args ----------
+
+    EditBlockArgs:
+      title: EditBlockArgs
+      description: |
+        改块时长/备注。C 档（spot / rest / free，时间链重算，无外部调用，<1s）。
+        spot 记 replayable:true；rest / free 记 replayable:false。
+      type: object
+      required: [date, block_id, patch]
+      properties:
+        date:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: 块所属日期，必须落在 visits.dates(w) 内
+        block_id:
+          type: string
+          minLength: 1
+          description: 事件稳定 id（uuid4().hex[:12]），由 stamp()/ensure_ids() 赋值
+        patch:
+          type: object
+          minProperties: 1
+          properties:
+            duration:
+              type: integer
+              minimum: 15
+              maximum: 720
+              description: 停留时长（分钟）。start/end 由级联推导，不接受直接写入
+            note:
+              type: string
+              maxLength: 500
+            name:
+              type: string
+              maxLength: 80
+              description: 仅 kind 为 free 时允许修改
+        confirm:
+          type: boolean
+          default: false
+          description: |
+            false（缺省）：若产生阻断级冲突则不写入，返回 status:"blocked"，revision 不变。
+            true：写入；越界项进 plan["planning_issues"]（沿用 revision_day_end 形状），
+            计划书仍可导出。
+
+    RemoveBlockArgs:
+      title: RemoveBlockArgs
+      description: |
+        删除块。MVP **仅允许 kind:"spot"**（D 档：需真查 1 条新路线，1–3s）。
+        语义是"取消该景点选择"，必须同步 selected_spots（走 selections.remove_selection）。
+        rest / free 删除为 P2：无 candidate_id，重算后无法稳定回放。
+      type: object
+      required: [date, block_id]
+      properties:
+        date:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        block_id: { type: string, minLength: 1 }
+        confirm: { type: boolean, default: false }
+
+    AddBlockArgs:
+      title: AddBlockArgs
+      description: |
+        新增用户自定义块。MVP **仅允许 kind:"free"**（C 档）。
+        记 replayable:false，UI 必须明说"这是你添加的自定义安排，重新生成计划书后不会保留"。
+        块级新增任意景点不可行（需候选采集 + 模型写 note + RAG 检索），
+        走现有 search_spots → select → plan。
+      type: object
+      required: [date, kind, name, duration]
+      properties:
+        date:
+          type: string
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+        after_block_id:
+          type: string
+          description: 插入位置（该块之后）；省略则追加到当天末尾
+        kind:
+          type: string
+          enum: [free]
+        name: { type: string, minLength: 1, maxLength: 80 }
+        duration:
+          type: integer
+          minimum: 15
+          maximum: 720
+        note: { type: string, maxLength: 500 }
+        confirm: { type: boolean, default: false }
+
+    # ---------- 结果 ----------
+
+    BlockCascade:
+      title: BlockCascade
+      description: |
+        挂 job.ui.block_cascade。阻断级冲突另走既有 job.ui.conflict
+        （job_results.py:19-20 已有通道，前端 timeline.js:104 已渲染）。
+      type: object
+      required: [status, cascade, summary]
+      properties:
+        status:
+          type: string
+          enum: [applied, blocked]
+          description: blocked 表示未写入（revision 未变），需用户 confirm 后重提
+        cascade:
+          type: array
+          description: 全部受影响块的 diff（不只是被改的那个）
+          items:
+            type: object
+            required: [block_id, name, kind, date, before, after, delta_minutes]
+            properties:
+              block_id: { type: string }
+              name: { type: string }
+              kind: { type: string }
+              date: { type: string }
+              before: { $ref: '#/components/schemas/TimeSpan' }
+              after: { $ref: '#/components/schemas/TimeSpan' }
+              delta_minutes:
+                type: integer
+                description: 相对原值的位移（分钟），可为负
+        summary:
+          type: object
+          required: [affected_count, shift_minutes]
+          properties:
+            affected_count: { type: integer, description: 受级联影响的块数 }
+            shift_minutes: { type: integer, description: 净位移，正=顺延，负=提前 }
+            day_end_estimate:
+              type: string
+              description: |
+                当日预计结束时刻 HH:MM。口径与 plan_output.py:47-56 一致：
+                取非 (transport/arrival/transfer_plan/free) 且无 route_scope 的
+                event 的最大 end。
+        pending_routes:
+          type: array
+          description: |
+            未查询路线段。铁律：不得用均值补造，也不得填 0。
+            unknown_route 沿用 daily_schedule.py:429-438 的 30 分钟占位，
+            并在此显式标注。编辑产生从未查询过的新路段时必须真查（C/D 分档的分界）。
+          items:
+            type: object
+            required: [from, to, reason]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              reason:
+                type: string
+                example: "未查询，暂按30分钟占位"
+        conflicts:
+          type: array
+          description: 阻断级/警告级冲突（同时写入 job.ui.conflict）
+          items:
+            $ref: '#/components/schemas/Conflict'
+
+    TimeSpan:
+      type: object
+      properties:
+        start:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          description: 24:00 为合法边界；24:30 这类值非法（time_values.clock 不截断）
+        end:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+
+    Conflict:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum:
+            - block_not_found
+            - block_locked
+            - block_out_of_range
+            - block_anchor_conflict
+            - block_day_end
+            - block_return_conflict
+            - block_meal_window
+            - block_day_boundary
+            - plan_stale
+            - plan_outdated
+        level:
+          type: string
+          enum: [blocking, warning]
+          description: |
+            blocking = 必须用户 confirm 才写入；warning = 允许落地并明示
+            （如 block_meal_window，符合"事实/建议/未知"三档分离口径）
+        message: { type: string }
+        date: { type: string }
+        overrun_minutes: { type: integer }
+
+    Job:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string }
+        workspace_id: { type: string }
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled, interrupted]
+        progress: { type: string }
+        error: { type: string, nullable: true }
+        created: { type: string }
+        updated: { type: string }
+        action: { type: string }
+        ui:
+          type: object
+          properties:
+            action: { type: string }
+            view: { type: string }
+            status: { type: string }
+            title: { type: string }
+            message: { type: string }
+            conflict:
+              type: object
+              description: 阻断级冲突（既有通道）
+            block_cascade:
+              $ref: '#/components/schemas/BlockCascade'
+
+    # ---------- plan 内嵌结构（只读，供前端渲染） ----------
+
+    BlockEdit:
+      title: BlockEdit
+      description: |
+        plan['block_edits'] 的一条人工修订记录。
+        命名遵循 team-lead 裁定：项目里 revision 已是 workspace 版本号语义，故用 block_edits。
+      type: object
+      required: [id, at, op, source, replayable, superseded, target]
+      properties:
+        id: { type: string, example: "be_9f3c1a2b7e01" }
+        at: { type: string, description: ISO8601 时间 }
+        op:
+          type: string
+          enum: [duration, note, remove, add_free, regen_all]
+        source:
+          type: string
+          enum: [user_explicit]
+          description: 复用 app/core/contracts.py:248 的 SOURCE_USER 词表，不新造
+        replayable:
+          type: boolean
+          description: |
+            回放定位主键是 candidate_id，不是 block_id（重算后 event 是新对象）。
+            spot = true；rest / free / add_free = false（无 candidate_id，无法稳定定位）。
+        superseded:
+          type: boolean
+          description: 被覆盖或全部重新生成时置 true，不清空（保留审计与 before 快照）
+        target:
+          type: object
+          required: [kind]
+          properties:
+            kind: { type: string }
+            candidate_id:
+              type: string
+              description: spot 必有；rest / free 为 null
+            block_id: { type: string }
+            date: { type: string }
+        before:
+          type: object
+          description: 完整快照，兼作撤销依据
+          properties:
+            duration: { type: integer }
+            start: { type: string }
+            end: { type: string }
+            note: { type: string }
+        after:
+          type: object
+          description: |
+            只存用户真正拥有的值（duration / note / name）。
+            start / end 是派生值，禁止存入——存了会与级联结果打架。
+          properties:
+            duration: { type: integer }
+            note: { type: string }
+            name: { type: string }
+
+    PlanEvent:
+      title: PlanEvent
+      description: plan['days'][i]['events'][j]
+      type: object
+      required: [kind, id]
+      properties:
+        id:
+          type: string
+          description: 块稳定标识，uuid4().hex[:12]，由 stamp()/ensure_ids() 赋值
+        kind:
+          type: string
+          enum:
+            - spot
+            - rest
+            - free
+            - meal
+            - route
+            - unknown_route
+            - transport
+            - arrival
+            - transfer_plan
+            - spot_continue
+        name: { type: string }
+        start: { type: string }
+        end:
+          type: string
+          description: |
+            plan 层没有 end_date 字段（那是时间轴表示 plan_rows 才有的）。
+            跨夜班次表现为 end <= start，仅 kind=transport 允许，需靠此反推。
+        duration: { type: integer, description: 仅 spot / free / rest 有 }
+        note: { type: string }
+        candidate_id: { type: string, description: 仅 spot 有，是回放定位主键 }
+        edited:
+          type: boolean
+          description: 该块被用户改过（区别于系统建议值）
+        poi: { type: object }
+        evidence:
+          type: array
+          description: |
+            已关联的官方攻略，仅 kind=spot 有。空数组时必须显式降级渲染
+            「暂无官方资料，需自行核实」，禁止模型补写。
+          items: { $ref: '#/components/schemas/Evidence' }
+
+    Evidence:
+      type: object
+      description: 攻略条目（来自 RAG 检索 parent 块），原文展示，不摘要不改写
+      properties:
+        id: { type: string }
+        title: { type: string }
+        url: { type: string }
+        text: { type: string }
+        fetched_at: { type: string }
+        source_kind: { type: string }
+        city: { type: string }
+        validity: { type: object }
+        date_scope: { type: string }

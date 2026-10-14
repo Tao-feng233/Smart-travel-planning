@@ -1,8 +1,10 @@
 from app.travel import price_hints
+from datetime import date, timedelta
 
 
 def trip():
-    return {'requirements':{'city':'青岛','start_date':'2026-10-12','days':3},'tickets':{}}
+    # 出游日期用相对今天生成：硬编码日期过期后 ticket_date 抛错，门票快照会被判为不匹配而全部丢弃。
+    return {'requirements':{'city':'青岛','start_date':(date.today()+timedelta(days=1)).isoformat(),'days':3},'tickets':{}}
 
 
 def test_missing_and_zero_map_cost_do_not_claim_free_admission():
@@ -21,12 +23,15 @@ def test_food_cost_is_reference_and_bad_values_are_unknown():
 
 def test_ticket_hint_ignores_child_addon_and_old_date_prices():
     w=trip();p={'id':'s','name':'收费景区','kind':'spot'}
-    w['tickets']['s']={'requested_date':'2026-10-12','items':[
+    # 快照 requested_date 必须等于游玩日期才采信；stale 是"与游玩日期不符的旧快照"，用来验证被忽略。
+    visit=w['requirements']['start_date']
+    stale=(date.fromisoformat(visit)+timedelta(days=1)).isoformat()
+    w['tickets']['s']={'requested_date':visit,'items':[
         {'startPrice':20,'product_group':'addon','date_status':'in_sales_window','personTypeName':'成人'},
         {'startPrice':40,'product_group':'admission','date_status':'in_sales_window','personTypeName':'儿童'},
         {'startPrice':169,'product_group':'admission','date_status':'in_sales_window','personTypeName':'成人'}]}
     assert price_hints.hint(w,p)['label']=='门票起价 ¥169'
-    w['tickets']['s']['requested_date']='2026-10-13'
+    w['tickets']['s']['requested_date']=stale
     assert price_hints.hint(w,p)['basis']=='unknown'
 
 

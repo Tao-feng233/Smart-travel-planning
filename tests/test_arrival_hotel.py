@@ -2,11 +2,17 @@ from app.travel.requirements import update_requirements
 import asyncio
 import copy
 import json
+from datetime import date, timedelta
 
 import pytest
 
 from app.agents import planner as agent
 from app.planning import engine as planning
+
+
+def rel_day(offset):
+    # 相对今天生成日期：硬编码日期过期后会被校验拒绝（请使用今天或之后的出游日期）。
+    return (date.today()+timedelta(days=offset)).isoformat()
 
 
 def trip():
@@ -68,7 +74,8 @@ def test_adding_default_zero_children_does_not_expire_existing_quotes():
 
 def test_changed_dates_expire_quotes_but_not_hotel_position():
     from app.travel.locations import hotel_anchor, quote_stale
-    w=trip();update_requirements(w,{'start_date':'2026-10-20'})
+    # 出游日期走 update_requirements 校验，必须今天或之后；原硬编码日期到期即炸。
+    w=trip();update_requirements(w,{'start_date':rel_day(7)})
     assert quote_stale(w['hotel']) and w['selected_room'] is None
     assert hotel_anchor(w)['id']=='h'
     assert w['catalog']['h']['stale']

@@ -18,8 +18,16 @@ PROJECT_ID = hashlib.sha256(str(ROOT.resolve()).casefold().encode()).hexdigest()
 ASSET_VERSIONS = asset_versions(ROOT / "frontend")
 
 
+def _host_allowed(netloc: str) -> bool:
+    """Allow configured public origins and any loopback host/port."""
+    if netloc in HOSTS:
+        return True
+    host, _, _ = netloc.partition(":")
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
 async def security(request: Request, call_next):
-    if request.url.netloc not in HOSTS:
+    if not _host_allowed(request.url.netloc):
         return JSONResponse({"detail": "不允许的访问域名"}, status_code=400)
     if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith(
         "/api/"
