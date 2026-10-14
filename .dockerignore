@@ -1,0 +1,29 @@
+# Keep the build context small and keep secrets out of the image entirely.
+.git
+.github
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+
+# Runtime state: mounted as a volume, never baked in.
+data/runtime
+data/shitu.db
+*.db
+*.sqlite3
+
+# Secrets: supplied at run time via env_file / -e, never copied into a layer.
+.env
+.env.*
+!.env.example
+
+# Local artefacts not needed by the running service.
+tests
+docs
+scripts
+prototypes
+HANDOVER.md
+*.md
+*.log
